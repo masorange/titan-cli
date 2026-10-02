@@ -1,8 +1,8 @@
 """
 Headless adapter for Gemini CLI (gemini).
 
-Uses Gemini's prompt flag in one-shot mode (`--prompt`) so Titan can run
-Gemini without opening an interactive session.
+Uses Gemini's prompt flag in one-shot mode (`--prompt ""`), with the prompt on stdin,
+so Titan can run Gemini without opening an interactive session.
 """
 
 import re
@@ -19,8 +19,11 @@ class GeminiHeadlessAdapter:
     """
     Runs Gemini CLI in headless mode.
 
-    Uses `--prompt <prompt>` to avoid interactive prompt mode (`-i` /
-    `--prompt-interactive`), which fails when stdin is not a TTY.
+    Passes an empty `--prompt ""` to avoid interactive prompt mode (`-i` /
+    `--prompt-interactive`), which fails when stdin is not a TTY, and sends the real
+    prompt on stdin so large prompts do not hit the argv size limit. This relies on
+    gemini treating an empty `--prompt` as headless when stdin is a pipe; that has
+    not been verified against a live gemini run.
     """
 
     @property
@@ -43,6 +46,11 @@ class GeminiHeadlessAdapter:
     def supports_model_selection(self) -> bool:
         return True
 
+    @property
+    def supports_subagents(self) -> bool:
+        # Not verified in headless mode, so it is not relied on.
+        return False
+
     def is_available(self) -> bool:
         return shutil.which("gemini") is not None
 
@@ -64,13 +72,20 @@ class GeminiHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
-        cmd = ["gemini", "--prompt", prompt]
+        # An empty `--prompt` selects headless mode and the real prompt goes on stdin,
+        # which gemini reads and prepends to it. On argv a single string over Linux's
+        # 131,072-byte MAX_ARG_STRLEN fails the exec with E2BIG -- a deep-review prompt
+        # runs ~115k characters.
+        cmd = ["gemini", "--prompt", ""]
         if model is not None:
             cmd += ["-m", model]
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 cwd=cwd,

@@ -118,10 +118,10 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `slack_auth` | UISlackAuth | Slack auth identity details from `auth_test()`. |
-    | `slack_team_id` | str | None | Team identifier reported by Slack. |
-    | `slack_team_name` | str | None | Team name reported by Slack. |
-    | `slack_user_id` | str | None | User identifier reported by Slack. |
-    | `slack_user_name` | str | None | User name reported by Slack. |
+    | `slack_team_id` | str \| None | Team identifier reported by Slack. |
+    | `slack_team_name` | str \| None | Team name reported by Slack. |
+    | `slack_user_id` | str \| None | User identifier reported by Slack. |
+    | `slack_user_name` | str \| None | User name reported by Slack. |
 
     **Returns**
 
@@ -162,7 +162,7 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `slack_channels` | list[UISlackChannel] | Public channels returned by Slack. |
-    | `slack_channels_next_cursor` | str | None | Pagination cursor for a later request. |
+    | `slack_channels_next_cursor` | str \| None | Pagination cursor for a later request. |
 
     **Returns**
 
@@ -202,7 +202,7 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `slack_users` | list[UISlackUser] | Users returned by Slack. |
-    | `slack_users_next_cursor` | str | None | Pagination cursor for a later request. |
+    | `slack_users_next_cursor` | str \| None | Pagination cursor for a later request. |
 
     **Returns**
 
@@ -758,7 +758,7 @@ How to read these contracts:
     | `slack_messages` | list[UISlackMessage] | Retrieved Slack messages. |
     | `slack_user_display_names` | dict[str, str] | Resolved Slack user display names keyed by user ID. |
     | `slack_channel_display_names` | dict[str, str] | Resolved Slack channel names keyed by channel ID. |
-    | `slack_messages_next_cursor` | str | None | Pagination cursor for later reads. |
+    | `slack_messages_next_cursor` | str \| None | Pagination cursor for later reads. |
     | `slack_messages_has_more` | bool | Whether more messages are available. |
 
     **Returns**

@@ -215,7 +215,11 @@ class SelectModelModal(ModalScreen[Optional[str]]):
                     if model.identifier == self.current
                     else model.identifier
                 ),
-                description=model.description,
+                # Sources often fill the description with the id itself (a gateway's
+                # `owned_by`, a CLI's label); repeating the title under it adds nothing.
+                description=(
+                    "" if model.description == model.identifier else model.description
+                ),
             )
             for model in models
         ]

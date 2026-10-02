@@ -109,21 +109,6 @@ class TitanPlugin(ABC):
         """
         return None
 
-    def get_workflow_managers(self, project_root: Optional[Path] = None) -> Optional[Any]:
-        """
-        Get workflow-local managers for this plugin.
-
-        Managers are non-client dependencies used by workflow steps, such as
-        local config resolvers, registries, or loaders.
-
-        Args:
-            project_root: Current project root when available.
-
-        Returns:
-            Plugin-specific managers container or None
-        """
-        return None
-
     def has_custom_config_screen(self) -> bool:
         """Return whether this plugin provides a custom configuration screen."""
         return False

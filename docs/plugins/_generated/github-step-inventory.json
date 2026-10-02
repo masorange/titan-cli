@@ -141,36 +141,12 @@
           "summary": "Index existing review comments to avoid duplicates."
         },
         {
-          "name": "classify_pr",
-          "summary": "Classify PR size and composition before review planning."
-        },
-        {
-          "name": "score_review_candidates",
-          "summary": "Rank changed files and exclude low-value review candidates."
-        },
-        {
-          "name": "build_review_checklist",
-          "summary": "Prepare a review checklist from PR context."
-        },
-        {
-          "name": "select_review_strategy",
-          "summary": "Choose the review execution strategy from deterministic PR signals."
-        },
-        {
-          "name": "ai_review_plan",
-          "summary": "Ask AI to plan the directed review strategy."
-        },
-        {
-          "name": "validate_review_plan",
-          "summary": "Validate the AI review plan before execution."
-        },
-        {
-          "name": "resolve_review_context",
-          "summary": "Expand the precise review contexts needed for targeted analysis."
+          "name": "write_review_material",
+          "summary": "Write the PR, its comments, its diffs and the base versions into the worktree under .titan-review/."
         },
         {
           "name": "ai_review_findings",
-          "summary": "Run targeted AI analysis and produce candidate findings."
+          "summary": "The review: one free-form session of the configured CLI in the PR worktree (subagents and read-only git allowed, no tests)."
         },
         {
           "name": "normalize_findings",
@@ -179,10 +155,6 @@
         {
           "name": "dedupe_findings",
           "summary": "Remove duplicate or overlapping findings before submission."
-        },
-        {
-          "name": "verify_findings",
-          "summary": "Adversarially verify candidate findings and drop the refuted ones."
         },
         {
           "name": "build_new_comment_actions",
@@ -247,35 +219,20 @@
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
       "function": "ai_review_findings",
-      "summary": "Second AI call: find actionable problems in the exact code context.",
+      "summary": "Run the review session, and report its cost even if it is abandoned.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    change_manifest (ChangeManifest)",
+          "    worktree_path (str): with the material `write_review_material` left in it"
+        ],
         "Outputs (saved to ctx.data)": [
-          "    raw_findings (list | str): Raw AI output before normalization"
+          "    raw_findings (list): the session's findings, mapped onto `Finding`'s fields",
+          "    ai_findings_failed (bool): True when no review happened"
         ],
         "Returns": [
-          "    Success or Error"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
-      "name": "ai_review_plan",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "ai_review_plan",
-      "summary": "First AI call: decide which files to read and which checklist items apply.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    review_plan (ReviewPlan)"
-        ],
-        "Returns": [
-          "    Success or Error"
+          "    Success: With the raw findings, or with none when AI is off for the task.",
+          "    Error: If the session could not run or produced nothing readable."
         ]
       },
       "used_by_workflows": [
@@ -348,12 +305,15 @@
       "summary": "AI call: decide what to do with each open thread.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    thread_review_contexts (List[ThreadReviewContext])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    raw_thread_decisions (list): Raw AI output aggregated across batches, before normalization"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -368,12 +328,16 @@
       "summary": "Build a structured manifest of the PR changes (no AI involved).",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_pr (UIPullRequest): Pull request details",
+          "    review_changed_files_with_stats (List[UIFileChange]): Files with add/del stats"
+        ],
         "Outputs (saved to ctx.data)": [
           "    change_manifest (ChangeManifest): Structured PR context"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -388,12 +352,15 @@
       "summary": "Build a compact index of existing PR comments for deduplication.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_threads (List[UICommentThread]): Inline review threads",
+          "    review_general_comments (List[UICommentThread]): General PR-level comments"
+        ],
         "Outputs (saved to ctx.data)": [
           "    existing_comments_index (List[ExistingCommentIndexEntry])"
         ],
         "Returns": [
-          "    Success"
+          "    Success: The step completed."
         ]
       },
       "used_by_workflows": [
@@ -408,32 +375,15 @@
       "summary": "Convert deduplicated findings into ReviewActionProposal objects.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    deduped_findings (List[Finding])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    review_action_proposals (List[ReviewActionProposal])"
         ],
         "Returns": [
-          "    Success or Skip (no findings)"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
-      "name": "build_review_checklist",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "build_review_checklist",
-      "summary": "Assemble the review checklist for this PR.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    review_checklist (List[ReviewChecklistItem])"
-        ],
-        "Returns": [
-          "    Success"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no findings)."
         ]
       },
       "used_by_workflows": [
@@ -448,12 +398,17 @@
       "summary": "Transform ThreadDecision objects into ReviewActionProposal objects.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    thread_decisions (List[ThreadDecision])",
+          "    thread_review_contexts (List[ThreadReviewContext])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    review_action_proposals (List[ReviewActionProposal])"
         ],
         "Returns": [
-          "    Success, Skip (no actionable decisions), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no actionable decisions).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -468,12 +423,18 @@
       "summary": "Select open inline threads worth AI analysis.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_threads (List[UICommentThread]): Unresolved inline review threads",
+          "    review_pr (UIPullRequest): PR object with author info",
+          "    review_current_user (str): GitHub login running Titan"
+        ],
         "Outputs (saved to ctx.data)": [
           "    thread_review_candidates (List[ThreadReviewCandidate])"
         ],
         "Returns": [
-          "    Success, Skip (no candidates), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no candidates).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -490,12 +451,18 @@
         "Requires": [
           "    ctx.github: Optional GitHub client used to inspect referenced commits."
         ],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    thread_review_candidates (List[ThreadReviewCandidate])",
+          "    review_threads (List[UICommentThread]): For extracting reply history",
+          "    review_diff (str): Full PR unified diff"
+        ],
         "Outputs (saved to ctx.data)": [
           "    thread_review_contexts (List[ThreadReviewContext])"
         ],
         "Returns": [
-          "    Success, Skip (no candidates), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no candidates).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -584,34 +551,6 @@
       },
       "used_by_workflows": [
         "respond-pr-comments"
-      ]
-    },
-    {
-      "name": "classify_pr",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "classify_pr",
-      "summary": "Classify PR size and composition before planning.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.textual: Textual UI context."
-        ],
-        "Inputs (from ctx.data)": [
-          "    change_manifest (ChangeManifest): Structured PR change summary.",
-          "    existing_comments_index (List[ExistingCommentIndexEntry], optional): Existing comments used to estimate review activity.",
-          "    review_threads (List[UICommentThread], optional): Current review threads."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    pr_classification (PRClassification): Deterministic PR classification.",
-          "    review_profile (ReviewProfile): Resolved review profile used during classification."
-        ],
-        "Returns": [
-          "    Success: When PR classification is computed successfully.",
-          "    Error: When required context is missing or the step cannot run."
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
       ]
     },
     {
@@ -730,12 +669,16 @@
       "summary": "Remove findings that duplicate existing PR comments.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    normalized_findings (List[Finding])",
+          "    existing_comments_index (List[ExistingCommentIndexEntry])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    deduped_findings (List[Finding]): Findings after duplicate removal"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -772,7 +715,9 @@
       "summary": "Fetch all data needed for a full PR review cycle.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_pr_number (int): PR number"
+        ],
         "Outputs (saved to ctx.data)": [
           "    review_pr (UIPullRequest): Pull request details",
           "    review_diff (str): Full unified diff",
@@ -784,7 +729,9 @@
           "    pr_template (str | None): PR template content if available"
         ],
         "Returns": [
-          "    Success, Skip (empty diff), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (empty diff).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -852,12 +799,15 @@
       "summary": "Parse and validate raw AI output into Finding models.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    raw_findings (list | str): Raw AI output from ai_review_findings"
+        ],
         "Outputs (saved to ctx.data)": [
           "    normalized_findings (List[Finding]): Validated Finding objects"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -872,12 +822,15 @@
       "summary": "Parse and validate raw AI output into ThreadDecision models.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    raw_thread_decisions (list | str): Raw AI output from ai_thread_resolution"
+        ],
         "Outputs (saved to ctx.data)": [
           "    thread_decisions (List[ThreadDecision]): Validated ThreadDecision objects"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -1091,26 +1044,6 @@
       ]
     },
     {
-      "name": "resolve_review_context",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "resolve_review_context",
-      "summary": "Fetch the exact code context according to the validated review plan.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    review_context_package (ReviewContextPackage)"
-        ],
-        "Returns": [
-          "    Success or Error"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
       "name": "review_comments",
       "group": "Pull Request Review",
       "module": "titan_plugin_github.steps.pr_review_steps",
@@ -1130,34 +1063,6 @@
       ]
     },
     {
-      "name": "score_review_candidates",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "score_review_candidates",
-      "summary": "Rank changed files and precompute excluded files.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.textual: Textual UI context."
-        ],
-        "Inputs (from ctx.data)": [
-          "    change_manifest (ChangeManifest): Structured PR change summary."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    review_profile (ReviewProfile): Resolved review profile used during scoring.",
-          "    review_candidates (List[ScoredReviewCandidate]): Ranked review candidates.",
-          "    excluded_review_files (List[ExcludedFileEntry]): Files excluded from deep review."
-        ],
-        "Returns": [
-          "    Success: When review candidates are scored successfully.",
-          "    Exit: When no reviewable candidates remain after exclusions.",
-          "    Error: When required context is missing or the step cannot run."
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
       "name": "select_pr_for_code_review",
       "group": "Code Review",
       "module": "titan_plugin_github.steps.code_review_steps",
@@ -1173,7 +1078,9 @@
           "    review_pr_base (str): Base branch"
         ],
         "Returns": [
-          "    Success, Exit (no PRs or cancelled), or Error"
+          "    Success: A PR was selected.",
+          "    Exit: No PRs, or the user cancelled.",
+          "    Error: If listing PRs fails."
         ]
       },
       "used_by_workflows": [
@@ -1232,31 +1139,6 @@
       "used_by_workflows": []
     },
     {
-      "name": "select_review_strategy",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "select_review_strategy",
-      "summary": "Choose review strategy based on deterministic PR classification.",
-      "docstring_sections": {
-        "Requires": [
-          "    ctx.textual: Textual UI context."
-        ],
-        "Inputs (from ctx.data)": [
-          "    pr_classification (PRClassification): Deterministic PR classification."
-        ],
-        "Outputs (saved to ctx.data)": [
-          "    review_strategy (ReviewStrategy): Execution strategy for planning and findings."
-        ],
-        "Returns": [
-          "    Success: When a review strategy is selected successfully.",
-          "    Error: When required context is missing or the step cannot run."
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
       "name": "send_comment_replies",
       "group": "Pull Request Review",
       "module": "titan_plugin_github.steps.pr_review_steps",
@@ -1284,10 +1166,18 @@
       "summary": "Submit approved ReviewActionProposal objects to GitHub.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    approved_action_proposals (List[ReviewActionProposal])",
+          "    review_pr_number (int)",
+          "Optional (from ctx.data):",
+          "    review_commit_sha (str): Head commit SHA (fetched if missing)",
+          "    review_diff (str): Full PR diff for inline comment validation"
+        ],
         "Outputs (saved to ctx.data)": [],
         "Returns": [
-          "    Success, Skip (no approved actions), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no approved actions).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -1303,58 +1193,23 @@
       "summary": "Present each ReviewActionProposal to the user for approval, editing, or skipping.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_action_proposals (List[ReviewActionProposal])",
+          "Optional (from ctx.data):",
+          "    review_diff (str): Full PR diff for extracting diff context per comment"
+        ],
         "Outputs (saved to ctx.data)": [
           "    approved_action_proposals (List[ReviewActionProposal])"
         ],
         "Returns": [
-          "    Success, Skip (none approved), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (none approved).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
         "review-pr",
         "review-pr-thread-resolution"
-      ]
-    },
-    {
-      "name": "validate_review_plan",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "validate_review_plan",
-      "summary": "Validate the AI-generated ReviewPlan against local semantic rules.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    validated_review_plan (ReviewPlan): Same plan if valid"
-        ],
-        "Returns": [
-          "    Success or Error (halts workflow on validation failure)"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
-      ]
-    },
-    {
-      "name": "verify_findings",
-      "group": "Code Review",
-      "module": "titan_plugin_github.steps.code_review_steps",
-      "function": "verify_findings",
-      "summary": "Adversarial verification pass: try to REFUTE each finding before the human gate.",
-      "docstring_sections": {
-        "Requires": [],
-        "Inputs (from ctx.data)": [],
-        "Outputs (saved to ctx.data)": [
-          "    deduped_findings (List[Finding]): verified set, refuted findings removed",
-          "    refuted_findings (List[Finding]): findings dropped by this pass"
-        ],
-        "Returns": [
-          "    Success or Skip"
-        ]
-      },
-      "used_by_workflows": [
-        "review-pr"
       ]
     },
     {
@@ -1369,14 +1224,14 @@
         ],
         "Inputs (from ctx.data)": [
           "    pr_number (int): Pull request number to inspect.",
-          "    merge_queued (bool, optional): Set by `merge_pull_request` when the PR was added to the merge queue."
+          "    merge_queued (bool): Set by `merge_pull_request`; True when the PR was added to the merge queue. Required - a missing value is treated as a workflow configuration error."
         ],
         "Outputs (saved to ctx.data)": [
-          "    verified_pr_info: The pull request object, after a regular merge.",
-          "    merge_queue_state: The merge queue state, after a queued merge."
+          "    verified_pr_info: The pull request object; saved only on the regular merge path (merge_queued falsy).",
+          "    merge_queue_state: The merge queue state; saved only on the queued merge path (merge_queued truthy)."
         ],
         "Returns": [
-          "    Success: If the PR is merged, or still queued when it was enqueued.",
+          "    Success: If the PR is merged, or still queued when it was enqueued. Exactly one output key is saved - `verified_pr_info` on the regular merge path, `merge_queue_state` on the queued merge path - never both.",
           "    Error: If required context is missing, the PR is in neither state, or the GitHub call fails."
         ]
       },
@@ -1405,6 +1260,32 @@
         ]
       },
       "used_by_workflows": []
+    },
+    {
+      "name": "write_review_material",
+      "group": "Code Review",
+      "module": "titan_plugin_github.steps.code_review_steps",
+      "function": "write_review_material",
+      "summary": "Put what the review would otherwise fetch into the PR worktree, as files.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    change_manifest (ChangeManifest)",
+          "    review_diff_manager (DiffContextManager)",
+          "    review_threads, review_general_comments (List[UICommentThread])",
+          "    worktree_path (str)"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    review_material (dict[str, bool]): each changed path -> whether it has a base version"
+        ],
+        "Returns": [
+          "    Success: The step completed.",
+          "    Error: The step failed."
+        ]
+      },
+      "used_by_workflows": [
+        "review-pr"
+      ]
     }
   ]
 }

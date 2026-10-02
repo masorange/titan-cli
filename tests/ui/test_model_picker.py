@@ -316,6 +316,20 @@ class TestCliModelLoader:
         assert cli_model_loader("not-a-cli")() == []
 
 
+class TestModalOptions:
+    def test_a_description_that_repeats_the_id_is_dropped(self):
+        modal = SelectModelModal("t", "s", lambda: [])
+        options = modal._options(
+            [
+                ModelChoice("opencode/big-pickle", "opencode/big-pickle"),
+                ModelChoice("gpt-5", "openai"),
+                ModelChoice("bare"),
+            ]
+        )
+
+        assert [o.description for o in options[:3]] == ["", "openai", ""]
+
+
 class TestSavedNotice:
     """What the user is told after pinning a model, given which CLI Titan runs."""
 

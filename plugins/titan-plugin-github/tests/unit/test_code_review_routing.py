@@ -26,9 +26,7 @@ from titan_cli.engine import WorkflowContext
 import titan_plugin_github.steps.code_review_steps as code_review_steps
 from titan_plugin_github.steps.code_review_steps import (
     ai_review_findings,
-    ai_review_plan,
     ai_thread_resolution,
-    verify_findings,
 )
 
 
@@ -105,7 +103,7 @@ def stub_adapter_lookup(monkeypatch):
 
 @pytest.mark.parametrize(
     "step",
-    [ai_review_plan, ai_review_findings, verify_findings, ai_thread_resolution],
+    [ai_review_findings, ai_thread_resolution],
 )
 def test_every_review_step_uses_the_global_default_cli(step):
     adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(_executor()), step)
@@ -128,34 +126,12 @@ def test_a_task_preference_for_a_cli_is_honored_over_nothing():
     assert note is None
 
 
-def test_findings_and_verification_share_one_task_setting():
-    """verify_findings is part of the findings pass, so one preference governs both."""
-    executor = _executor(
-        task_preferences={
-            AITask.CODE_REVIEW_FINDINGS: AIProviderPreference(provider=AIProviderType.OFF)
-        }
-    )
-
-    findings_adapter, _, findings_off = code_review_steps._resolve_review_adapter(
-        _ctx(executor), ai_review_findings
-    )
-    verify_adapter, _, verify_off = code_review_steps._resolve_review_adapter(
-        _ctx(executor), verify_findings
-    )
-
-    assert findings_adapter is None and findings_off is True
-    assert verify_adapter is None and verify_off is True
-
-
-# --- every failure names its reason ---------------------------------------
-
-
 def test_off_reports_that_the_task_is_disabled():
     executor = _executor(
-        task_preferences={AITask.CODE_REVIEW_PLAN: AIProviderPreference(provider=AIProviderType.OFF)}
+        task_preferences={AITask.CODE_REVIEW_FINDINGS: AIProviderPreference(provider=AIProviderType.OFF)}
     )
 
-    adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_findings)
 
     assert adapter is None
     assert "turned off" in note
@@ -181,7 +157,7 @@ def test_a_remote_preference_is_refused_by_name_not_silently_run_on_a_cli():
 def test_no_default_cli_configured_says_so():
     executor = _executor(default_cli=None)
 
-    adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_findings)
 
     assert adapter is None
     assert "no default CLI is configured" in note
@@ -191,7 +167,7 @@ def test_no_default_cli_configured_says_so():
 def test_a_configured_cli_that_is_not_installed_is_named():
     executor = _executor(default_cli="codex", installed=("claude",))
 
-    adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter, note, ai_off = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_findings)
 
     assert adapter is None
     assert "codex" in note
@@ -200,7 +176,7 @@ def test_a_configured_cli_that_is_not_installed_is_named():
 
 def test_no_router_keeps_the_first_available_cli_behavior():
     """A step called without the façade wired (outside a workflow run)."""
-    adapter, note, ai_off = code_review_steps._resolve_review_adapter(WorkflowContext(), ai_review_plan)
+    adapter, note, ai_off = code_review_steps._resolve_review_adapter(WorkflowContext(), ai_review_findings)
 
     assert adapter.cli_name == "auto"
     assert note is None
@@ -212,9 +188,7 @@ def test_no_router_keeps_the_first_available_cli_behavior():
 @pytest.mark.parametrize(
     "step, task",
     [
-        (ai_review_plan, AITask.CODE_REVIEW_PLAN),
         (ai_review_findings, AITask.CODE_REVIEW_FINDINGS),
-        (verify_findings, AITask.CODE_REVIEW_FINDINGS),
         (ai_thread_resolution, "thread_resolution"),
     ],
 )
@@ -235,7 +209,7 @@ def test_the_resolved_cli_runs_with_the_model_the_user_pinned():
     """
     executor = _executor(cli_models={"claude": "haiku"})
 
-    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_findings)
     adapter.execute("review this", cwd="/repo", timeout=240)
 
     assert adapter._adapter.calls[0]["model"] == "haiku"
@@ -244,7 +218,7 @@ def test_the_resolved_cli_runs_with_the_model_the_user_pinned():
 def test_a_model_pinned_for_another_cli_is_not_borrowed():
     executor = _executor(default_cli="gemini", cli_models={"claude": "haiku"})
 
-    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_findings)
     adapter.execute("review this")
 
     assert adapter._adapter.calls[0]["model"] is None
@@ -253,7 +227,7 @@ def test_a_model_pinned_for_another_cli_is_not_borrowed():
 def test_a_caller_naming_a_model_still_wins():
     executor = _executor(cli_models={"claude": "haiku"})
 
-    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_findings)
     adapter.execute("review this", model="opus")
 
     assert adapter._adapter.calls[0]["model"] == "opus"
@@ -263,14 +237,14 @@ def test_the_wrapper_is_transparent_for_everything_else():
     """Call sites read cli_name and the supports_* capabilities straight off it."""
     executor = _executor(cli_models={"claude": "haiku"})
 
-    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_plan)
+    adapter, _, _ = code_review_steps._resolve_review_adapter(_ctx(executor), ai_review_findings)
 
     assert adapter.cli_name == "claude"
 
 
 @pytest.mark.parametrize(
     "step",
-    [ai_review_plan, ai_review_findings, verify_findings, ai_thread_resolution],
+    [ai_review_findings, ai_thread_resolution],
 )
 def test_every_review_step_gets_the_pinned_model(step):
     executor = _executor(cli_models={"claude": "haiku"})
@@ -331,3 +305,130 @@ class TestPinnedModelCliSemantics:
         wrapper, _ = self._wrapped("opus")
 
         assert wrapper.pinned_model == "opus"
+
+
+class TestTheWrapperRecordsWhatEachCallCost:
+    """Cost telemetry lives in the adapter wrapper, not at the call sites.
+
+    Same argument as the model pin above: there are five `adapter.execute(...)` sites in
+    the review and a phase added later would otherwise go unmeasured because nobody
+    remembered to measure it.
+    """
+
+    @staticmethod
+    def _wrapped(usage=None, *, ctx=None, phase="code_review_findings", raises=None):
+        from titan_cli.external_cli.adapters.base import HeadlessResponse, SupportedCLI
+        from titan_plugin_github.steps.code_review_steps import _PinnedModelCli
+
+        class _Adapter:
+            cli_name = SupportedCLI.CLAUDE
+
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, prompt, **kwargs):
+                self.calls.append(kwargs)
+                if raises is not None:
+                    raise raises
+                return HeadlessResponse(stdout="ok", stderr="", exit_code=0, usage=usage)
+
+        adapter = _Adapter()
+        return _PinnedModelCli(adapter, "opus", ctx=ctx, phase=phase), adapter
+
+    @staticmethod
+    def _ctx():
+        class _Ctx:
+            def __init__(self):
+                self.data = {}
+
+        return _Ctx()
+
+    def _records(self, ctx):
+        from titan_plugin_github.steps.code_review_steps import REVIEW_AI_CALLS_KEY
+
+        return ctx.data.get(REVIEW_AI_CALLS_KEY, [])
+
+    def test_a_call_is_recorded_with_its_phase_and_duration(self):
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(ctx=ctx, phase="code_review_findings")
+
+        wrapper.execute("a prompt")
+
+        record, = self._records(ctx)
+        assert record.phase == "code_review_findings"
+        assert record.cli == "claude"
+        assert record.prompt_chars == len("a prompt")
+        assert record.succeeded is True
+        assert record.duration_seconds >= 0
+
+    def test_reported_usage_reaches_the_record(self):
+        from titan_cli.external_cli.adapters.base import CliUsage
+
+        ctx = self._ctx()
+        usage = CliUsage(
+            input_tokens=100, output_tokens=5, cost_usd=0.02,
+            model_reported="claude-opus-5[1m]", source="claude_result_envelope",
+        )
+        wrapper, _ = self._wrapped(usage, ctx=ctx)
+
+        wrapper.execute("prompt")
+
+        record, = self._records(ctx)
+        assert record.total_tokens == 105
+        assert record.cost_usd == 0.02
+        assert record.model_reported == "claude-opus-5[1m]"
+        assert record.usage_source == "claude_result_envelope"
+
+    def test_a_cli_that_reports_nothing_records_none_not_zero(self):
+        """gemini reports no usage at all; recording zeros would make its reviews look
+        free instead of unmeasured."""
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(usage=None, ctx=ctx)
+
+        wrapper.execute("prompt")
+
+        record, = self._records(ctx)
+        assert record.cost_usd is None
+        assert record.total_tokens is None
+
+    def test_the_requested_model_is_recorded_alongside_the_reported_one(self):
+        from titan_cli.external_cli.adapters.base import CliUsage
+
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(CliUsage(model_reported="claude-opus-5[1m]"), ctx=ctx)
+
+        wrapper.execute("prompt", model="haiku")
+
+        record, = self._records(ctx)
+        assert record.model_requested == "haiku"
+        assert record.model_substituted is True
+
+    def test_every_call_accumulates(self):
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(ctx=ctx)
+
+        wrapper.execute("one")
+        wrapper.execute("two")
+
+        assert len(self._records(ctx)) == 2
+
+    def test_an_interrupted_call_propagates_and_records_nothing(self):
+        """WorkflowAborted is a BaseException and must not be swallowed by telemetry,
+        and a cancelled call has no figures the CLI ever got to report."""
+        import pytest
+
+        from titan_cli.core.interrupt import WorkflowAborted
+
+        ctx = self._ctx()
+        wrapper, _ = self._wrapped(ctx=ctx, raises=WorkflowAborted())
+
+        with pytest.raises(BaseException):
+            wrapper.execute("prompt")
+
+        assert self._records(ctx) == []
+
+    def test_telemetry_never_breaks_a_review(self):
+        """Without a ctx there is nowhere to record, and the call must still return."""
+        wrapper, _ = self._wrapped(ctx=None)
+
+        assert wrapper.execute("prompt").stdout == "ok"

@@ -1,5 +1,5 @@
 name: "Review PR"
-description: "Focused AI review for new actionable findings with bounded prompt context"
+description: "Free-form AI review of the PR; Titan dedupes, anchors and lets you approve each comment"
 
 steps:
   - id: select_pr
@@ -22,49 +22,23 @@ steps:
     plugin: github
     step: build_existing_comments_index
 
-  - id: classify_pr
-    name: "Classify PR"
-    plugin: github
-    step: classify_pr
-
-  - id: score_candidates
-    name: "Score Review Candidates"
-    plugin: github
-    step: score_review_candidates
-
-  - id: build_checklist
-    name: "Build Review Checklist"
-    plugin: github
-    step: build_review_checklist
-
-  - id: select_strategy
-    name: "Select Review Strategy"
-    plugin: github
-    step: select_review_strategy
-
-  - id: ai_plan
-    name: "AI Review Plan"
-    plugin: github
-    step: ai_review_plan
-
-  - id: validate_plan
-    name: "Validate Review Plan"
-    plugin: github
-    step: validate_review_plan
-
+  # The review reads the PR checked out here, with its material written alongside.
   - id: create_worktree
     name: "Create PR Worktree"
     plugin: github
     step: create_worktree
     on_error: continue
 
-  - id: resolve_context
-    name: "Resolve Review Context"
+  - id: write_material
+    name: "Write Review Material"
     plugin: github
-    step: resolve_review_context
+    step: write_review_material
+    on_error: continue
 
+  # One free-form session of the configured CLI: it reviews the PR as it would if a user
+  # asked it to. Titan prescribes no procedure; everything after it is Titan's.
   - id: ai_findings
-    name: "AI Review Findings"
+    name: "Review"
     plugin: github
     step: ai_review_findings
     on_error: continue
@@ -73,18 +47,12 @@ steps:
     name: "Normalize Findings"
     plugin: github
     step: normalize_findings
+    on_error: continue
 
   - id: dedupe
     name: "Deduplicate Findings"
     plugin: github
     step: dedupe_findings
-
-  # Fail-open quality filter: refuted findings are dropped before the human gate;
-  # any verification failure just passes findings through unverified.
-  - id: verify
-    name: "Verify Findings"
-    plugin: github
-    step: verify_findings
     on_error: continue
 
   - id: build_actions

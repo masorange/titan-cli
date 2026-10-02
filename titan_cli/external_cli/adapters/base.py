@@ -37,8 +37,13 @@ _QUOTA_PATTERNS = re.compile(
     r"|(reached|exceeded)\b.{0,60}\bquota"
     # OpenAI (codex, and opencode on OpenAI): API error type.
     r"|insufficient[_ ]quota"
-    # Anthropic (claude): "Claude usage limit reached", "You've reached your usage limit".
+    # Anthropic (claude): "Claude usage limit reached", "You've reached your usage
+    # limit", and -- measured 2026-09-22, which is how this gap was found -- "You've hit
+    # your session limit · resets 6:30pm (Europe/Madrid)". That last one exited 1 with the
+    # message in stderr and was reported to the user as a bare "exited with code 1".
     r"|usage limit"
+    r"|session limit"
+    r"|limit\b.{0,40}\bresets"
     r"|out of (free )?credits",
     re.IGNORECASE,
 )
@@ -91,12 +96,151 @@ def model_listing_lines(cmd: list[str], timeout: int = 20) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
+@dataclass(frozen=True)
+class CliUsage:
+    """What one CLI invocation reported about its own consumption.
+
+    Every field is optional because no two CLIs report the same set, and two of the
+    five that report anything (codex, agy) never name a price. **A `None` means "this
+    CLI did not say", never zero** — an absent figure must not be shown, summed or
+    averaged as if the call were free, which is why there is no default of 0 anywhere
+    here and why `as_log_fields` omits what it does not have.
+
+    `model_reported` is the model that ACTUALLY ran, when the CLI names it. It is not
+    the same thing as the model Titan asked for: a CLI falls back to its own default
+    when a pin is missing or unavailable, and that silent substitution is exactly what
+    makes two runs incomparable.
+    """
+
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
+    reasoning_tokens: Optional[int] = None
+    reported_total_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
+    model_reported: Optional[str] = None
+    # Price per model when the CLI breaks it down. A session that spawns subagents on a
+    # different model reports several, and `model_reported` then names none: without this
+    # the log cannot say that part of a bill was another model's.
+    model_costs: Optional[dict[str, float]] = None
+    source: Optional[str] = None
+
+    @property
+    def total_tokens(self) -> Optional[int]:
+        """The CLI's own total when it gives one, else input+output when both exist.
+
+        Deliberately does NOT add cache or reasoning counts into a computed total:
+        each CLI folds those into its own figure differently (claude counts cache
+        creation separately from input, codex reports `cached_input_tokens` as a
+        subset), so summing them would double-count on some CLIs and not others —
+        and a total that means something different per CLI is worse than no total.
+        """
+        if self.reported_total_tokens is not None:
+            return self.reported_total_tokens
+        if self.input_tokens is None or self.output_tokens is None:
+            return None
+        return self.input_tokens + self.output_tokens
+
+    @property
+    def has_cost(self) -> bool:
+        return self.cost_usd is not None
+
+    def as_log_fields(self, prefix: str = "") -> dict[str, Any]:
+        """Only the figures this CLI actually reported, ready for a structlog call."""
+        fields: dict[str, Any] = {
+            f"{prefix}input_tokens": self.input_tokens,
+            f"{prefix}output_tokens": self.output_tokens,
+            f"{prefix}cache_read_tokens": self.cache_read_tokens,
+            f"{prefix}cache_write_tokens": self.cache_write_tokens,
+            f"{prefix}reasoning_tokens": self.reasoning_tokens,
+            f"{prefix}total_tokens": self.total_tokens,
+            f"{prefix}cost_usd": self.cost_usd,
+            f"{prefix}model_reported": self.model_reported,
+            f"{prefix}model_costs": self.model_costs or None,
+            f"{prefix}usage_source": self.source,
+        }
+        return {k: v for k, v in fields.items() if v is not None}
+
+
+def as_int(value: Any) -> Optional[int]:
+    """Coerce a reported count, treating anything unexpected as "not reported"."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def as_float(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]:
+    """Read usage out of the `result`-envelope shape claude and grok both emit.
+
+    Both publish `usage` (Anthropic's field names), `total_cost_usd`, and a
+    `modelUsage` map keyed by the model id that ran. Shared rather than duplicated
+    because the two are the same format, not merely similar — grok's headless output
+    is modelled on it, down to `cacheReadInputTokens`.
+
+    Returns None when there is no usage block at all, so a caller can tell "this CLI
+    said nothing" from "this CLI said zero".
+    """
+    if not isinstance(envelope, dict):
+        return None
+    usage = envelope.get("usage")
+    model_usage = envelope.get("modelUsage")
+    model_reported = None
+    if isinstance(model_usage, dict) and len(model_usage) == 1:
+        # One key is the ordinary case: one model answered. With several (a subagent on
+        # a different model) no single name is the truth, so report none rather than
+        # picking one arbitrarily.
+        model_reported = next(iter(model_usage))
+    cost = as_float(envelope.get("total_cost_usd"))
+    model_costs = _model_costs(model_usage)
+
+    if not isinstance(usage, dict):
+        if cost is None and model_reported is None:
+            return None
+        return CliUsage(cost_usd=cost, model_reported=model_reported, model_costs=model_costs, source=source)
+
+    # Thinking is billed as output and counted inside output_tokens; broken out here
+    # because it is the part of the output that never reaches the parsed answer.
+    details = usage.get("output_tokens_details")
+    return CliUsage(
+        input_tokens=as_int(usage.get("input_tokens")),
+        output_tokens=as_int(usage.get("output_tokens")),
+        cache_read_tokens=as_int(usage.get("cache_read_input_tokens")),
+        cache_write_tokens=as_int(usage.get("cache_creation_input_tokens")),
+        reasoning_tokens=as_int(details.get("thinking_tokens")) if isinstance(details, dict) else None,
+        cost_usd=cost,
+        model_reported=model_reported,
+        model_costs=model_costs,
+        source=source,
+    )
+
+
+def _model_costs(model_usage: Any) -> Optional[dict[str, float]]:
+    """The price each model of a session accounted for, from `modelUsage`'s `costUSD`."""
+    if not isinstance(model_usage, dict):
+        return None
+    costs = {
+        str(model): round(price, 6)
+        for model, entry in model_usage.items()
+        if isinstance(entry, dict) and (price := as_float(entry.get("costUSD"))) is not None
+    }
+    return costs or None
+
+
 @dataclass
 class HeadlessResponse:
     """Result of a headless CLI execution."""
     stdout: str
     stderr: str
     exit_code: int
+    usage: Optional[CliUsage] = None
+    activity: Optional[dict[str, Any]] = None
+    """What the session did, for the adapters whose stream reports it: event counts by
+    kind and the commands it ran. Diagnostic only; nothing branches on it."""
 
     @property
     def succeeded(self) -> bool:
@@ -157,6 +301,14 @@ class HeadlessCliAdapter(Protocol):
         """Whether this adapter can select a specific model for the CLI's own session."""
         ...
 
+    @property
+    def supports_subagents(self) -> bool:
+        """Whether the CLI's session can delegate work to subagents in headless mode.
+
+        Verified, not assumed: a prompt that asks a CLI for subagents it cannot spawn
+        costs a failed tool call and leaves the session to review alone."""
+        ...
+
     def is_available(self) -> bool:
         """Return True if the CLI is installed and reachable."""
         ...
@@ -181,6 +333,8 @@ class HeadlessCliAdapter(Protocol):
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         """
         Run the CLI with the given prompt in headless mode.
@@ -198,6 +352,13 @@ class HeadlessCliAdapter(Protocol):
                 adapters where `supports_effort_control` is False.
             model: Optional model identifier to run the CLI with (e.g. "claude-opus-4-8").
                 Ignored by adapters where `supports_model_selection` is False.
+            allowed_tools: Optional list of tool permission rules to pre-approve for the
+                session (e.g. ["Bash(git log:*)"]), so a headless call can use a narrowed
+                tool it would otherwise be denied. Honored only by adapters with a
+                permission-rule flag (claude); ignored elsewhere.
+            max_budget_usd: Optional spending ceiling for the session, in dollars. Honored
+                only by CLIs that can enforce one (claude); ignored elsewhere, where the
+                timeout is the only ceiling.
 
         Returns:
             HeadlessResponse with stdout, stderr, and exit_code. When `json_schema` is

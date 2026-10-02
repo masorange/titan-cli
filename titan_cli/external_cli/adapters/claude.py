@@ -1,7 +1,7 @@
 """
 Headless adapter for Claude CLI (claude).
 
-Uses `claude --print <prompt>` for non-interactive execution.
+Uses `claude --print` with the prompt on stdin for non-interactive execution.
 """
 
 import json
@@ -10,14 +10,14 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import CliModel, HeadlessResponse, SupportedCLI
+from .base import CliModel, HeadlessResponse, SupportedCLI, usage_from_result_envelope
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 class ClaudeHeadlessAdapter:
     """
-    Runs Claude CLI in headless mode via `claude --print <prompt>`.
+    Runs Claude CLI in headless mode via `claude --print`, prompt on stdin.
 
     The --print flag makes Claude write the response to stdout
     and exit immediately, without starting an interactive session.
@@ -41,6 +41,11 @@ class ClaudeHeadlessAdapter:
 
     @property
     def supports_model_selection(self) -> bool:
+        return True
+
+    @property
+    def supports_subagents(self) -> bool:
+        # The `Agent` tool is available in `--print` sessions.
         return True
 
     def is_available(self) -> bool:
@@ -70,24 +75,46 @@ class ClaudeHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
-        cmd = ["claude", "--print"]
+        # --output-format json on EVERY call, not just the structured ones. The envelope
+        # is the only place claude reports `usage` and `total_cost_usd`, and it also names
+        # the model that actually ran (`modelUsage`) — so asking for it only when a schema
+        # is passed left every plain-text call with no cost figure at all. Verified
+        # 2026-09-22 that the envelope is emitted without `--json-schema`.
+        cmd = ["claude", "--print", "--output-format", "json"]
+        # The cwd may be a PR worktree: untrusted code. `--print` skips the workspace trust
+        # prompt, so without these flags a PR's `.claude/settings.json` (hooks, permissions),
+        # `.mcp.json` servers or `CLAUDE.md` would run/load on the reviewer's machine, and
+        # `--disallowedTools` stops none of the first two. Only the user's own settings load.
+        cmd += ["--setting-sources", "user", "--strict-mcp-config"]
         if json_schema is not None:
-            cmd += ["--output-format", "json", "--json-schema", json.dumps(json_schema)]
+            cmd += ["--json-schema", json.dumps(json_schema)]
         if disallowed_tools:
             # --disallowedTools is a variadic flag with no natural terminator: passed as
             # separate argv tokens, it keeps consuming words until the next recognized flag,
             # swallowing the trailing prompt argument as if it were another tool name. A
             # single comma-joined token avoids that ambiguity.
             cmd += [f"--disallowedTools={','.join(disallowed_tools)}"]
+        if allowed_tools:
+            # Comma-joined into one token for the same reason as --disallowedTools.
+            cmd += [f"--allowedTools={','.join(allowed_tools)}"]
+        if max_budget_usd is not None:
+            cmd += ["--max-budget-usd", f"{max_budget_usd:g}"]
         if effort is not None:
             cmd += ["--effort", effort]
         if model is not None:
             cmd += ["--model", model]
-        cmd.append(prompt)
+        # The prompt goes on stdin, never argv: Linux caps ONE argv string at 131,072
+        # bytes (MAX_ARG_STRLEN), and exceeding it fails the exec with E2BIG before
+        # claude starts. Measured 2026-09-24: a 145k-char triage prompt raised
+        # "[Errno 7] Argument list too long: 'claude'". `claude --print` reads its prompt
+        # from stdin when none is given as an argument.
         try:
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 cwd=cwd,
@@ -106,42 +133,67 @@ class ClaudeHeadlessAdapter:
                 exit_code=127,
             )
 
-        if json_schema is None:
-            return HeadlessResponse(
-                stdout=self._sanitize(result.stdout),
-                stderr=result.stderr.strip(),
-                exit_code=result.returncode,
-            )
-        return self._parse_structured_result(result)
+        return self._parse_envelope(result, expect_structured=json_schema is not None)
 
-    def _parse_structured_result(self, result: subprocess.CompletedProcess) -> HeadlessResponse:
-        """Unwrap the `--output-format json` envelope for a structured-output call.
+    def _parse_envelope(
+        self, result: subprocess.CompletedProcess, *, expect_structured: bool
+    ) -> HeadlessResponse:
+        """Unwrap the `--output-format json` envelope, which every call now receives.
 
-        On success, the model's schema-validated answer is under `structured_output`;
-        this becomes stdout as compact JSON so downstream parsing sees no surrounding
-        prose. Falls back to the raw envelope's `result` text if the model didn't end up
-        calling the structured-output tool (e.g. it judged the request ambiguous).
+        With a schema, the model's validated answer is under `structured_output` and
+        becomes stdout as compact JSON so downstream parsing sees no surrounding prose;
+        it falls back to the envelope's `result` text when the model didn't call the
+        structured-output tool (e.g. it judged the request ambiguous). Without a schema,
+        `result` IS the answer.
+
+        Either way the envelope is also where `usage`, `total_cost_usd` and the model
+        that actually ran are reported, so it is read even on the error path — a call
+        that failed still cost money, and hiding that would understate every review
+        that had a retry in it.
         """
         stderr = result.stderr.strip()
         try:
             envelope = json.loads(result.stdout)
         except json.JSONDecodeError:
-            return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
+            envelope = None
 
         if not isinstance(envelope, dict):
-            return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
-
-        if envelope.get("is_error"):
+            # A claude old enough not to emit an envelope, or a failure that printed
+            # prose instead of JSON. Whatever reached stdout is still the answer; there
+            # is simply no usage to report, which `usage=None` says honestly.
             return HeadlessResponse(
-                stdout="",
-                stderr=str(envelope.get("result") or stderr or "Claude CLI reported an error"),
-                exit_code=result.returncode or 1,
+                stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode
             )
 
-        structured_output = envelope.get("structured_output")
-        if structured_output is None:
-            return HeadlessResponse(stdout=str(envelope.get("result", "")), stderr=stderr, exit_code=result.returncode)
-        return HeadlessResponse(stdout=json.dumps(structured_output), stderr=stderr, exit_code=result.returncode)
+        usage = usage_from_result_envelope(envelope, source="claude_result_envelope")
+
+        if envelope.get("is_error"):
+            # A ceiling hit (`--max-budget-usd`) reports no `result`, only `errors`:
+            # ["Reached maximum budget ($6)"]. Without reading it the reason was lost.
+            errors = "; ".join(str(item) for item in envelope.get("errors") or [])
+            return HeadlessResponse(
+                stdout="",
+                stderr=str(envelope.get("result") or errors or stderr or "Claude CLI reported an error"),
+                exit_code=result.returncode or 1,
+                usage=usage,
+            )
+
+        if expect_structured:
+            structured_output = envelope.get("structured_output")
+            if structured_output is not None:
+                return HeadlessResponse(
+                    stdout=json.dumps(structured_output),
+                    stderr=stderr,
+                    exit_code=result.returncode,
+                    usage=usage,
+                )
+
+        return HeadlessResponse(
+            stdout=self._sanitize(str(envelope.get("result", ""))),
+            stderr=stderr,
+            exit_code=result.returncode,
+            usage=usage,
+        )
 
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""

@@ -62,9 +62,6 @@ class WorkflowContextBuilder:
         self._slack = None
         self._docker = None
 
-        # Plugin managers (keyed by plugin name)
-        self._plugin_managers: dict = {}
-
     def with_ai(self, ai_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add AI client.
@@ -170,17 +167,6 @@ class WorkflowContextBuilder:
                 self._github = None
         return self
 
-    def with_plugin_managers(self, plugin_name: str, managers: Any) -> WorkflowContextBuilder:
-        """
-        Register workflow managers for a plugin.
-
-        Args:
-            plugin_name: Plugin identifier (e.g. "github", "jira")
-            managers: Plugin-specific managers container
-        """
-        self._plugin_managers[plugin_name] = managers
-        return self
-
     def with_jira(self, jira_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add JIRA client to workflow context.
@@ -278,7 +264,6 @@ class WorkflowContextBuilder:
             ai_router=self._ai_router,
             git=self._git,
             github=self._github,
-            github_managers=self._plugin_managers.get("github"),
             jira=self._jira,
             slack=self._slack,
             docker=self._docker,

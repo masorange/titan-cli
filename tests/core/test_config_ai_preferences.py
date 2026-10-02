@@ -292,34 +292,34 @@ class TestChangingTheInstanceInvalidatesTheModel:
     """
 
     def test_switching_the_pinned_cli_drops_the_model(self, config: TitanConfig):
-        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
-        config.set_task_ai_cli("code_review_plan", "claude")
-        config.set_task_ai_model("code_review_plan", "opus")
+        config.upsert_task_ai_preference("code_review_findings", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_findings", "claude")
+        config.set_task_ai_model("code_review_findings", "opus")
 
-        config.set_task_ai_cli("code_review_plan", "codex")
+        config.set_task_ai_cli("code_review_findings", "codex")
 
-        stored = _written_preferences(config)["tasks"]["code_review_plan"]
+        stored = _written_preferences(config)["tasks"]["code_review_findings"]
         assert stored == {"provider": "cli_headless", "cli": "codex"}
 
     def test_repinning_the_same_cli_keeps_the_model(self, config: TitanConfig):
         """Only a CHANGE invalidates it - re-saving the same choice is not a change."""
-        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
-        config.set_task_ai_cli("code_review_plan", "claude")
-        config.set_task_ai_model("code_review_plan", "opus")
+        config.upsert_task_ai_preference("code_review_findings", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_findings", "claude")
+        config.set_task_ai_model("code_review_findings", "opus")
 
-        config.set_task_ai_cli("code_review_plan", "claude")
+        config.set_task_ai_cli("code_review_findings", "claude")
 
-        assert _written_preferences(config)["tasks"]["code_review_plan"]["model"] == "opus"
+        assert _written_preferences(config)["tasks"]["code_review_findings"]["model"] == "opus"
 
     def test_clearing_the_cli_pin_drops_the_model_too(self, config: TitanConfig):
         """Following the global default again is also a change of instance."""
-        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
-        config.set_task_ai_cli("code_review_plan", "claude")
-        config.set_task_ai_model("code_review_plan", "opus")
+        config.upsert_task_ai_preference("code_review_findings", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_findings", "claude")
+        config.set_task_ai_model("code_review_findings", "opus")
 
-        config.clear_task_ai_cli("code_review_plan")
+        config.clear_task_ai_cli("code_review_findings")
 
-        assert _written_preferences(config)["tasks"]["code_review_plan"] == {
+        assert _written_preferences(config)["tasks"]["code_review_findings"] == {
             "provider": "cli_headless"
         }
 
@@ -335,12 +335,12 @@ class TestChangingTheInstanceInvalidatesTheModel:
 
     def test_the_setter_reports_whether_it_dropped_a_model(self, config: TitanConfig):
         """The UI has to be able to say so; a model vanishing in silence is its own bug."""
-        config.upsert_task_ai_preference("code_review_plan", {"provider": "cli_headless"})
-        config.set_task_ai_cli("code_review_plan", "claude")
-        config.set_task_ai_model("code_review_plan", "opus")
+        config.upsert_task_ai_preference("code_review_findings", {"provider": "cli_headless"})
+        config.set_task_ai_cli("code_review_findings", "claude")
+        config.set_task_ai_model("code_review_findings", "opus")
 
-        assert config.set_task_ai_cli("code_review_plan", "codex") == "opus"
-        assert config.set_task_ai_cli("code_review_plan", "gemini") is None
+        assert config.set_task_ai_cli("code_review_findings", "codex") == "opus"
+        assert config.set_task_ai_cli("code_review_findings", "gemini") is None
 
 
 class TestClearPathsKeepTheLiveConfigInSync:
@@ -401,10 +401,10 @@ class TestClearPathsKeepTheLiveConfigInSync:
         self, config: TitanConfig
     ):
         """The clear path has the same contract as the set path, and no test had it."""
-        config.set_task_ai_cli("code_review_plan", "claude", provider="cli_headless")
-        config.set_task_ai_model("code_review_plan", "opus")
+        config.set_task_ai_cli("code_review_findings", "claude", provider="cli_headless")
+        config.set_task_ai_model("code_review_findings", "opus")
 
-        assert config.clear_task_ai_cli("code_review_plan") == "opus"
+        assert config.clear_task_ai_cli("code_review_findings") == "opus"
 
 
 class TestChangingTheKindKeepsWhatStillMakesSense:
