@@ -31,11 +31,18 @@ def test_prompt_names_the_worktree_by_its_absolute_path():
     assert "Work only inside it" in prompt
 
 
+def test_subagents_are_only_suggested_to_a_cli_that_can_spawn_them():
+    args = (273, "Add Firebase plugin", "feat/firebase", "master", "/repo/wt")
+
+    assert "subagents" not in build_free_review_prompt(*args)
+    assert "subagents" not in build_free_review_prompt(*args, use_subagents=False)
+    assert "split the work across subagents" in build_free_review_prompt(*args, use_subagents=True)
+
+
 def test_prompt_asks_for_a_review_and_prescribes_no_procedure():
     prompt = _prompt()
 
     assert "Review it as a senior engineer would" in prompt
-    assert "subagents" in prompt
     # The procedure the directed session carried, and that turned the review into a form.
     for word in ("focus", "ledger", "reviewed", "key_facts", "open_suspicions", "checklist"):
         assert word not in prompt

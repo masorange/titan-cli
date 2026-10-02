@@ -43,6 +43,11 @@ class ClaudeHeadlessAdapter:
     def supports_model_selection(self) -> bool:
         return True
 
+    @property
+    def supports_subagents(self) -> bool:
+        # The `Agent` tool is available in `--print` sessions.
+        return True
+
     def is_available(self) -> bool:
         return shutil.which("claude") is not None
 

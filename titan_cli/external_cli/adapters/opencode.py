@@ -94,6 +94,11 @@ class OpenCodeHeadlessAdapter:
     def supports_model_selection(self) -> bool:
         return True
 
+    @property
+    def supports_subagents(self) -> bool:
+        # Not verified in headless mode, so it is not relied on.
+        return False
+
     def is_available(self) -> bool:
         return shutil.which("opencode") is not None
 

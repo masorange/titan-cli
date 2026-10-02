@@ -122,6 +122,24 @@ def _log_ai_prompt(step_name: str, cli_name: str, prompt: str, **extra) -> None:
         )
 
 
+def _log_session_activity(cli_name: str, activity: Optional[dict]) -> None:
+    """Record what the review session did, when its CLI reports it.
+
+    The commands go at debug: the counts say how much work happened, the commands say
+    which files it was spent on.
+    """
+    if not activity:
+        return
+    commands = activity.get("commands", [])
+    logger.info(
+        "review_session_activity",
+        cli=cli_name,
+        items=activity.get("items", {}),
+        commands=len(commands),
+    )
+    logger.debug("review_session_commands", cli=cli_name, commands=commands)
+
+
 def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, exit_code: int, **extra) -> None:
     """Log response metadata plus previews for review debugging."""
     stdout_first, stdout_last = _preview_edges(stdout, _RESPONSE_PREVIEW_CHARS)
@@ -1751,7 +1769,14 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     structured = adapter.supports_structured_output
     options = _review_tool_options(adapter)
     pr = manifest.pr
-    prompt = build_free_review_prompt(pr.number, pr.title, pr.head, pr.base, worktree_path)
+    prompt = build_free_review_prompt(
+        pr.number,
+        pr.title,
+        pr.head,
+        pr.base,
+        worktree_path,
+        use_subagents=adapter.supports_subagents,
+    )
     cli = adapter.cli_name.value
     _log_ai_prompt("ai_review_findings", cli, prompt, files=len(manifest.files))
 
@@ -1784,6 +1809,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         stderr=response.stderr,
         exit_code=response.exit_code,
     )
+    _log_session_activity(cli, response.activity)
     if not response.succeeded:
         return _fail_review(ctx, _cli_failure_reason(response, cli))
 

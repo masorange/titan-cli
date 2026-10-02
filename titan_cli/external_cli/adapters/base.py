@@ -238,6 +238,9 @@ class HeadlessResponse:
     stderr: str
     exit_code: int
     usage: Optional[CliUsage] = None
+    activity: Optional[dict[str, Any]] = None
+    """What the session did, for the adapters whose stream reports it: event counts by
+    kind and the commands it ran. Diagnostic only; nothing branches on it."""
 
     @property
     def succeeded(self) -> bool:
@@ -296,6 +299,14 @@ class HeadlessCliAdapter(Protocol):
     @property
     def supports_model_selection(self) -> bool:
         """Whether this adapter can select a specific model for the CLI's own session."""
+        ...
+
+    @property
+    def supports_subagents(self) -> bool:
+        """Whether the CLI's session can delegate work to subagents in headless mode.
+
+        Verified, not assumed: a prompt that asks a CLI for subagents it cannot spawn
+        costs a failed tool call and leaves the session to review alone."""
         ...
 
     def is_available(self) -> bool:

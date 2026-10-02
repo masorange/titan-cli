@@ -9,7 +9,15 @@ from ..models.review_models import Finding
 from .ai_response_parsing_operations import extract_json_payload
 
 
-def build_free_review_prompt(pr_number: int, title: str, head: str, base: str, worktree: str) -> str:
+def build_free_review_prompt(
+    pr_number: int,
+    title: str,
+    head: str,
+    base: str,
+    worktree: str,
+    *,
+    use_subagents: bool = False,
+) -> str:
     """The prompt a user would give a CLI to review a PR, plus where Titan put the material.
 
     Deliberately no procedure. Every procedure Titan imposed (a focus to choose, a note per
@@ -27,6 +35,9 @@ def build_free_review_prompt(pr_number: int, title: str, head: str, base: str, w
     """
     from .review_material_operations import BASE_DIR, DIFFS_DIR, PR_FILE, WHOLE_DIFF_FILE
 
+    # Only for a CLI that can spawn them: asking one that cannot costs a failed tool call
+    # and leaves the session reviewing a large PR alone anyway.
+    subagent_hint = " If the PR is large, split the work across subagents." if use_subagents else ""
     return (
         f"Review pull request #{pr_number} \"{title}\" ({head} → {base}).\n\n"
         f"`{worktree}` is a checkout of the PR head. Work only inside it, with paths under "
@@ -40,8 +51,7 @@ def build_free_review_prompt(pr_number: int, title: str, head: str, base: str, w
         f"- `{BASE_DIR}/<path>`: each changed file as it was before the PR.\n"
         "`.titan-review/` is not part of the PR; do not review it.\n\n"
         "Review it as a senior engineer would review this PR, using anything in the "
-        "repository you need. If the PR is large, split the work across subagents. Do not "
-        "run tests or builds: CI runs them.\n\n"
+        f"repository you need.{subagent_hint} Do not run tests or builds: CI runs them.\n\n"
         "Report only problems a reviewer would raise on the PR: defects, regressions, risks "
         "and violations of how this repository does things, each one you have verified in "
         "the code. Severity: `blocking` must not merge, `important` should be fixed, `nit` "

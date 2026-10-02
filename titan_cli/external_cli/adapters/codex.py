@@ -53,6 +53,12 @@ class CodexHeadlessAdapter:
     def supports_model_selection(self) -> bool:
         return True
 
+    @property
+    def supports_subagents(self) -> bool:
+        # `codex exec --ephemeral` has no persisted thread to spawn into: a review run logged
+        # `collab spawn failed: no thread with id` when it tried.
+        return False
+
     def is_available(self) -> bool:
         return shutil.which("codex") is not None
 
@@ -124,7 +130,10 @@ class CodexHeadlessAdapter:
         # Use flags for non-interactive headless execution:
         # - --json: machine-readable JSONL output
         # - --ephemeral: don't save session to disk
-        cmd = ["codex", "exec", "--json", "--ephemeral"]
+        # - --sandbox read-only: `codex exec` already defaults to it, but the default yields
+        #   to the user's own config (`sandbox_mode = "workspace-write"` would let a review
+        #   of an untrusted PR edit its checkout), and this adapter cannot restrict tools.
+        cmd = ["codex", "exec", "--json", "--ephemeral", "--sandbox", "read-only"]
         if model is not None:
             cmd += ["-m", model]
         # `-` reads the prompt from stdin. On argv, a single string over Linux's 131,072-byte
@@ -146,6 +155,7 @@ class CodexHeadlessAdapter:
                 stderr=result.stderr.strip(),
                 exit_code=result.returncode,
                 usage=usage,
+                activity=self._activity_from_output(result.stdout),
             )
         except subprocess.TimeoutExpired:
             return HeadlessResponse(
@@ -203,6 +213,35 @@ class CodexHeadlessAdapter:
                 continue
 
         return "\n".join(agent_messages).strip(), usage
+
+    @staticmethod
+    def _activity_from_output(jsonl_output: str) -> Optional[dict[str, Any]]:
+        """Count what the session did: completed items by type, and the commands it ran.
+
+        The stream carries every tool call, but the answer is all `_parse_json_output`
+        keeps, so a review that reported three findings could not be told apart from one
+        that opened three files. Commands are cut short; they are for reading, not replay.
+        """
+        if not jsonl_output or not jsonl_output.strip():
+            return None
+        counts: dict[str, int] = {}
+        commands: list[str] = []
+        for line in jsonl_output.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "item.completed":
+                continue
+            item = event.get("item")
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("type") or "unknown")
+            counts[kind] = counts.get(kind, 0) + 1
+            command = item.get("command")
+            if kind == "command_execution" and isinstance(command, str):
+                commands.append(command[:200])
+        return {"items": counts, "commands": commands}
 
     def _usage_from_turn(self, event: dict) -> Optional[CliUsage]:
         """Read the `usage` block of a `turn.completed` event.

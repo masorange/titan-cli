@@ -1407,6 +1407,56 @@ class TestCodexPromptGoesOnStdin(unittest.TestCase):
         self.assertEqual(mock_run.call_args.kwargs["input"], prompt)
 
 
+class TestCodexRunsReadOnly(unittest.TestCase):
+    @patch("subprocess.run")
+    def test_the_sandbox_is_pinned_rather_than_inherited_from_user_config(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+
+        CodexHeadlessAdapter().execute("p")
+
+        cmd = mock_run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("--sandbox") + 1], "read-only")
+
+
+class TestCodexReportsWhatTheSessionDid(unittest.TestCase):
+    """A review that reports three findings must be distinguishable from one that read three files."""
+
+    @staticmethod
+    def _stream(*items):
+        return "\n".join(
+            json.dumps({"type": "item.completed", "item": item}) for item in items
+        )
+
+    @patch("subprocess.run")
+    def test_counts_items_and_keeps_the_commands(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout=self._stream(
+                {"type": "command_execution", "command": "sed -n 1,80p a.diff"},
+                {"type": "command_execution", "command": "rg -n foo ."},
+                {"type": "reasoning", "text": "..."},
+                {"type": "agent_message", "text": "{}"},
+            ),
+            stderr="",
+            returncode=0,
+        )
+
+        response = CodexHeadlessAdapter().execute("p")
+
+        self.assertEqual(
+            response.activity["items"],
+            {"command_execution": 2, "reasoning": 1, "agent_message": 1},
+        )
+        self.assertEqual(
+            response.activity["commands"], ["sed -n 1,80p a.diff", "rg -n foo ."]
+        )
+
+    @patch("subprocess.run")
+    def test_an_empty_stream_reports_no_activity(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+
+        self.assertIsNone(CodexHeadlessAdapter().execute("p").activity)
+
+
 class TestCodexModelListing:
     """
     Codex publishes its catalogue in a cache file it maintains itself (air-011).

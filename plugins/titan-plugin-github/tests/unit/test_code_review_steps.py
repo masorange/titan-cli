@@ -496,12 +496,13 @@ class _FakeReviewAdapter:
 
     cli_name = SupportedCLI.CLAUDE
 
-    def __init__(self, script, *, structured=False, restricts=False, effort=False):
+    def __init__(self, script, *, structured=False, restricts=False, effort=False, subagents=False):
         self._script = list(script)
         self.calls: list[dict] = []
         self.supports_structured_output = structured
         self.supports_tool_restriction = restricts
         self.supports_effort_control = effort
+        self.supports_subagents = subagents
 
     def is_available(self) -> bool:
         return True
