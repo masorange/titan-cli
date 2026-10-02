@@ -13,6 +13,7 @@ default, so a plain search of the tree does not mix the old code in with the new
 """
 
 import re
+import shutil
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -30,16 +31,59 @@ WHOLE_DIFF_FILE = f"{MATERIAL_DIR}/pr.diff"
 logger = get_logger(__name__)
 
 
+def _is_inside(root: Path, target: Path) -> bool:
+    """True when `target` resolves (symlinks followed) to a path under `root`."""
+    try:
+        target.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def read_file_content(path: str, cwd: Optional[str] = None) -> Optional[str]:
-    """A file of the reviewed tree as text, or None when it cannot be read."""
+    """A file of the reviewed tree as text, or None when it cannot be read.
+
+    The tree is the PR author's checkout, so a path that resolves outside it (a committed
+    symlink to a file elsewhere) is refused rather than shown as the file's content.
+    """
     try:
         base = Path(cwd) if cwd else Path.cwd()
         file_path = base / path
+        if not _is_inside(base, file_path):
+            logger.warning("file_read_outside_tree", path=path)
+            return None
         if file_path.exists() and file_path.is_file():
             return file_path.read_text(encoding="utf-8", errors="replace")
     except (OSError, ValueError) as e:
         logger.debug("file_read_failed", path=path, error=str(e))
     return None
+
+
+def prepare_material_dir(root: Path) -> Path:
+    """A fresh, real `.titan-review/` directory inside `root`.
+
+    The PR can commit anything at that path (a symlink, or files to be overwritten), so
+    whatever is there is removed before the review's material is written.
+    """
+    material = root / MATERIAL_DIR
+    if material.is_symlink() or material.is_file():
+        material.unlink()
+    elif material.exists():
+        shutil.rmtree(material)
+    material.mkdir(parents=True)
+    return material
+
+
+def safe_material_target(root: Path, relative_path: str) -> Path:
+    """`root / relative_path`, guaranteed to resolve inside the material directory.
+
+    Raises OSError otherwise (e.g. a `..` in a changed file's path, or a symlink planted
+    under the directory).
+    """
+    target = root / relative_path
+    if not _is_inside(root / MATERIAL_DIR, target):
+        raise OSError(f"review material path escapes {MATERIAL_DIR}: {relative_path}")
+    return target
 
 
 def diff_file_path(path: str) -> str:

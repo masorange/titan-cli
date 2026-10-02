@@ -1449,8 +1449,10 @@ def _write_review_material(
         WHOLE_DIFF_FILE,
         base_file_path,
         diff_file_path,
+        prepare_material_dir,
         render_file_diff,
         render_pr_file,
+        safe_material_target,
     )
 
     pr = manifest.pr
@@ -1475,22 +1477,23 @@ def _write_review_material(
     has_base: dict[str, bool] = {}
     whole_diff: list[str] = []
     try:
+        prepare_material_dir(root)
         for entry in manifest.files:
             rendered = render_file_diff(entry.path, diff_manager.get_hunk_texts(entry.path))
             whole_diff.append(rendered)
-            target = root / diff_file_path(entry.path)
+            target = safe_material_target(root, diff_file_path(entry.path))
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(rendered)
             match ctx.git.get_file_at_ref(merge_base, entry.path):
                 case ClientSuccess(data=str() as content):
-                    base_target = root / base_file_path(entry.path)
+                    base_target = safe_material_target(root, base_file_path(entry.path))
                     base_target.parent.mkdir(parents=True, exist_ok=True)
                     base_target.write_text(content)
                     has_base[entry.path] = True
                 case _:
                     has_base[entry.path] = False
-        (root / WHOLE_DIFF_FILE).write_text("\n".join(whole_diff))
-        (root / PR_FILE).write_text(render_pr_file(pr, threads, general_comments, merge_base))
+        safe_material_target(root, WHOLE_DIFF_FILE).write_text("\n".join(whole_diff))
+        safe_material_target(root, PR_FILE).write_text(render_pr_file(pr, threads, general_comments, merge_base))
     except OSError as exc:
         logger.warning("review_material_not_written", error=str(exc))
         return None
