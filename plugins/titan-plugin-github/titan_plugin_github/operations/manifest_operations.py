@@ -16,14 +16,12 @@ from ..models.view import UICommentThread, UIFileChange, UIPullRequest
 _TEST_PATH_PATTERNS = [
     r"(^|/)tests?/",
     r"(^|/)[a-z]+Tests?/",
+    r"(^|/)__tests__/",
     r"(^|/)test_",
-    r"_test\.py$",
-    r"_spec\.py$",
+    r"_(test|spec)\.(py|rb|rs|dart|exs?|go)$",
     r"(^|/)spec/",
-    r"\.test\.[jt]sx?$",
-    r"\.spec\.[jt]sx?$",
-    r"_test\.go$",
-    r"Tests?\.(kt|java|cs|swift|scala)$",
+    r"\.(test|spec)\.[cm]?[jt]sx?$",
+    r"Tests?\.(kt|java|cs|swift|scala|php)$",
     r"Spec\.(kt|scala|groovy)$",
 ]
 _DOC_PATH_PATTERNS = [r"(^|/)docs?/", r"\.md$", r"\.rst$", r"\.adoc$"]
