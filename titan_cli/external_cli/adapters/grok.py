@@ -184,6 +184,7 @@ class GrokHeadlessAdapter:
                 text=True,
                 cwd=cwd,
                 timeout=timeout,
+                stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
             return HeadlessResponse(
