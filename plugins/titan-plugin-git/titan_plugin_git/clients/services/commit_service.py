@@ -195,12 +195,20 @@ class CommitService:
 
         Returns:
             ClientResult with the content, or None when the file does not exist at that
-            ref (a file the change adds). A file that is not text is an error.
+            ref (a file the change adds). An unresolvable ref or a file that is not
+            text is an error.
         """
+        try:
+            self.git.run_command(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
+        except GitError as e:
+            return ClientError(error_message=f"Cannot resolve ref '{ref}': {e}", error_code="FILE_AT_REF_ERROR")
         try:
             self.git.run_command(["git", "cat-file", "-e", f"{ref}:{path}"])
         except GitCommandError:
+            # The ref resolves, so a failure here means the path is absent at that ref.
             return ClientSuccess(data=None, message=f"{path} does not exist at {ref}")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="FILE_AT_REF_ERROR")
         try:
             content = self.git.run_command(["git", "show", f"{ref}:{path}"], strip_output=False)
             return ClientSuccess(data=content, message=f"{path} at {ref}")
