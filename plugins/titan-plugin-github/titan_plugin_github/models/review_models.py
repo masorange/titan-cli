@@ -22,6 +22,7 @@ class ChangedFileEntry(BaseModel):
     """Single file changed in the PR with cheap deterministic signals."""
 
     path: str = Field(..., description="File path in repo")
+    previous_path: Optional[str] = Field(default=None, description="Path before a rename, if renamed")
     status: FileChangeStatus = Field(..., description="Normalized change type")
     additions: int = Field(default=0, description="Lines added")
     deletions: int = Field(default=0, description="Lines deleted")

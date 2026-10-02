@@ -1495,7 +1495,7 @@ def _write_review_material(
             target = safe_material_target(root, diff_file_path(entry.path))
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(rendered)
-            match ctx.git.get_file_at_ref(merge_base, entry.path):
+            match ctx.git.get_file_at_ref(merge_base, entry.previous_path or entry.path):
                 case ClientSuccess(data=str() as content):
                     base_target = safe_material_target(root, base_file_path(entry.path))
                     base_target.parent.mkdir(parents=True, exist_ok=True)

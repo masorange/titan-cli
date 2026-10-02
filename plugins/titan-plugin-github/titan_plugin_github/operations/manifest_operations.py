@@ -140,6 +140,7 @@ def build_change_manifest(
         entries.append(
             ChangedFileEntry(
                 path=f.path,
+                previous_path=f.previous_path,
                 status=f.status,
                 additions=additions,
                 deletions=deletions,
