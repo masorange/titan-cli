@@ -1,26 +1,10 @@
 """
 StrEnum definitions for the code review system.
 
-Shared vocabulary used by review_models.py and validators.py.
+Shared vocabulary used by the review models and operations.
 """
 
 from enum import StrEnum
-
-
-class FileTypeIndicator(StrEnum):
-    """
-    File path indicators that justify full_file read mode even on large files.
-
-    If any of these strings appears in the file path, the validator allows
-    full_file mode regardless of file size.
-    """
-    ADAPTER = "adapter"
-    PARSER = "parser"
-    WORKFLOW_STEP = "workflow_step"
-    BUILDER = "builder"
-    SERIALIZER = "serializer"
-    DESERIALIZER = "deserializer"
-    TRANSFORMER = "transformer"
 
 
 class FileChangeStatus(StrEnum):
