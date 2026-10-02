@@ -218,9 +218,16 @@ class AntigravityHeadlessAdapter:
         envelope = _result_envelope(result.stdout)
 
         if not isinstance(envelope, dict):
-            # An agy old enough not to emit an envelope, or a failure that printed
-            # prose. Whatever reached stdout is still the answer; `usage=None` says
-            # honestly that nothing was reported.
+            if _looks_like_event_stream(result.stdout):
+                # A crashed or truncated stream: stdout is NDJSON events, not the
+                # model's text, so passing it on would hand callers raw protocol lines.
+                return HeadlessResponse(
+                    stdout="",
+                    stderr=stderr or "Antigravity CLI ended without a result event",
+                    exit_code=result.returncode or 1,
+                )
+            # A failure that printed prose. Whatever reached stdout is still the
+            # answer; `usage=None` says honestly that nothing was reported.
             return HeadlessResponse(
                 stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode
             )
@@ -285,6 +292,21 @@ class AntigravityHeadlessAdapter:
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
+
+
+def _looks_like_event_stream(stdout: str) -> bool:
+    """True when any stdout line is a JSON object carrying an `event` field."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and "event" in event:
+            return True
+    return False
 
 
 def _result_envelope(stdout: str) -> Optional[dict]:
