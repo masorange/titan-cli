@@ -312,8 +312,7 @@ def verify_merge_outcome_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Inputs (from ctx.data):
         pr_number (int): Pull request number to inspect.
-        merge_queued (bool): Set by `merge_pull_request`; True when the PR was added to the merge queue.
-            Required - a missing value is treated as a workflow configuration error.
+        merge_queued (bool): Set by `merge_pull_request`; True when the PR was added to the merge queue. Required - a missing value is treated as a workflow configuration error.
 
     Outputs (saved to ctx.data):
         verified_pr_info: The pull request object; saved only on the regular merge path (merge_queued falsy).

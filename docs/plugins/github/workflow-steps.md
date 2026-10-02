@@ -386,8 +386,7 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `pr_number` | int | Pull request number to inspect. |
-    | `merge_queued` | bool | Set by `merge_pull_request`; True when the PR was added to the merge queue. |
-    | Required - a missing value is treated as a workflow configuration error. | - | - |
+    | `merge_queued` | bool | Set by `merge_pull_request`; True when the PR was added to the merge queue. Required - a missing value is treated as a workflow configuration error. |
 
     **Outputs (saved to ctx.data)**
 
