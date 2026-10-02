@@ -56,6 +56,8 @@ def build_free_review_prompt(
         "and violations of how this repository does things, each one you have verified in "
         "the code. Severity: `blocking` must not merge, `important` should be fixed, `nit` "
         "is minor. A PR with nothing to report gets an empty list.\n\n"
+        "In the findings, `path` is relative to the repository root, never the absolute "
+        "path of the checkout.\n\n"
         "When you are done, answer with this JSON and nothing else:\n"
         f"{json.dumps(_FINDINGS_SHAPE, indent=2)}\n"
     )
