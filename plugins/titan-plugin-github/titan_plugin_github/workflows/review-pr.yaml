@@ -33,6 +33,7 @@ steps:
     name: "Write Review Material"
     plugin: github
     step: write_review_material
+    on_error: continue
 
   # One free-form session of the configured CLI: it reviews the PR as it would if a user
   # asked it to. Titan prescribes no procedure; everything after it is Titan's.
@@ -46,11 +47,13 @@ steps:
     name: "Normalize Findings"
     plugin: github
     step: normalize_findings
+    on_error: continue
 
   - id: dedupe
     name: "Deduplicate Findings"
     plugin: github
     step: dedupe_findings
+    on_error: continue
 
   - id: build_actions
     name: "Build Comment Actions"
