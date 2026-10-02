@@ -135,7 +135,16 @@ def annotate_diff_hunk(hunk: str) -> str:
     return "\n".join(result)
 
 
-def render_file_diff(path: str, hunks: Iterable[str]) -> str:
+def diff_unavailable(hunks: Iterable[str], additions: int, deletions: int) -> bool:
+    """True when a file changed lines but no hunk text is available for it.
+
+    Distinguishes a diff that was not fetched (too large a PR, patch omitted by GitHub)
+    from files that have nothing textual to review (binary, pure rename).
+    """
+    return not any(hunks) and (additions + deletions) > 0
+
+
+def render_file_diff(path: str, hunks: Iterable[str], unavailable: bool = False) -> str:
     """One file's diff with every line numbered and labelled, the same shape the prompt used.
 
     The numbers are the new file's lines, so a finding's `line` and `snippet` come straight
@@ -143,6 +152,8 @@ def render_file_diff(path: str, hunks: Iterable[str]) -> str:
     """
     blocks = [annotate_diff_hunk(hunk) for hunk in hunks]
     body = "\n\n".join(block for block in blocks if block)
+    if not body and unavailable:
+        return f"# {path}\n\n(diff unavailable: read the file)\n"
     return f"# {path}\n\n{body}\n" if body else f"# {path}\n\n(no textual diff)\n"
 
 

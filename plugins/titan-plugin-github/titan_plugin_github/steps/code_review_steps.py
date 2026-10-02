@@ -1450,6 +1450,7 @@ def _write_review_material(
         base_file_path,
         diff_file_path,
         prepare_material_dir,
+        diff_unavailable,
         render_file_diff,
         render_pr_file,
         safe_material_target,
@@ -1476,10 +1477,15 @@ def _write_review_material(
     root = Path(worktree_path)
     has_base: dict[str, bool] = {}
     whole_diff: list[str] = []
+    no_diff = 0
     try:
         prepare_material_dir(root)
         for entry in manifest.files:
-            rendered = render_file_diff(entry.path, diff_manager.get_hunk_texts(entry.path))
+            hunks = diff_manager.get_hunk_texts(entry.path)
+            unavailable = diff_unavailable(hunks, entry.additions, entry.deletions)
+            if unavailable:
+                no_diff += 1
+            rendered = render_file_diff(entry.path, hunks, unavailable=unavailable)
             whole_diff.append(rendered)
             target = safe_material_target(root, diff_file_path(entry.path))
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1502,6 +1508,7 @@ def _write_review_material(
         "review_material_written",
         files=len(has_base),
         base_versions=sum(has_base.values()),
+        diff_unavailable=no_diff,
         threads=len(threads),
         general_comments=len(general_comments),
         merge_base=merge_base,
@@ -1575,6 +1582,14 @@ def write_review_material(ctx: WorkflowContext) -> WorkflowResult:
         f"✓ {len(material)} diffs, {sum(material.values())} base versions, "
         f"the PR and its comments in .titan-review/"
     )
+    missing = sum(
+        diff_unavailable(diff_manager.get_hunk_texts(e.path), e.additions, e.deletions)
+        for e in manifest.files
+    )
+    if missing:
+        ctx.textual.warning_text(
+            f"{missing} file(s) have no diff available (marked 'read the file' for the session)"
+        )
     ctx.textual.end_step("success")
     return Success("Review material written", metadata={"review_material": material})
 
