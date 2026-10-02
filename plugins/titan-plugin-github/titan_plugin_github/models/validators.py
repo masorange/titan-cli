@@ -14,7 +14,8 @@ def is_duplicate(
 ) -> bool:
     """Return True if a finding likely duplicates an existing comment."""
 
-    if new_finding.path != existing.path:
+    # General (non-inline) comments have no path: findings carry "" and index entries None.
+    if (new_finding.path or None) != (existing.path or None):
         return False
 
     finding_text = f"{new_finding.title} {new_finding.why}"
