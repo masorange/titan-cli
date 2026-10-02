@@ -1778,13 +1778,11 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         reason = route_note or "No headless CLI available"
         if ai_off:
             # The user turned AI off for this task: nothing failed, nothing was meant to run.
-            ctx.data["raw_findings"] = build_default_findings()
-            ctx.data["ai_findings_failed"] = False
             ctx.textual.warning_text(f"{reason} — skipping the review")
             ctx.textual.end_step("success")
             return Success(
                 "No findings (AI is off for this task)",
-                metadata={"raw_findings": [], "ai_findings_failed": False},
+                metadata={"raw_findings": build_default_findings(), "ai_findings_failed": False},
             )
         return _fail_review(ctx, f"{reason} — the review could not run")
 
@@ -1858,13 +1856,17 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     if rejected:
         logger.warning("review_findings_unknown_path", dropped=len(rejected), rejected=rejected)
 
-    ctx.data["raw_findings"] = [to_finding_payload(item) for item in kept]
-    ctx.data["ai_findings_failed"] = False
     ctx.textual.success_text(f"✓ Review complete · {len(kept)} finding(s)")
     if rejected:
         _render_rejected_paths(ctx, rejected)
     ctx.textual.end_step("success")
-    return Success("AI findings retrieved", metadata={"ai_findings_failed": False})
+    return Success(
+        "AI findings retrieved",
+        metadata={
+            "raw_findings": [to_finding_payload(item) for item in kept],
+            "ai_findings_failed": False,
+        },
+    )
 
 
 def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
@@ -1926,14 +1928,12 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.dim_text(f"⚠ Finding {i + 1} invalid, skipping: {e.error_count()} error(s)")
             logger.debug("finding_validation_failed", index=i + 1, error=str(e))
 
-    ctx.data["normalized_findings"] = findings
-
     summary = f"✓ {len(findings)} finding(s) normalized"
     if skipped:
         summary += f" ({skipped} skipped)"
     ctx.textual.success_text(summary)
     ctx.textual.end_step("success")
-    return Success("Findings normalized")
+    return Success("Findings normalized", metadata={"normalized_findings": findings})
 
 
 def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
@@ -1999,8 +1999,6 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     deduped, collapsed = _collapse_derived_findings(deduped)
     removed += collapsed
 
-    ctx.data["deduped_findings"] = deduped
-
     summary = f"✓ {len(deduped)} finding(s) ready"
     if removed:
         # Say WHY findings were dropped: "already commented on the PR" explains why a
@@ -2036,7 +2034,10 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
         categories=categories,
     )
     ctx.textual.end_step("success")
-    return Success("Findings deduplicated", metadata={"deduped_findings_count": len(deduped)})
+    return Success(
+        "Findings deduplicated",
+        metadata={"deduped_findings": deduped, "deduped_findings_count": len(deduped)},
+    )
 
 
 # ============================================================================
@@ -2085,11 +2086,10 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
             )
         )
     actions = enriched_actions
-    ctx.data["review_action_proposals"] = actions
 
     ctx.textual.success_text(f"✓ {len(actions)} action(s) ready for review")
     ctx.textual.end_step("success")
-    return Success("Actions built")
+    return Success("Actions built", metadata={"review_action_proposals": actions})
 
 
 def _release_review_worktree(ctx: WorkflowContext) -> None:

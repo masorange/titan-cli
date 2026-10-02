@@ -549,8 +549,8 @@ def test_the_review_runs_one_session_in_the_worktree_and_maps_its_findings(tmp_p
     call = adapter.calls[0]
     assert call["cwd"] == str(tmp_path)
     assert "Review pull request #9" in call["prompt"]
-    assert ctx.data["ai_findings_failed"] is False
-    [finding] = ctx.data["raw_findings"]
+    assert result.metadata["ai_findings_failed"] is False
+    [finding] = result.metadata["raw_findings"]
     assert finding["why"] == finding["suggested_comment"] == "Explain"
     assert finding["evidence"] == "x = 1"
 
@@ -602,9 +602,9 @@ def test_findings_about_real_files_outside_the_pr_are_kept_and_invented_ones_dro
     adapter = _FakeReviewAdapter([(0, stdout)])
     ctx = _review_ctx(tmp_path, monkeypatch, adapter)
 
-    ai_review_findings(ctx)
+    result = ai_review_findings(ctx)
 
-    assert [f["path"] for f in ctx.data["raw_findings"]] == ["router.py"]
+    assert [f["path"] for f in result.metadata["raw_findings"]] == ["router.py"]
     assert any("1 finding(s)" in warning for warning in ctx.textual.warnings)
 
 
@@ -617,7 +617,7 @@ def test_a_prose_answer_is_reformatted_once(tmp_path, monkeypatch):
     assert isinstance(result, Success)
     assert len(adapter.calls) == 2
     assert "I found a bug in a.py." in adapter.calls[1]["prompt"]
-    assert len(ctx.data["raw_findings"]) == 1
+    assert len(result.metadata["raw_findings"]) == 1
 
 
 def test_an_unreadable_answer_after_the_retry_fails_visibly(tmp_path, monkeypatch):
@@ -649,8 +649,8 @@ def test_a_review_with_nothing_to_say_says_nothing(tmp_path, monkeypatch):
     result = ai_review_findings(ctx)
 
     assert isinstance(result, Success)
-    assert ctx.data["raw_findings"] == []
-    assert ctx.data["ai_findings_failed"] is False
+    assert result.metadata["raw_findings"] == []
+    assert result.metadata["ai_findings_failed"] is False
 
 
 def test_the_review_needs_a_worktree(tmp_path, monkeypatch):
