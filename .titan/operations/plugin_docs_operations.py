@@ -244,6 +244,11 @@ def _parse_return_line(line: str) -> tuple[str, str]:
     return match.group("result").strip(), match.group("desc").strip()
 
 
+def _escape_cell(text: str) -> str:
+    """Escape pipes so a value cannot split a Markdown table row."""
+    return text.replace("\\|", "|").replace("|", "\\|")
+
+
 def _append_contract_table(lines: list[str], title: str, section_lines: list[str]) -> None:
     """Append a structured Markdown table for contract sections."""
     if not section_lines:
@@ -259,7 +264,7 @@ def _append_contract_table(lines: list[str], title: str, section_lines: list[str
             result, description = _parse_return_line(line)
             if not description:
                 description = "-"
-            lines.append(f"| `{result}` | - | {description} |")
+            lines.append(f"| `{result}` | - | {_escape_cell(description)} |")
         lines.append("")
         return
 
@@ -268,7 +273,9 @@ def _append_contract_table(lines: list[str], title: str, section_lines: list[str
     for line in section_lines:
         name, item_type, description = _parse_contract_line(line)
         display_name = f"`{name}`" if description else name
-        lines.append(f"| {display_name} | {item_type or '-'} | {description or '-'} |")
+        lines.append(
+            f"| {display_name} | {_escape_cell(item_type or '-')} | {_escape_cell(description or '-')} |"
+        )
     lines.append("")
 
 
@@ -294,7 +301,7 @@ def _append_returns_table_with_outputs(lines: list[str], section_lines: list[str
         saved = "-"
         if result in {"Success", "Skip"} and output_names:
             saved = ", ".join(f"`{name}`" for name in output_names)
-        lines.append(f"| `{result}` | {saved} | {description or '-'} |")
+        lines.append(f"| `{result}` | {saved} | {_escape_cell(description or '-')} |")
 
     lines.append("")
 

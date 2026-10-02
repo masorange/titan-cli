@@ -139,7 +139,7 @@ Check whether the pull request's base branch requires a merge queue.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `merge_queue_enabled` | bool | None | Whether the base branch requires a merge queue, or None when the lookup failed. |
+| `merge_queue_enabled` | bool \| None | Whether the base branch requires a merge queue, or None when the lookup failed. |
 | `merge_queue_state` | - | The merge queue state object, when the lookup succeeded. |
 
 **Returns**
@@ -454,7 +454,7 @@ Ask whether the pull request should be created as a draft.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `draft` | bool | None, optional | Draft mode from workflow params. Use True/False to skip the prompt, or None to ask interactively. |
+| `draft` | bool \| None, optional | Draft mode from workflow params. Use True/False to skip the prompt, or None to ask interactively. |
 
 **Outputs (saved to ctx.data)**
 
@@ -1070,7 +1070,7 @@ Fetch all data needed for a full PR review cycle.
 | `review_commit_sha` | str | Head commit SHA |
 | `review_threads` | List[UICommentThread] | Inline review threads (unresolved) |
 | `review_general_comments` | List[UICommentThread] | General PR-level comments |
-| `pr_template` | str | None | PR template content if available |
+| `pr_template` | str \| None | PR template content if available |
 
 **Returns**
 
