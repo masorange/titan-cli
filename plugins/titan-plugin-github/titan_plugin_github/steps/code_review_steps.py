@@ -2406,6 +2406,16 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
             OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
         ]
+    elif ctx.get("ai_findings_failed", False):
+        # The AI review never produced findings, so "no findings" says nothing about the
+        # PR — don't present it as clean or offer to approve it.
+        ctx.textual.warning_text("⚠ The AI review did not run — this PR has NOT been reviewed")
+        ctx.textual.text("")
+
+        event_options = [
+            OptionItem(value="COMMENT", title="💬 Comment", description="Post a general comment"),
+            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+        ]
     else:
         ctx.textual.success_text("✅ No issues found - PR looks good and can be approved")
         ctx.textual.text("")
