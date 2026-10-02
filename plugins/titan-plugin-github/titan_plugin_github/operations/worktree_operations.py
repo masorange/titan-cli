@@ -12,6 +12,16 @@ from titan_cli.core.logging import best_effort_operation
 from titan_cli.core.result import ClientSuccess, ClientError
 
 
+def review_head_ref(pr_number: int) -> str:
+    """Local ref holding the PR head for a review."""
+    return f"refs/titan/review/pr-{pr_number}"
+
+
+def review_base_ref(pr_number: int) -> str:
+    """Local ref holding the PR base branch for a review."""
+    return f"{review_head_ref(pr_number)}-base"
+
+
 def setup_worktree(
     git_client,
     pr_number: int,
@@ -42,7 +52,7 @@ def setup_worktree(
 
         # Fetch the PR ref into a stable local ref. This works for both same-repo
         # and fork-based PRs where origin/<head_branch> does not exist locally.
-        review_ref = f"refs/titan/review/pr-{pr_number}"
+        review_ref = review_head_ref(pr_number)
         pr_refspec = f"pull/{pr_number}/head:{review_ref}"
         fetch_result = git_client.fetch_refspec(remote, pr_refspec)
         match fetch_result:
@@ -134,6 +144,25 @@ def cleanup_worktree(
             return True
         case ClientError():
             return False
+
+
+def delete_review_refs(git_client, pr_number: int) -> None:
+    """
+    Delete the head and base refs a review created in the user's repository.
+
+    Best-effort: a ref that is already gone or cannot be deleted must not fail the
+    cleanup, so errors are ignored.
+
+    Args:
+        git_client: Git client instance
+        pr_number: PR number the refs were created for
+    """
+    with best_effort_operation():
+        for ref in (review_head_ref(pr_number), review_base_ref(pr_number)):
+            try:
+                git_client.delete_ref(ref)
+            except Exception:
+                pass
 
 
 def commit_in_worktree(

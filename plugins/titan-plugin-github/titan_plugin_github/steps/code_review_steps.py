@@ -51,6 +51,7 @@ from ..operations.review_action_operations import (
     extract_file_excerpt_for_action,
     resolve_action_anchors,
 )
+from ..operations.worktree_operations import review_base_ref, review_head_ref
 from ..operations.thread_resolution_operations import (
     batch_thread_review_contexts,
     build_thread_review_candidates as build_thread_review_candidates_operation,
@@ -1464,8 +1465,8 @@ def _write_review_material(
     pr = manifest.pr
     if not ctx.git or not pr or diff_manager is None:
         return None
-    head_ref = f"refs/titan/review/pr-{pr.number}"
-    base_ref = f"{head_ref}-base"
+    head_ref = review_head_ref(pr.number)
+    base_ref = review_base_ref(pr.number)
     match ctx.git.fetch_refspec(ctx.git.default_remote, f"+refs/heads/{pr.base}:{base_ref}"):
         case ClientError(error_message=err):
             logger.warning("review_material_base_fetch_failed", base=pr.base, error=err)
@@ -2103,8 +2104,12 @@ def _release_review_worktree(ctx: WorkflowContext) -> None:
     if not ctx.get("worktree_created") or not ctx.get("worktree_path") or not ctx.git:
         return
     from ..operations import cleanup_worktree as cleanup_worktree_operation
+    from ..operations import delete_review_refs
 
     if cleanup_worktree_operation(ctx.git, ctx.data["worktree_path"]):
+        pr_number = ctx.get("selected_pr_number") or ctx.get("review_pr_number")
+        if pr_number:
+            delete_review_refs(ctx.git, pr_number)
         ctx.textual.dim_text("Review worktree removed (no longer needed).")
         ctx.data["worktree_created"] = False
         ctx.data["worktree_path"] = None

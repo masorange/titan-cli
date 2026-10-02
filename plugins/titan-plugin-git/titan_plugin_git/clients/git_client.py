@@ -524,6 +524,10 @@ class GitClient:
         """Prune stale worktree metadata for directories that no longer exist."""
         return self.worktree_service.prune_worktrees()
 
+    def delete_ref(self, ref: str) -> ClientResult[None]:
+        """Delete a ref; succeeds if it is already gone."""
+        return self.worktree_service.delete_ref(ref)
+
     def list_worktrees(self) -> ClientResult[List[UIGitWorktree]]:
         """List all worktrees."""
         return self.worktree_service.list_worktrees()
