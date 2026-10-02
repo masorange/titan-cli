@@ -871,7 +871,7 @@ def test_findings_phase_reports_its_cost_even_when_interrupted(monkeypatch):
         code_review_steps, "log_review_ai_cost", lambda _ctx, scope: scopes.append(scope)
     )
 
-    with pytest.raises(BaseException):
+    with pytest.raises(WorkflowAborted):
         code_review_steps.ai_review_findings(_Ctx())
 
     assert scopes == ["findings_phase"]
