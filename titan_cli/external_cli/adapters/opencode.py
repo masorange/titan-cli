@@ -17,8 +17,8 @@ from .base import (
     CliUsage,
     HeadlessResponse,
     SupportedCLI,
-    _as_float,
-    _as_int,
+    as_float,
+    as_int,
     model_listing_lines,
 )
 
@@ -247,13 +247,13 @@ class OpenCodeHeadlessAdapter:
         if not isinstance(cache, dict):
             cache = {}
         usage = CliUsage(
-            input_tokens=_as_int(tokens.get("input")),
-            output_tokens=_as_int(tokens.get("output")),
-            reasoning_tokens=_as_int(tokens.get("reasoning")),
-            cache_read_tokens=_as_int(cache.get("read")),
-            cache_write_tokens=_as_int(cache.get("write")),
-            reported_total_tokens=_as_int(tokens.get("total")),
-            cost_usd=_as_float(part.get("cost")),
+            input_tokens=as_int(tokens.get("input")),
+            output_tokens=as_int(tokens.get("output")),
+            reasoning_tokens=as_int(tokens.get("reasoning")),
+            cache_read_tokens=as_int(cache.get("read")),
+            cache_write_tokens=as_int(cache.get("write")),
+            reported_total_tokens=as_int(tokens.get("total")),
+            cost_usd=as_float(part.get("cost")),
             source="opencode_step_finish",
         )
         return usage if usage.total_tokens is not None or usage.has_cost else None

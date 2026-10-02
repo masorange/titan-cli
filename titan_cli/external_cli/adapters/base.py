@@ -163,12 +163,12 @@ class CliUsage:
         return {k: v for k, v in fields.items() if v is not None}
 
 
-def _as_int(value: Any) -> Optional[int]:
+def as_int(value: Any) -> Optional[int]:
     """Coerce a reported count, treating anything unexpected as "not reported"."""
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _as_float(value: Any) -> Optional[float]:
+def as_float(value: Any) -> Optional[float]:
     if isinstance(value, bool):
         return None
     return float(value) if isinstance(value, (int, float)) else None
@@ -195,7 +195,7 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
         # a different model) no single name is the truth, so report none rather than
         # picking one arbitrarily.
         model_reported = next(iter(model_usage))
-    cost = _as_float(envelope.get("total_cost_usd"))
+    cost = as_float(envelope.get("total_cost_usd"))
     model_costs = _model_costs(model_usage)
 
     if not isinstance(usage, dict):
@@ -207,11 +207,11 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
     # because it is the part of the output that never reaches the parsed answer.
     details = usage.get("output_tokens_details")
     return CliUsage(
-        input_tokens=_as_int(usage.get("input_tokens")),
-        output_tokens=_as_int(usage.get("output_tokens")),
-        cache_read_tokens=_as_int(usage.get("cache_read_input_tokens")),
-        cache_write_tokens=_as_int(usage.get("cache_creation_input_tokens")),
-        reasoning_tokens=_as_int(details.get("thinking_tokens")) if isinstance(details, dict) else None,
+        input_tokens=as_int(usage.get("input_tokens")),
+        output_tokens=as_int(usage.get("output_tokens")),
+        cache_read_tokens=as_int(usage.get("cache_read_input_tokens")),
+        cache_write_tokens=as_int(usage.get("cache_creation_input_tokens")),
+        reasoning_tokens=as_int(details.get("thinking_tokens")) if isinstance(details, dict) else None,
         cost_usd=cost,
         model_reported=model_reported,
         model_costs=model_costs,
@@ -226,7 +226,7 @@ def _model_costs(model_usage: Any) -> Optional[dict[str, float]]:
     costs = {
         str(model): round(price, 6)
         for model, entry in model_usage.items()
-        if isinstance(entry, dict) and (price := _as_float(entry.get("costUSD"))) is not None
+        if isinstance(entry, dict) and (price := as_float(entry.get("costUSD"))) is not None
     }
     return costs or None
 

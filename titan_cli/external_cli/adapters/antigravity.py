@@ -18,7 +18,7 @@ from .base import (
     CliUsage,
     HeadlessResponse,
     SupportedCLI,
-    _as_int,
+    as_int,
     model_listing_lines,
 )
 
@@ -281,11 +281,11 @@ class AntigravityHeadlessAdapter:
         if not isinstance(usage, dict):
             return None
         return CliUsage(
-            input_tokens=_as_int(usage.get("input_tokens")),
-            output_tokens=_as_int(usage.get("output_tokens")),
-            cache_read_tokens=_as_int(usage.get("cache_read_tokens")),
-            reasoning_tokens=_as_int(usage.get("thinking_tokens")),
-            reported_total_tokens=_as_int(usage.get("total_tokens")),
+            input_tokens=as_int(usage.get("input_tokens")),
+            output_tokens=as_int(usage.get("output_tokens")),
+            cache_read_tokens=as_int(usage.get("cache_read_tokens")),
+            reasoning_tokens=as_int(usage.get("thinking_tokens")),
+            reported_total_tokens=as_int(usage.get("total_tokens")),
             source="agy_envelope",
         )
 

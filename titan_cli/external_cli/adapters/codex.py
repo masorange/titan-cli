@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import CliModel, CliUsage, HeadlessResponse, SupportedCLI, _as_int
+from .base import CliModel, CliUsage, HeadlessResponse, SupportedCLI, as_int
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -254,10 +254,10 @@ class CodexHeadlessAdapter:
         if not isinstance(usage, dict):
             return None
         return CliUsage(
-            input_tokens=_as_int(usage.get("input_tokens")),
-            output_tokens=_as_int(usage.get("output_tokens")),
-            cache_read_tokens=_as_int(usage.get("cached_input_tokens")),
-            cache_write_tokens=_as_int(usage.get("cache_write_input_tokens")),
-            reasoning_tokens=_as_int(usage.get("reasoning_output_tokens")),
+            input_tokens=as_int(usage.get("input_tokens")),
+            output_tokens=as_int(usage.get("output_tokens")),
+            cache_read_tokens=as_int(usage.get("cached_input_tokens")),
+            cache_write_tokens=as_int(usage.get("cache_write_input_tokens")),
+            reasoning_tokens=as_int(usage.get("reasoning_output_tokens")),
             source="codex_turn_completed",
         )
