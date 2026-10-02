@@ -174,7 +174,7 @@ class TestBuildTaskRoutings:
                 workflow_name="wf",
                 steps=[
                     _step(
-                        "code_review_plan",
+                        "code_review_findings",
                         executes=[AIProviderType.CLI_HEADLESS],
                         enforces=False,
                         name="Review plan",
@@ -403,7 +403,7 @@ class TestScreenMounts:
         usages = [
             DiscoveredWorkflowAIUsage(
                 workflow_name="wf",
-                steps=[_step("code_review_plan", executes=[], enforces=False)],
+                steps=[_step("code_review_findings", executes=[], enforces=False)],
             )
         ]
 
@@ -413,7 +413,7 @@ class TestScreenMounts:
             monkeypatch,
         )
 
-        assert captured["buttons"] == {"code_review_plan": []}
+        assert captured["buttons"] == {"code_review_findings": []}
 
     def test_an_unconfigurable_task_with_a_saved_preference_still_offers_clear(
         self, monkeypatch
@@ -425,17 +425,17 @@ class TestScreenMounts:
         usages = [
             DiscoveredWorkflowAIUsage(
                 workflow_name="wf",
-                steps=[_step("code_review_plan", executes=[], enforces=False)],
+                steps=[_step("code_review_findings", executes=[], enforces=False)],
             )
         ]
 
         captured = self._mount(
-            self._config(default_cli="claude", tasks={"code_review_plan": "remote"}),
+            self._config(default_cli="claude", tasks={"code_review_findings": "remote"}),
             usages,
             monkeypatch,
         )
 
-        assert captured["buttons"] == {"code_review_plan": ["task-clear-code_review_plan"]}
+        assert captured["buttons"] == {"code_review_findings": ["task-clear-code_review_findings"]}
 
     def test_a_configurable_task_offers_change_and_clear(self, monkeypatch):
         usages = [

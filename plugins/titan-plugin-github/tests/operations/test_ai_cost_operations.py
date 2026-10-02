@@ -119,22 +119,22 @@ class TestPhases:
 
     def test_phases_keep_execution_order(self):
         summary = summarize_ai_calls([
-            _call(phase="code_review_plan"),
+            _call(phase="respond_pr_comment"),
             _call(phase="code_review_findings"),
             _call(phase="code_review_findings"),
         ])
 
-        assert [p.phase for p in summary.phases] == ["code_review_plan", "code_review_findings"]
+        assert [p.phase for p in summary.phases] == ["respond_pr_comment", "code_review_findings"]
         assert [p.calls for p in summary.phases] == [1, 2]
 
     def test_each_phase_carries_its_own_missing_cost_count(self):
         summary = summarize_ai_calls([
-            _call(phase="code_review_plan", cli="codex", cost_usd=None),
+            _call(phase="respond_pr_comment", cli="codex", cost_usd=None),
             _call(phase="code_review_findings", cli="claude", cost_usd=0.30),
         ])
 
-        plan, findings = summary.phases
-        assert plan.cost_usd is None and plan.calls_missing_cost == 1
+        comment, findings = summary.phases
+        assert comment.cost_usd is None and comment.calls_missing_cost == 1
         assert findings.cost_usd == 0.30 and findings.calls_missing_cost == 0
 
 
