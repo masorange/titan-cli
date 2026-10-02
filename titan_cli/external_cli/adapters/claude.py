@@ -84,6 +84,11 @@ class ClaudeHeadlessAdapter:
         # is passed left every plain-text call with no cost figure at all. Verified
         # 2026-09-22 that the envelope is emitted without `--json-schema`.
         cmd = ["claude", "--print", "--output-format", "json"]
+        # The cwd may be a PR worktree: untrusted code. `--print` skips the workspace trust
+        # prompt, so without these flags a PR's `.claude/settings.json` (hooks, permissions),
+        # `.mcp.json` servers or `CLAUDE.md` would run/load on the reviewer's machine, and
+        # `--disallowedTools` stops none of the first two. Only the user's own settings load.
+        cmd += ["--setting-sources", "user", "--strict-mcp-config"]
         if json_schema is not None:
             cmd += ["--json-schema", json.dumps(json_schema)]
         if disallowed_tools:

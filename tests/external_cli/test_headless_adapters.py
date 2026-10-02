@@ -128,7 +128,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json"],
+            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config"],
             input="review this",
             capture_output=True,
             text=True,
@@ -182,7 +182,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, json_schema=schema)
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--json-schema", json.dumps(schema)],
+            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config", "--json-schema", json.dumps(schema)],
             input="review this",
             capture_output=True,
             text=True,
@@ -256,7 +256,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         )
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--disallowedTools=Bash,Agent"],
+            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config", "--disallowedTools=Bash,Agent"],
             input="review this",
             capture_output=True,
             text=True,
@@ -281,7 +281,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, effort="medium")
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--effort", "medium"],
+            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config", "--effort", "medium"],
             input="review this",
             capture_output=True,
             text=True,
