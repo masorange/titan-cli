@@ -1654,6 +1654,7 @@ def _retry_review_reformat(adapter, previous_stdout: str, cwd: Optional[str], st
             cwd=cwd,
             timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
             json_schema=free_review_json_schema() if structured else None,
+            **_review_tool_options(adapter),
         )
     )
     _log_ai_response(
