@@ -1770,9 +1770,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     manifest = ctx.get("change_manifest")
     worktree_path = ctx.data.get("worktree_path")
     if not manifest or not manifest.pr or not worktree_path:
-        ctx.textual.error_text("No change manifest or review worktree in context")
-        ctx.textual.end_step("error")
-        return Error("No change manifest or review worktree in context")
+        return _fail_review(ctx, "No change manifest or review worktree in context")
 
     adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_findings)
     if not adapter:
@@ -2444,8 +2442,9 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
             OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
         ]
-    elif ctx.get("ai_findings_failed", False):
-        # The AI review never produced findings, so "no findings" says nothing about the
+    elif ctx.get("ai_findings_failed", False) or ctx.get("raw_findings") is None:
+        # The AI review never produced findings (it failed, or an earlier step failed before
+        # it could publish any), so "no findings" says nothing about the
         # PR — don't present it as clean or offer to approve it.
         ctx.textual.warning_text("⚠ The AI review did not run — this PR has NOT been reviewed")
         ctx.textual.text("")
