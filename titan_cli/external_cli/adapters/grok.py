@@ -309,9 +309,14 @@ def _write_prompt_file(text: str) -> Path:
     """Write the prompt to a file only the current user can read, and return its path.
 
     The prompt carries the PR's code, so it is not left world-readable in /tmp; the
-    caller deletes it once grok exits.
+    caller deletes it once grok exits. If writing fails, the file is removed here so the
+    PR's code is not left behind.
     """
     fd, path = tempfile.mkstemp(prefix="titan-grok-", suffix=".txt")
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(text)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except BaseException:
+        Path(path).unlink(missing_ok=True)
+        raise
     return Path(path)
