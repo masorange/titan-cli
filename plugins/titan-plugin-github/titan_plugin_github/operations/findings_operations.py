@@ -75,8 +75,23 @@ _FINDINGS_SHAPE = {
 }
 
 
-REVIEW_DISALLOWED_TOOLS = ("Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "ScheduleWakeup")
+REVIEW_DISALLOWED_TOOLS = (
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch",
+    "ScheduleWakeup",
+    "Bash(git * --output*)",
+    "Bash(git * --ext-diff*)",
+    "Bash(git * --textconv*)",
+    "Bash(git * --open-files-in-pager*)",
+)
 """Tools removed from the review session: it reads, it does not change or fetch anything.
+
+The `Bash(git ...)` rules close the flags that make an allowed read-only git command write
+files (`--output`) or run an external program (`--ext-diff`, `--textconv`); the session reads
+untrusted PR content, so a prompt-injected diff must not be able to use them.
 
 Subagents (`Agent`) are allowed: they are how a free-form review gives a large PR depth in
 separate contexts, the one thing a single session cannot do.
@@ -90,9 +105,10 @@ REVIEW_ALLOWED_TOOLS = (
     "Bash(git show:*)",
     "Bash(git diff:*)",
     "Bash(git blame:*)",
-    "Bash(git grep:*)",
 )
 """The only shell the session gets: read-only git, for history and blame.
+
+`git grep` is left out (`-O<cmd>` runs an arbitrary command); the Grep tool covers searching.
 
 Any other command is denied in a headless session (verified 2026-10-01: `git log` ran,
 `touch` was denied), which also keeps it from running tests or builds.
