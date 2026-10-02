@@ -663,9 +663,8 @@ def test_the_review_needs_a_worktree(tmp_path, monkeypatch):
 
 
 def test_ai_thread_resolution_parses_markdown_fenced_response(monkeypatch):
-    """review-batching-006: ai_thread_resolution used to hand-roll its own fence
-    stripping and JSON-slice extraction. It must now share the same
-    `extract_json_payload()` helper as ai_review_findings/ai_review_plan."""
+    """ai_thread_resolution must share the same `extract_json_payload()` helper
+    as ai_review_findings instead of hand-rolling fence stripping."""
     fake_adapter = _FakeFencedAdapter('```json\n[{"thread_id": "t1", "decision": "resolved"}]\n```')
     monkeypatch.setattr(code_review_steps, "_resolve_headless_adapter", lambda _pref: fake_adapter)
 
@@ -845,7 +844,7 @@ def test_validate_review_actions_releases_worktree_even_with_no_actions(monkeypa
 
 
 # ============================================================================
-# findings-phase cost is reported even when the phase is abandoned (cov-001/005)
+# findings-phase cost is reported even when the phase is abandoned
 # ============================================================================
 
 
