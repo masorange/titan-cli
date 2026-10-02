@@ -1461,7 +1461,7 @@ def _write_review_material(
         return None
     head_ref = f"refs/titan/review/pr-{pr.number}"
     base_ref = f"{head_ref}-base"
-    match ctx.git.fetch_refspec("origin", f"+refs/heads/{pr.base}:{base_ref}"):
+    match ctx.git.fetch_refspec(ctx.git.default_remote, f"+refs/heads/{pr.base}:{base_ref}"):
         case ClientError(error_message=err):
             logger.warning("review_material_base_fetch_failed", base=pr.base, error=err)
             return None

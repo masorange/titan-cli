@@ -999,6 +999,7 @@ def test_review_material_is_written_into_the_worktree(tmp_path):
         def __init__(self, merge_base=ClientSuccess(data="mb123")):
             self.merge_base = merge_base
             self.fetched = []
+            self.default_remote = "upstream"
 
         def fetch_refspec(self, remote, refspec):
             self.fetched.append((remote, refspec))
@@ -1018,7 +1019,7 @@ def test_review_material_is_written_into_the_worktree(tmp_path):
     )
 
     assert result == {"a.py": True, "n.py": False}
-    assert ctx.git.fetched == [("origin", "+refs/heads/main:refs/titan/review/pr-9-base")]
+    assert ctx.git.fetched == [("upstream", "+refs/heads/main:refs/titan/review/pr-9-base")]
     assert (tmp_path / ".titan-review/base/a.py").read_text() == "ctx\n"
     assert not (tmp_path / ".titan-review/base/n.py").exists()
     assert "2 [ADDED] new" in (tmp_path / ".titan-review/diffs/a.py.diff").read_text()
