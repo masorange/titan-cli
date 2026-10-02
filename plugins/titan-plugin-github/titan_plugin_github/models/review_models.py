@@ -71,7 +71,6 @@ class ExistingCommentIndexEntry(BaseModel):
     is_resolved: bool = Field(..., description="Whether thread is resolved")
     path: Optional[str] = Field(default=None, description="File path")
     line: Optional[int] = Field(default=None, description="Target line")
-    category: Optional[str] = Field(default=None, description="Inferred category")
     title: str = Field(..., description="Short comment title/body preview")
     body: str = Field(default="", description="The comment's text, capped; what dedupe compares against")
     author: str = Field(..., description="Comment author login")

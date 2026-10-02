@@ -176,27 +176,6 @@ def build_change_manifest(
 _INDEXED_BODY_CHARS = 1500
 
 
-def _infer_category(body: str) -> Optional[str]:
-    lower = body.lower()
-    if any(k in lower for k in ("test", "coverage", "mock", "assert")):
-        return "test_coverage"
-    if any(k in lower for k in ("except", "error", "exception", "raise", "catch", "handle")):
-        return "error_handling"
-    if any(k in lower for k in ("security", "inject", "xss", "sql", "auth", "token", "secret")):
-        return "security"
-    if any(k in lower for k in ("performance", "slow", "n+1", "cache", "latency", "timeout")):
-        return "performance"
-    if any(k in lower for k in ("api", "contract", "schema", "interface", "endpoint")):
-        return "api_contract"
-    if any(k in lower for k in ("concurren", "thread", "async", "lock", "race")):
-        return "concurrency"
-    if any(k in lower for k in ("logic", "bug", "incorrect", "wrong", "broken")):
-        return "functional_correctness"
-    if any(k in lower for k in ("validate", "validation", "sanitize", "nullable", "none")):
-        return "data_validation"
-    return None
-
-
 def _looks_like_automated_comment(author_login: str, body: str) -> bool:
     lower_author = (author_login or "").lower()
     lower_body = body.lower()
@@ -278,7 +257,6 @@ def build_existing_comments_index(
                 is_resolved=thread.is_resolved,
                 path=mc.path,
                 line=mc.line,
-                category=_infer_category(mc.body),
                 title=mc.body[:80].strip(),
                 body=mc.body[:_INDEXED_BODY_CHARS],
                 author=mc.author_login,
@@ -298,7 +276,6 @@ def build_existing_comments_index(
                     is_resolved=thread.is_resolved,
                     path=reply.path or mc.path,
                     line=reply.line or mc.line,
-                    category=_infer_category(reply.body),
                     title=reply.body[:80].strip(),
                     body=reply.body[:_INDEXED_BODY_CHARS],
                     author=reply.author_login,
@@ -320,7 +297,6 @@ def build_existing_comments_index(
                 is_resolved=gc.is_resolved,
                 path=None,
                 line=None,
-                category=_infer_category(mc.body),
                 title=mc.body[:80].strip(),
                 body=mc.body[:_INDEXED_BODY_CHARS],
                 author=mc.author_login,

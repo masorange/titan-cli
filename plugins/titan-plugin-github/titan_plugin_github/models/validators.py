@@ -45,28 +45,21 @@ def is_duplicate(
         existing.title.lower(),
     ).ratio()
 
-    # Whether the two SAY the same thing. A shared category is no longer enough on its
-    # own: the existing comment's category is guessed from keywords, so "Shouldn't this be
-    # handling the case with no checkoutUrl?" became error_handling for containing
-    # "handle", and on ragnarok PR #3685 it swallowed a different, real finding five lines
-    # away ("the Retry button never retries"). On a heavily commented PR that rule removed
-    # exactly the findings that were new.
-    same_category = new_finding.category.lower() == (existing.category or "").lower()
+    # Whether the two SAY the same thing. Category plays no part: findings carry a constant
+    # one and existing comments have none, so it could never discriminate.
     if overlap >= _SAME_TOPIC_OVERLAP:
         return True
     if shared_identifiers and overlap >= _SHARED_IDENTIFIER_OVERLAP:
         return True
     # The exact same line is a stronger signal than the window: ragnarok #3723 re-reported
     # two findings already commented on the very line they anchor to, at overlaps of 0.29
-    # and 0.39, because the comments' guessed category differed. The case that made the
+    # and 0.39, because the two texts overlapped only weakly. The case that made the
     # thresholds strict (#3685) was a different defect five lines away, not on the line.
     if (
         new_finding.line is not None
         and new_finding.line == existing.line
         and overlap >= _SAME_LINE_OVERLAP
     ):
-        return True
-    if same_category and not existing.is_resolved and overlap >= _SAME_CATEGORY_OVERLAP:
         return True
 
     if existing.is_adjudicated and similarity > 0.58:
@@ -85,7 +78,6 @@ def _lines_are_close(line_a: int | None, line_b: int | None, window: int) -> boo
 
 # Share of the shorter text's content words that the other text also uses.
 _SAME_TOPIC_OVERLAP = 0.5
-_SAME_CATEGORY_OVERLAP = 0.3
 _SAME_LINE_OVERLAP = 0.25
 _SHARED_IDENTIFIER_OVERLAP = 0.25
 # How far apart two comments may sit when they name the same code identifier.
