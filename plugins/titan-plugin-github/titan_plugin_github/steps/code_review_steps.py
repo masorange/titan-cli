@@ -580,7 +580,9 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
         review_pr_base (str): Base branch
 
     Returns:
-        Success, Exit (no PRs or cancelled), or Error
+        Success: A PR was selected.
+        Exit: No PRs, or the user cancelled.
+        Error: If listing PRs fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -680,7 +682,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     Builds a complete review bundle: PR metadata, diff, file stats,
     inline review threads (separate from general comments), and commit SHA.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_pr_number (int): PR number
 
     Outputs (saved to ctx.data):
@@ -694,7 +696,9 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
         pr_template (str | None): PR template content if available
 
     Returns:
-        Success, Skip (empty diff), or Error
+        Success: The step completed.
+        Skip: Nothing to do (empty diff).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1282,7 +1286,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
     Converts UIFileChange objects into a typed ChangeManifest that serves
     as cheap context for both AI-directed workflows.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_pr (UIPullRequest): Pull request details
         review_changed_files_with_stats (List[UIFileChange]): Files with add/del stats
 
@@ -1290,7 +1294,8 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
         change_manifest (ChangeManifest): Structured PR context
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1350,7 +1355,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     list of ExistingCommentIndexEntry objects. The index is used later to
     avoid AI findings that duplicate comments already posted.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_threads (List[UICommentThread]): Inline review threads
         review_general_comments (List[UICommentThread]): General PR-level comments
 
@@ -1358,7 +1363,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
         existing_comments_index (List[ExistingCommentIndexEntry])
 
     Returns:
-        Success
+        Success: The step completed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1527,7 +1532,7 @@ def write_review_material(ctx: WorkflowContext) -> WorkflowResult:
 
     A worktree is required: the review reads the PR's code there.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         change_manifest (ChangeManifest)
         review_diff_manager (DiffContextManager)
         review_threads, review_general_comments (List[UICommentThread])
@@ -1537,7 +1542,8 @@ def write_review_material(ctx: WorkflowContext) -> WorkflowResult:
         review_material (dict[str, bool]): each changed path -> whether it has a base version
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1690,7 +1696,7 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     everything, and an interrupted run is exactly when the user wants to know what it
     cost. `WorkflowAborted` is a `BaseException`, so `finally` still runs on it.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         change_manifest (ChangeManifest)
         worktree_path (str): with the material `write_review_material` left in it
 
@@ -1699,8 +1705,8 @@ def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         ai_findings_failed (bool): True when no review happened
 
     Returns:
-        Success with raw findings, Success with none when AI is off for the task, or
-        Error when the session could not run or produced nothing readable.
+        Success: With the raw findings, or with none when AI is off for the task.
+        Error: If the session could not run or produced nothing readable.
     """
     try:
         return _ai_review_findings(ctx)
@@ -1732,7 +1738,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     Which CLI runs it comes from the `code_review_findings` task preference
     (AI Configuration screen), not from the workflow.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         change_manifest (ChangeManifest)
         worktree_path (str)
 
@@ -1741,7 +1747,8 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         ai_findings_failed (bool)
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1867,14 +1874,15 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
     Each item is validated as a Finding model. Invalid items are skipped
     with a warning rather than failing the entire step.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         raw_findings (list | str): Raw AI output from ai_review_findings
 
     Outputs (saved to ctx.data):
         normalized_findings (List[Finding]): Validated Finding objects
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1936,7 +1944,7 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     file, the same area (within 5 lines), and the same topic (same category
     or similar title).
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         normalized_findings (List[Finding])
         existing_comments_index (List[ExistingCommentIndexEntry])
 
@@ -1944,7 +1952,8 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
         deduped_findings (List[Finding]): Findings after duplicate removal
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2038,14 +2047,15 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
     """
     Convert deduplicated findings into ReviewActionProposal objects.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         deduped_findings (List[Finding])
 
     Outputs (saved to ctx.data):
         review_action_proposals (List[ReviewActionProposal])
 
     Returns:
-        Success or Skip (no findings)
+        Success: The step completed.
+        Skip: Nothing to do (no findings).
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2105,7 +2115,7 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     """
     Present each ReviewActionProposal to the user for approval, editing, or skipping.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_action_proposals (List[ReviewActionProposal])
 
     Optional (from ctx.data):
@@ -2115,7 +2125,9 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         approved_action_proposals (List[ReviewActionProposal])
 
     Returns:
-        Success, Skip (none approved), or Error
+        Success: The step completed.
+        Skip: Nothing to do (none approved).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2282,7 +2294,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     Handles resolve_thread actions directly, then submits new_comment and
     reply_to_thread actions as a GitHub draft review.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         approved_action_proposals (List[ReviewActionProposal])
         review_pr_number (int)
 
@@ -2291,7 +2303,9 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         review_diff (str): Full PR diff for inline comment validation
 
     Returns:
-        Success, Skip (no approved actions), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no approved actions).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2630,7 +2644,7 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     Only includes threads where the last comment is from the PR author,
     indicating they have responded to the review.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_threads (List[UICommentThread]): Unresolved inline review threads
         review_pr (UIPullRequest): PR object with author info
         review_current_user (str): GitHub login running Titan
@@ -2639,7 +2653,9 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         thread_review_candidates (List[ThreadReviewCandidate])
 
     Returns:
-        Success, Skip (no candidates), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no candidates).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2692,7 +2708,7 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
     collects all replies from the full UICommentThread object, and attaches
     remote context for commit SHAs referenced in those replies.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         thread_review_candidates (List[ThreadReviewCandidate])
         review_threads (List[UICommentThread]): For extracting reply history
         review_diff (str): Full PR unified diff
@@ -2704,7 +2720,9 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
         thread_review_contexts (List[ThreadReviewContext])
 
     Returns:
-        Success, Skip (no candidates), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no candidates).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2771,14 +2789,15 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
     Which CLI runs it comes from the `thread_resolution` task preference
     (AI Configuration screen), not from the workflow.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         thread_review_contexts (List[ThreadReviewContext])
 
     Outputs (saved to ctx.data):
         raw_thread_decisions (list): Raw AI output aggregated across batches, before normalization
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2907,14 +2926,15 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
     Each item is validated as a ThreadDecision model. Invalid items are
     skipped with a warning rather than failing the entire step.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         raw_thread_decisions (list | str): Raw AI output from ai_thread_resolution
 
     Outputs (saved to ctx.data):
         thread_decisions (List[ThreadDecision]): Validated ThreadDecision objects
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -3014,7 +3034,7 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
     Saves results under the same key as new_findings workflow so that
     validate_review_actions and submit_review_actions can be reused directly.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         thread_decisions (List[ThreadDecision])
         thread_review_contexts (List[ThreadReviewContext])
 
@@ -3022,7 +3042,9 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
         review_action_proposals (List[ReviewActionProposal])
 
     Returns:
-        Success, Skip (no actionable decisions), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no actionable decisions).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")

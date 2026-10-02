@@ -1108,7 +1108,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success, Exit (no PRs or cancelled), or Error` | - | - |
+    | `Success` | `review_pr_number`, `review_pr_title`, `review_pr_head`, `review_pr_base` | A PR was selected. |
+    | `Exit` | - | No PRs, or the user cancelled. |
+    | `Error` | - | If listing PRs fails. |
 
 
 ??? info "`fetch_pr_review_bundle`"
@@ -1127,7 +1129,9 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_pr_number` | int | PR number |
 
     **Outputs (saved to ctx.data)**
 
@@ -1146,7 +1150,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success, Skip (empty diff), or Error` | - | - |
+    | `Success` | `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template` | The step completed. |
+    | `Skip` | `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template` | Nothing to do (empty diff). |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`build_change_manifest`"
@@ -1165,7 +1171,10 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_pr` | UIPullRequest | Pull request details |
+    | `review_changed_files_with_stats` | List[UIFileChange] | Files with add/del stats |
 
     **Outputs (saved to ctx.data)**
 
@@ -1177,7 +1186,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Success` | `change_manifest` | The step completed. |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`build_existing_comments_index`"
@@ -1196,7 +1206,10 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_threads` | List[UICommentThread] | Inline review threads |
+    | `review_general_comments` | List[UICommentThread] | General PR-level comments |
 
     **Outputs (saved to ctx.data)**
 
@@ -1208,7 +1221,7 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | - |
+    | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | The step completed. |
 
 
 ??? info "`write_review_material`"
@@ -1227,7 +1240,12 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | change_manifest (ChangeManifest) | - | - |
+    | review_diff_manager (DiffContextManager) | - | - |
+    | review_threads, review_general_comments (List[UICommentThread]) | - | - |
+    | worktree_path (str) | - | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1239,7 +1257,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Success` | `review_material` | The step completed. |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`ai_review_findings`"
@@ -1258,7 +1277,10 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | change_manifest (ChangeManifest) | - | - |
+    | `worktree_path` | str | with the material `write_review_material` left in it |
 
     **Outputs (saved to ctx.data)**
 
@@ -1271,8 +1293,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success with raw findings, Success with none when AI is off for the task, or` | - | - |
-    | `Error when the session could not run or produced nothing readable.` | - | - |
+    | `Success` | `raw_findings`, `ai_findings_failed` | With the raw findings, or with none when AI is off for the task. |
+    | `Error` | - | If the session could not run or produced nothing readable. |
 
 
 ??? info "`normalize_findings`"
@@ -1291,7 +1313,9 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `raw_findings` | list \| str | Raw AI output from ai_review_findings |
 
     **Outputs (saved to ctx.data)**
 
@@ -1303,7 +1327,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Success` | `normalized_findings` | The step completed. |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`dedupe_findings`"
@@ -1322,7 +1347,10 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | normalized_findings (List[Finding]) | - | - |
+    | existing_comments_index (List[ExistingCommentIndexEntry]) | - | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1334,7 +1362,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Success` | `deduped_findings` | The step completed. |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`build_new_comment_actions`"
@@ -1353,7 +1382,9 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | deduped_findings (List[Finding]) | - | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1365,7 +1396,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Skip (no findings)` | - | - |
+    | `Success` | `review_action_proposals (List[ReviewActionProposal])` | The step completed. |
+    | `Skip` | `review_action_proposals (List[ReviewActionProposal])` | Nothing to do (no findings). |
 
 
 ??? info "`validate_review_actions`"
@@ -1384,7 +1416,10 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | review_action_proposals (List[ReviewActionProposal]) | - | - |
+    | `review_diff` | str | Full PR diff for extracting diff context per comment |
 
     **Outputs (saved to ctx.data)**
 
@@ -1396,7 +1431,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success, Skip (none approved), or Error` | - | - |
+    | `Success` | `approved_action_proposals (List[ReviewActionProposal])` | The step completed. |
+    | `Skip` | `approved_action_proposals (List[ReviewActionProposal])` | Nothing to do (none approved). |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`submit_review_actions`"
@@ -1413,7 +1450,12 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | approved_action_proposals (List[ReviewActionProposal]) | - | - |
+    | review_pr_number (int) | - | - |
+    | `review_commit_sha` | str | Head commit SHA (fetched if missing) |
+    | `review_diff` | str | Full PR diff for inline comment validation |
 
     **Outputs (saved to ctx.data)**
 
@@ -1423,7 +1465,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success, Skip (no approved actions), or Error` | - | - |
+    | `Success` | - | The step completed. |
+    | `Skip` | - | Nothing to do (no approved actions). |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`build_thread_review_candidates`"
@@ -1442,7 +1486,11 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `review_threads` | List[UICommentThread] | Unresolved inline review threads |
+    | `review_pr` | UIPullRequest | PR object with author info |
+    | `review_current_user` | str | GitHub login running Titan |
 
     **Outputs (saved to ctx.data)**
 
@@ -1454,7 +1502,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success, Skip (no candidates), or Error` | - | - |
+    | `Success` | `thread_review_candidates (List[ThreadReviewCandidate])` | The step completed. |
+    | `Skip` | `thread_review_candidates (List[ThreadReviewCandidate])` | Nothing to do (no candidates). |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`build_thread_review_contexts`"
@@ -1479,7 +1529,11 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | thread_review_candidates (List[ThreadReviewCandidate]) | - | - |
+    | `review_threads` | List[UICommentThread] | For extracting reply history |
+    | `review_diff` | str | Full PR unified diff |
 
     **Outputs (saved to ctx.data)**
 
@@ -1491,7 +1545,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success, Skip (no candidates), or Error` | - | - |
+    | `Success` | `thread_review_contexts (List[ThreadReviewContext])` | The step completed. |
+    | `Skip` | `thread_review_contexts (List[ThreadReviewContext])` | Nothing to do (no candidates). |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`ai_thread_resolution`"
@@ -1510,7 +1566,9 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | thread_review_contexts (List[ThreadReviewContext]) | - | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1522,7 +1580,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Success` | `raw_thread_decisions` | The step completed. |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`normalize_thread_decisions`"
@@ -1541,7 +1600,9 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `raw_thread_decisions` | list \| str | Raw AI output from ai_thread_resolution |
 
     **Outputs (saved to ctx.data)**
 
@@ -1553,7 +1614,8 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success or Error` | - | - |
+    | `Success` | `thread_decisions` | The step completed. |
+    | `Error` | - | The step failed. |
 
 
 ??? info "`build_thread_actions`"
@@ -1572,7 +1634,10 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | thread_decisions (List[ThreadDecision]) | - | - |
+    | thread_review_contexts (List[ThreadReviewContext]) | - | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1584,7 +1649,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success, Skip (no actionable decisions), or Error` | - | - |
+    | `Success` | `review_action_proposals (List[ReviewActionProposal])` | The step completed. |
+    | `Skip` | `review_action_proposals (List[ReviewActionProposal])` | Nothing to do (no actionable decisions). |
+    | `Error` | - | The step failed. |
 
 
 ### Worktree Support

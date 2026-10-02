@@ -222,14 +222,17 @@
       "summary": "Run the review session, and report its cost even if it is abandoned.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    change_manifest (ChangeManifest)",
+          "    worktree_path (str): with the material `write_review_material` left in it"
+        ],
         "Outputs (saved to ctx.data)": [
           "    raw_findings (list): the session's findings, mapped onto `Finding`'s fields",
           "    ai_findings_failed (bool): True when no review happened"
         ],
         "Returns": [
-          "    Success with raw findings, Success with none when AI is off for the task, or",
-          "    Error when the session could not run or produced nothing readable."
+          "    Success: With the raw findings, or with none when AI is off for the task.",
+          "    Error: If the session could not run or produced nothing readable."
         ]
       },
       "used_by_workflows": [
@@ -302,12 +305,15 @@
       "summary": "AI call: decide what to do with each open thread.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    thread_review_contexts (List[ThreadReviewContext])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    raw_thread_decisions (list): Raw AI output aggregated across batches, before normalization"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -322,12 +328,16 @@
       "summary": "Build a structured manifest of the PR changes (no AI involved).",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_pr (UIPullRequest): Pull request details",
+          "    review_changed_files_with_stats (List[UIFileChange]): Files with add/del stats"
+        ],
         "Outputs (saved to ctx.data)": [
           "    change_manifest (ChangeManifest): Structured PR context"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -342,12 +352,15 @@
       "summary": "Build a compact index of existing PR comments for deduplication.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_threads (List[UICommentThread]): Inline review threads",
+          "    review_general_comments (List[UICommentThread]): General PR-level comments"
+        ],
         "Outputs (saved to ctx.data)": [
           "    existing_comments_index (List[ExistingCommentIndexEntry])"
         ],
         "Returns": [
-          "    Success"
+          "    Success: The step completed."
         ]
       },
       "used_by_workflows": [
@@ -362,12 +375,15 @@
       "summary": "Convert deduplicated findings into ReviewActionProposal objects.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    deduped_findings (List[Finding])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    review_action_proposals (List[ReviewActionProposal])"
         ],
         "Returns": [
-          "    Success or Skip (no findings)"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no findings)."
         ]
       },
       "used_by_workflows": [
@@ -382,12 +398,17 @@
       "summary": "Transform ThreadDecision objects into ReviewActionProposal objects.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    thread_decisions (List[ThreadDecision])",
+          "    thread_review_contexts (List[ThreadReviewContext])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    review_action_proposals (List[ReviewActionProposal])"
         ],
         "Returns": [
-          "    Success, Skip (no actionable decisions), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no actionable decisions).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -402,12 +423,18 @@
       "summary": "Select open inline threads worth AI analysis.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_threads (List[UICommentThread]): Unresolved inline review threads",
+          "    review_pr (UIPullRequest): PR object with author info",
+          "    review_current_user (str): GitHub login running Titan"
+        ],
         "Outputs (saved to ctx.data)": [
           "    thread_review_candidates (List[ThreadReviewCandidate])"
         ],
         "Returns": [
-          "    Success, Skip (no candidates), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no candidates).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -424,12 +451,18 @@
         "Requires": [
           "    ctx.github: Optional GitHub client used to inspect referenced commits."
         ],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    thread_review_candidates (List[ThreadReviewCandidate])",
+          "    review_threads (List[UICommentThread]): For extracting reply history",
+          "    review_diff (str): Full PR unified diff"
+        ],
         "Outputs (saved to ctx.data)": [
           "    thread_review_contexts (List[ThreadReviewContext])"
         ],
         "Returns": [
-          "    Success, Skip (no candidates), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no candidates).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -636,12 +669,16 @@
       "summary": "Remove findings that duplicate existing PR comments.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    normalized_findings (List[Finding])",
+          "    existing_comments_index (List[ExistingCommentIndexEntry])"
+        ],
         "Outputs (saved to ctx.data)": [
           "    deduped_findings (List[Finding]): Findings after duplicate removal"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -678,7 +715,9 @@
       "summary": "Fetch all data needed for a full PR review cycle.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_pr_number (int): PR number"
+        ],
         "Outputs (saved to ctx.data)": [
           "    review_pr (UIPullRequest): Pull request details",
           "    review_diff (str): Full unified diff",
@@ -690,7 +729,9 @@
           "    pr_template (str | None): PR template content if available"
         ],
         "Returns": [
-          "    Success, Skip (empty diff), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (empty diff).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -758,12 +799,15 @@
       "summary": "Parse and validate raw AI output into Finding models.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    raw_findings (list | str): Raw AI output from ai_review_findings"
+        ],
         "Outputs (saved to ctx.data)": [
           "    normalized_findings (List[Finding]): Validated Finding objects"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -778,12 +822,15 @@
       "summary": "Parse and validate raw AI output into ThreadDecision models.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    raw_thread_decisions (list | str): Raw AI output from ai_thread_resolution"
+        ],
         "Outputs (saved to ctx.data)": [
           "    thread_decisions (List[ThreadDecision]): Validated ThreadDecision objects"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -1031,7 +1078,9 @@
           "    review_pr_base (str): Base branch"
         ],
         "Returns": [
-          "    Success, Exit (no PRs or cancelled), or Error"
+          "    Success: A PR was selected.",
+          "    Exit: No PRs, or the user cancelled.",
+          "    Error: If listing PRs fails."
         ]
       },
       "used_by_workflows": [
@@ -1117,10 +1166,18 @@
       "summary": "Submit approved ReviewActionProposal objects to GitHub.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    approved_action_proposals (List[ReviewActionProposal])",
+          "    review_pr_number (int)",
+          "Optional (from ctx.data):",
+          "    review_commit_sha (str): Head commit SHA (fetched if missing)",
+          "    review_diff (str): Full PR diff for inline comment validation"
+        ],
         "Outputs (saved to ctx.data)": [],
         "Returns": [
-          "    Success, Skip (no approved actions), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (no approved actions).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -1136,12 +1193,18 @@
       "summary": "Present each ReviewActionProposal to the user for approval, editing, or skipping.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    review_action_proposals (List[ReviewActionProposal])",
+          "Optional (from ctx.data):",
+          "    review_diff (str): Full PR diff for extracting diff context per comment"
+        ],
         "Outputs (saved to ctx.data)": [
           "    approved_action_proposals (List[ReviewActionProposal])"
         ],
         "Returns": [
-          "    Success, Skip (none approved), or Error"
+          "    Success: The step completed.",
+          "    Skip: Nothing to do (none approved).",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
@@ -1207,12 +1270,18 @@
       "summary": "Put what the review would otherwise fetch into the PR worktree, as files.",
       "docstring_sections": {
         "Requires": [],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    change_manifest (ChangeManifest)",
+          "    review_diff_manager (DiffContextManager)",
+          "    review_threads, review_general_comments (List[UICommentThread])",
+          "    worktree_path (str)"
+        ],
         "Outputs (saved to ctx.data)": [
           "    review_material (dict[str, bool]): each changed path -> whether it has a base version"
         ],
         "Returns": [
-          "    Success or Error"
+          "    Success: The step completed.",
+          "    Error: The step failed."
         ]
       },
       "used_by_workflows": [
