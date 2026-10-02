@@ -19,8 +19,11 @@ class GeminiHeadlessAdapter:
     """
     Runs Gemini CLI in headless mode.
 
-    Uses `--prompt <prompt>` to avoid interactive prompt mode (`-i` /
-    `--prompt-interactive`), which fails when stdin is not a TTY.
+    Passes an empty `--prompt ""` to avoid interactive prompt mode (`-i` /
+    `--prompt-interactive`), which fails when stdin is not a TTY, and sends the real
+    prompt on stdin so large prompts do not hit the argv size limit. This relies on
+    gemini treating an empty `--prompt` as headless when stdin is a pipe; that has
+    not been verified against a live gemini run.
     """
 
     @property
