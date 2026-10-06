@@ -1028,7 +1028,13 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertEqual(called_cmd[-2], "--prompt-file")
         self.assertEqual(
             mock_run.call_args.kwargs,
-            {"capture_output": True, "text": True, "cwd": "/tmp", "timeout": 30},
+            {
+                "capture_output": True,
+                "text": True,
+                "cwd": "/tmp",
+                "timeout": 30,
+                "stdin": subprocess.DEVNULL,
+            },
         )
         self.assertEqual(response.stdout, "pong")
         self.assertTrue(response.succeeded)

@@ -1549,6 +1549,8 @@ def write_review_material(ctx: WorkflowContext) -> WorkflowResult:
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
+    from ..operations.review_material_operations import diff_unavailable
+
     ctx.textual.begin_step("Write Review Material")
 
     manifest = ctx.get("change_manifest")
