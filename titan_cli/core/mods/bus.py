@@ -58,21 +58,11 @@ class ModHost(Protocol):
     def ai(self, mod: str, prompt: str, system: Optional[str], max_tokens: Optional[int],
            model: Optional[str], timeout: int) -> "AIAnswer": ...
 
-    def ai_choices(self, mod: str) -> List["AIChoice"]: ...
-
     def ai_pinned(self, mod: str) -> Optional[str]: ...
 
-    def ai_pin(self, mod: str, key: Optional[str]) -> None: ...
+    def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None: ...
 
     def ai_describe(self, mod: str) -> str: ...
-
-
-@dataclass(frozen=True)
-class AIChoice:
-    """One thing that can answer a mod's AI calls: a remote connection or a headless CLI."""
-
-    key: str  # "remote:<connection id>" or "cli:<cli name>"
-    label: str  # "MasOrange LLM · qwen3-coder"
 
 
 @dataclass(frozen=True)
@@ -113,14 +103,11 @@ class _HeadlessHost:
     def ai(self, mod, prompt, system, max_tokens, model, timeout) -> "AIAnswer":
         return AIAnswer(error="AI is not available here")
 
-    def ai_choices(self, mod: str) -> List["AIChoice"]:
-        return []
-
     def ai_pinned(self, mod: str) -> Optional[str]:
         return None
 
-    def ai_pin(self, mod: str, key: Optional[str]) -> None:
-        pass
+    def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None:
+        logger.debug("mod_ai_configure_ignored", mod=mod)
 
     def ai_describe(self, mod: str) -> str:
         return "AI not available"
@@ -184,20 +171,18 @@ class _ModAI:
         """
         return self._bus.host.ai(self._mod, prompt, system, max_tokens, model, timeout)
 
-    def choices(self) -> List[AIChoice]:
-        """What can answer this mod's task on this machine: configured connections, installed headless CLIs."""
-        return self._bus.host.ai_choices(self._mod)
-
     def pinned(self) -> Optional[str]:
-        """The key of the choice pinned for this mod's task, or None when AI routing decides."""
+        """What this mod's task is pinned to ("remote:<connection>" / "cli:<cli>"), or None when AI routing decides."""
         return self._bus.host.ai_pinned(self._mod)
 
-    def pin(self, key: Optional[str]) -> None:
+    def configure(self, title: str, on_done: Optional[Callable[[], None]] = None) -> None:
         """
-        Pin one of `choices()` for this mod's task, in the user's config, exactly as
-        the AI routing screen pins a task; None removes the pin.
+        Let the person choose who answers this mod's task: the same pickers the AI
+        screen opens for any task (remote or CLI, then which one and its model),
+        writing the same task pin. `on_done` runs after each saved change, on the UI
+        thread: refresh what the pane shows from there. Call it from a button.
         """
-        self._bus.host.ai_pin(self._mod, key)
+        self._bus.host.ai_configure(self._mod, title, on_done)
 
     def describe(self) -> str:
         """Who would answer right now, e.g. "MasOrange LLM · qwen3-coder". May probe: call off the UI thread."""

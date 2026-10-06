@@ -18,8 +18,6 @@ from titan_cli.ai.constants import (
     get_source_display_name,
 )
 from titan_cli.ai.router.availability import AIAvailabilityChecker
-from titan_cli.ai.router.enums import AIProviderType
-from titan_cli.ai.router.models import AIRouteDecision
 from titan_cli.ai.router.resolver import AIRouteResolver
 from titan_cli.core.models import AIConnectionType
 from titan_cli.core.workflows.ai_usage_discovery import AIUsageDiscoveryService
@@ -34,19 +32,15 @@ from titan_cli.ui.tui.widgets import (
     TabPanel,
 )
 from .ai_routing import (
-    cli_choices,
-    connection_choices,
     CliDefaultPicker,
-    SelectProviderTypeModal,
-    QuickInstanceModal,
     TaskRouting,
     TaskRoutingRow,
     build_task_routings,
     installed_clis,
-    provider_type_label,
     task_label,
 )
 from .base import BaseScreen
+from .task_ai_picker import pin_task_instance, pick_task_provider
 
 
 class TestConnectionModal(ModalScreen):
@@ -701,140 +695,24 @@ class AIConfigScreen(BaseScreen):
             node = node.parent
         return node.routing.task if node else None
 
+    def _task_pin_done(self, notice: str) -> None:
+        self.load_sections()
+        self.app.notify(notice, severity="information")
+
     def handle_change_task_provider(self, task: Optional[str]) -> None:
         """Pick which kind of AI serves a task."""
         routing = self._routings.get(task) if task else None
-        if not routing:
-            return
-
-        def on_selected(provider: Optional[str]) -> None:
-            if provider is None:
-                return
-            try:
-                # Merges rather than replaces: re-picking the same kind, or moving
-                # between the two CLI kinds, must not silently drop the task's pins.
-                dropped = self.config.set_task_ai_provider(task, provider)
-                self.load_sections()
-                notice = f"{routing.label}: {provider_type_label(AIProviderType(provider))}"
-                if dropped:
-                    notice += f" - the pinned {dropped} model no longer applies."
-                self.app.notify(notice, severity="information")
-            except Exception as e:
-                self.app.notify(f"Failed to save preference: {e}", severity="error")
-
-        self.app.push_screen(
-            SelectProviderTypeModal(f"AI for {routing.label}", routing.executes),
-            on_selected,
-        )
+        if routing:
+            pick_task_provider(self.app, self.config, routing, self._task_pin_done)
 
     def handle_pin_task_cli(self, task: Optional[str], *, pick_model: bool = False) -> None:
-        """Compose this task's instance and model in one form, then write both at once.
-
-        The same widget F2 and F3 open, minus the session scope - a per-task pin is
-        persistent by definition - plus a "follow the default" row, which is the only way
-        to undo a pin without the row's Clear taking the provider kind with it.
-
-        One handler for both transports: which one a task takes is decided by what
-        currently resolves (D-006).
-        """
-        from .model_picker import open_model_picker_for_cli, open_model_picker_for_connection
-
+        """Compose this task's instance and model in one form, then write both at once."""
         routing = self._routings.get(task) if task else None
-        if not routing or not routing.can_pin_instance:
-            return
-
-        ai_config = self.config.config.ai if self.config.config else None
-        remote = routing.pins_a_connection
-
-        if remote:
-            choices = connection_choices(ai_config.connections if ai_config else {})
-            noun = "connection"
-            default_instance = ai_config.default_connection if ai_config else None
-            empty_message = "No AI connection is configured. Add one and reopen this picker."
-            set_instance = self.config.set_task_ai_connection
-            clear_instance = self.config.clear_task_ai_connection
-        else:
-            checker = self._availability()
-            choices = cli_choices(
-                installed_clis(
-                    checker.available_headless_clis(), checker.available_interactive_clis()
-                ),
-                ai_config.cli_models if ai_config else None,
+        if routing and routing.can_pin_instance:
+            pin_task_instance(
+                self.app, self.config, routing, self._availability(), self._task_pin_done,
+                pick_model=pick_model,
             )
-            noun = "CLI"
-            default_instance = ai_config.default_cli if ai_config else None
-            empty_message = "No supported CLI is installed. Install one and reopen this picker."
-            set_instance = self.config.set_task_ai_cli
-            clear_instance = self.config.clear_task_ai_cli
-
-        def open_picker(instance, current_model, on_picked) -> None:
-            title = f"Which model should run {routing.label}?"
-            if remote:
-                open_model_picker_for_connection(
-                    self.app,
-                    self.config,
-                    instance,
-                    title=title,
-                    current=current_model,
-                    on_picked=on_picked,
-                    allow_clear=True,
-                )
-            else:
-                open_model_picker_for_cli(
-                    self.app, instance, title=title, current=current_model,
-                    on_picked=on_picked, allow_clear=True,
-                )
-
-        def on_composed(result) -> None:
-            if result is None or not result.changes_anything:
-                return
-            provider = self._provider_for_pin(routing)
-            dropped = None
-            try:
-                if result.clear_instance:
-                    dropped = clear_instance(task)
-                elif result.instance:
-                    dropped = set_instance(task, result.instance, provider=provider)
-                if result.clear_model:
-                    self.config.clear_task_ai_model(task)
-                elif result.model:
-                    # D-010: a model pin carries its instance, so pin that too when the
-                    # task was following the default.
-                    if not result.instance and not routing.pinned_instance:
-                        set_instance(
-                            task, self._effective_instance(routing), provider=provider
-                        )
-                    self.config.set_task_ai_model(task, result.model, provider=provider)
-            except ValueError as e:
-                self.app.notify(str(e), severity="warning")
-                return
-            except Exception as e:
-                self.app.notify(f"Failed to save: {e}", severity="error")
-                return
-            self.load_sections()
-            self.app.notify(
-                self._pin_notice(routing, result, noun, dropped=dropped),
-                severity="information",
-            )
-
-        modal = QuickInstanceModal(
-            f"Which {noun} should run {routing.label}?",
-            choices,
-            noun=noun,
-            remote=remote,
-            current=routing.pinned_instance,
-            current_model=routing.pinned_model,
-            open_model_picker=open_picker,
-            empty_message=empty_message,
-            allow_session=False,
-            inherit_label=(
-                "Follow the default"
-                + (f" ({default_instance})" if default_instance else "")
-            ),
-        )
-        self.app.push_screen(modal, on_composed)
-        if pick_model and routing.pinned_instance or pick_model and default_instance:
-            self.app.call_after_refresh(modal.action_pick_model)
 
     def handle_pin_task_model(self, task: Optional[str]) -> None:
         """Same form, opened straight onto its model step.
@@ -843,53 +721,6 @@ class AIConfigScreen(BaseScreen):
         two doors into one composition rather than two separate writes.
         """
         self.handle_pin_task_cli(task, pick_model=True)
-
-    @staticmethod
-    def _pin_notice(routing, result, noun: str, *, dropped: Optional[str] = None) -> str:
-        """What happened, including a model pin the instance change invalidated.
-
-        The setters return that precisely so it can be said out loud; swallowing it made
-        the notice read "will run on codex" while the user's pinned model quietly went.
-        """
-        if result.clear_instance:
-            notice = f"{routing.label} follows the default {noun} again."
-        else:
-            parts = [p for p in (result.instance, result.model) if p]
-            if result.clear_model and not parts:
-                notice = f"{routing.label} uses its {noun}'s own model again."
-            else:
-                notice = f"{routing.label} will run on {' / '.join(parts)}."
-        if dropped and not result.model:
-            notice += f" The pinned {dropped} model no longer applies."
-        return notice
-
-    def _effective_instance(self, routing) -> Optional[str]:
-        """The CLI or connection this task runs on today: its own pin, else the default."""
-        if routing.pinned_instance:
-            return routing.pinned_instance
-        resolution = routing.resolution
-        if isinstance(resolution, AIRouteDecision):
-            instance = resolution.connection_id if routing.pins_a_connection else resolution.cli
-            if instance:
-                return instance
-        ai_config = self.config.config.ai if self.config.config else None
-        if not ai_config:
-            return None
-        return ai_config.default_connection if routing.pins_a_connection else ai_config.default_cli
-
-    @staticmethod
-    def _provider_for_pin(routing) -> Optional[str]:
-        """
-        The provider kind to create a preference with, when a pin is the first thing set.
-
-        Taken from what currently resolves, so pinning a CLI on an unconfigured task
-        records the kind that was already in effect rather than inventing one. None when
-        nothing resolves - the CRUD then refuses and the user is told to pick a kind first.
-        """
-        resolution = routing.resolution
-        if isinstance(resolution, AIRouteDecision):
-            return str(resolution.provider)
-        return None
 
     def handle_clear_task_provider(self, task: Optional[str]) -> None:
         """Drop a task preference so the step's own default applies again."""

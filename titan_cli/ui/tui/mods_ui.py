@@ -6,13 +6,13 @@ worker, the app thread), so everything that touches a widget is marshalled
 onto the app thread first.
 """
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from rich.markup import escape
 from textual.app import App
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods import AIAnswer, AIChoice, ModBus, UIRender
+from titan_cli.core.mods import AIAnswer, ModBus, UIRender
 
 logger = get_logger(__name__)
 
@@ -163,23 +163,6 @@ class TitanModHost:
     def _ai_config(self):
         return getattr(getattr(getattr(self._app, "config", None), "config", None), "ai", None)
 
-    def ai_choices(self, mod: str) -> List[AIChoice]:
-        executor = self._ai_executor()
-        ai_config = self._ai_config()
-        if executor is None or ai_config is None:
-            return []
-        choices = []
-        for c in executor.availability.available_remote_connections():
-            cfg = ai_config.connections.get(c.identifier)
-            name = getattr(cfg, "name", None) or c.identifier
-            choices.append(AIChoice(f"remote:{c.identifier}", f"{name} · {getattr(cfg, 'default_model', None) or 'default'}"))
-        for c in executor.availability.available_headless_clis():
-            model = (ai_config.cli_models or {}).get(c.identifier) or "default"
-            name = c.display_name or c.identifier
-            name = name if name.endswith("CLI") else f"{name} CLI"
-            choices.append(AIChoice(f"cli:{c.identifier}", f"{name} · {model}"))
-        return choices
-
     def ai_pinned(self, mod: str) -> Optional[str]:
         ai_config = self._ai_config()
         prefs = getattr(ai_config, "preferences", None)
@@ -190,19 +173,53 @@ class TitanModHost:
             return f"remote:{pin.connection or ai_config.default_connection}"
         return f"cli:{pin.cli or ai_config.default_cli}"
 
-    def ai_pin(self, mod: str, key: Optional[str]) -> None:
+    def _task_routing(self, mod: str, title: str):
+        """This mod's task as the AI screen's task rows see one."""
+        from titan_cli.ui.tui.screens.ai_routing import TaskRouting
+
+        ai_config = self._ai_config()
+        prefs = getattr(ai_config, "preferences", None)
+        pin = prefs.tasks.get(f"mods.{mod}") if prefs is not None else None
+        policy = self._policy(mod)
+        return TaskRouting(
+            task=policy.task,
+            label=title,
+            executes=list(policy.executes),
+            resolution=self._ai_executor().resolve(policy=policy),
+            has_preference=pin is not None,
+            pinned_cli=pin.cli if pin else None,
+            pinned_connection=pin.connection if pin else None,
+            pinned_model=pin.model if pin else None,
+        )
+
+    def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None:
+        """Remote or CLI first, then which one and its model: the AI screen's own two steps."""
+        from titan_cli.ai.router.availability import AIAvailabilityChecker
+        from titan_cli.core.security import create_broker_factory
+        from titan_cli.ui.tui.screens.task_ai_picker import pick_task_provider, pin_task_instance
+
         config = getattr(self._app, "config", None)
-        if config is None:
+        if config is None or self._ai_executor() is None:
+            self.toast(mod, "AI is not configured", "warning")
             return
-        task = f"mods.{mod}"
-        if key is None:
-            config.delete_task_ai_preference(task)
-            return
-        kind, _, instance = key.partition(":")
-        if kind == "remote":
-            config.upsert_task_ai_preference(task, {"provider": "remote", "connection": instance})
-        else:
-            config.upsert_task_ai_preference(task, {"provider": "cli_headless", "cli": instance})
+
+        def saved(notice: str) -> None:
+            self._app.notify(notice, severity="information")
+            if on_done is not None:
+                on_done()
+
+        def provider_saved(notice: str) -> None:
+            saved(notice)
+            # Rebuilt: the instance step offers what the kind just chosen resolves to.
+            # A fresh checker, as the AI screen does, so a CLI installed since is seen.
+            availability = AIAvailabilityChecker(
+                self._ai_config(), create_broker_factory().for_plugin("core")
+            )
+            pin_task_instance(self._app, config, self._task_routing(mod, title), availability, saved)
+
+        self._on_app_thread(
+            lambda: pick_task_provider(self._app, config, self._task_routing(mod, title), provider_saved)
+        )
 
     def ai_describe(self, mod: str) -> str:
         from titan_cli.ai.router import AIRouteNeedsInput
