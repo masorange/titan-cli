@@ -45,6 +45,8 @@ class ModHost(Protocol):
 
     def toast(self, mod: str, text: str, severity: str) -> None: ...
 
+    def copy(self, mod: str, text: str, what: str) -> None: ...
+
     def open_pane(self, mod: str, pane: str, title: str) -> None: ...
 
     def repaint(self, mod: str) -> None: ...
@@ -84,6 +86,9 @@ class _HeadlessHost:
 
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, text=text, severity=severity)
+
+    def copy(self, mod: str, text: str, what: str) -> None:
+        logger.debug("mod_copy_ignored", mod=mod, what=what)
 
     def open_pane(self, mod: str, pane: str, title: str) -> None:
         logger.debug("mod_pane_opened", mod=mod, pane=pane)
@@ -125,6 +130,10 @@ class _ModUI:
     def toast(self, text: str, severity: str = "information") -> None:
         """Show a toast. `severity` is `information`, `warning` or `error`."""
         self._bus.host.toast(self._mod, text, severity)
+
+    def copy(self, text: str, what: str = "text") -> None:
+        """Put `text` on the clipboard, as Titan's own copy buttons do, and say so naming it `what`."""
+        self._bus.host.copy(self._mod, text, what)
 
     def open(self, pane: str, title: str) -> None:
         """Give this mod a pane in the side panel, drawn by its `ui.render` hook for `pane`."""

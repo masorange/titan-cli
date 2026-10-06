@@ -130,33 +130,31 @@ def test_mod_ai_routes_under_its_own_task():
     assert (calls[0][1]["system_prompt"], calls[0][1]["model"]) == ("be brief", "opus")
 
 
-def test_host_pins_a_mod_task_through_the_config_api():
+def test_host_sees_a_mod_task_as_the_ai_screen_does():
+    """The routing handed to Titan's task pickers: the mod's task, what it can run, its pins."""
     from types import SimpleNamespace
 
+    from titan_cli.ai.router import AIProviderType
     from titan_cli.core.models import AIConfig, AIPreferences, AIProviderPreference
     from titan_cli.ui.tui.mods_ui import TitanModHost
 
-    writes = []
-    ai = AIConfig(default_connection="llm", default_cli="claude",
-                  preferences=AIPreferences(tasks={"mods.dev": AIProviderPreference(provider="cli_headless")}))
-    config = SimpleNamespace(
-        config=SimpleNamespace(ai=ai),
-        upsert_task_ai_preference=lambda task, data: writes.append(("set", task, data)),
-        delete_task_ai_preference=lambda task: writes.append(("delete", task)),
-    )
-    host = TitanModHost(SimpleNamespace(config=config), ModBus())
+    ai = AIConfig(default_connection="llm", default_cli="claude", preferences=AIPreferences(
+        tasks={"mods.dev": AIProviderPreference(provider="cli_headless", cli="codex", model="o4")}))
+    host = TitanModHost(SimpleNamespace(config=SimpleNamespace(config=SimpleNamespace(ai=ai))), ModBus())
 
-    assert host.ai_pinned("dev") == "cli:claude"  # a pin without an instance follows the default CLI
-    assert host.ai_pinned("other") is None
-    host.ai_pin("dev", "remote:llm")
-    host.ai_pin("dev", "cli:codex")
-    host.ai_pin("dev", None)
+    class FakeExecutor:
+        ai_config = ai
 
-    assert writes == [
-        ("set", "mods.dev", {"provider": "remote", "connection": "llm"}),
-        ("set", "mods.dev", {"provider": "cli_headless", "cli": "codex"}),
-        ("delete", "mods.dev"),
-    ]
+        def resolve(self, policy):
+            return "resolved:" + policy.task
+
+    host._executor = FakeExecutor()
+    routing = host._task_routing("dev", "Dev diagnosis")
+
+    assert (routing.task, routing.label, routing.resolution) == ("mods.dev", "Dev diagnosis", "resolved:mods.dev")
+    assert routing.executes == [AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS]
+    assert (routing.pinned_cli, routing.pinned_model, routing.has_preference) == ("codex", "o4", True)
+    assert host.ai_pinned("dev") == "cli:codex"
 
 
 def test_mod_ai_follows_a_reloaded_config(monkeypatch):

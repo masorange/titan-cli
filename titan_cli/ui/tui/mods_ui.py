@@ -49,6 +49,11 @@ class TitanModHost:
             lambda: self._app.notify(escape(text), title=mod, severity=severity)
         )
 
+    def copy(self, mod: str, text: str, what: str) -> None:
+        from titan_cli.ui.tui.clipboard import copy_with_feedback
+
+        self._on_app_thread(lambda: copy_with_feedback(self._app, text, what))
+
     def _paint_status(self) -> None:
         from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
 

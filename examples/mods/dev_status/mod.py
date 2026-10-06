@@ -423,6 +423,25 @@ def bar(done: int, total: int, width: int) -> Text:
     return Text(Text("█" * filled, color="success"), Text("░" * (cells - filled), color="subtle"), Text(f" {done}/{total}", dim=True))
 
 
+def diagnosis_text(pr: Pr, d: "Diagnosis") -> str:
+    """The diagnosis as plain text, to paste into a PR comment, a chat or an AI session."""
+    head = f"PR #{pr.number} {pr.title}"
+    if d.status == "error":
+        return f"{head}\nCould not diagnose: {d.error}\n"
+    lines = [head, f"Diagnosed by {d.model or 'AI routing'}", ""]
+    for j in d.jobs:
+        lines.append(f"✗ {j.name}")
+        lines.append(j.cause)
+        if j.where:
+            lines.append(f"at {j.where}")
+        if j.quote:
+            lines.append(f"> {j.quote}")
+            if not j.is_quote_in_log:
+                lines.append("(this line is not in the log: do not trust the cause)")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def diagnosis_of(m, pr: Pr, options) -> Box:
     d: Optional[Diagnosis] = (m.state.get("diagnoses") or {}).get(str(pr.number))
     running = d is not None and d.status == "running"
@@ -453,6 +472,11 @@ def diagnosis_of(m, pr: Pr, options) -> Box:
             for j in d.jobs
         ],
         done and len(pr.failed_checks) > len(d.jobs) and Text(f"…and {len(pr.failed_checks) - len(d.jobs)} more failed checks", dim=True),
+        d is not None and not running and Button(
+            "⧉ Copy " + ("error" if d.status == "error" else "diagnosis"),
+            lambda: m.ui.copy(diagnosis_text(pr, d), f"#{pr.number} " + ("error" if d.status == "error" else "diagnosis")),
+            dim=True,
+        ),
         indent=3,
     )
 
@@ -483,32 +507,23 @@ def pr_row(pr: Pr, is_mine: bool, queued: dict, m=None, options=None) -> Box:
 
 def refresh_ai_label(m) -> None:
     """Who answers a diagnosis now; resolving may probe, so it runs off the UI thread."""
-    m.state.set("ai_choices", m.ai.choices())
     m.state.set("ai_pinned", m.ai.pinned())
     m.state.set("ai_label", m.ai.describe())
 
 
 def model_picker(m, options):
     """
-    Cycles the task "mods.dev_status" through: AI routing's default, then every
-    connection and headless CLI this machine has. A pick is a task pin in the
-    user config, the same one the AI routing screen writes.
+    Who answers a diagnosis, and the way to change it: Titan's own per-task picker
+    (remote or CLI, then which one and its model) for the task "mods.dev_status".
     """
-    choices = m.state.get("ai_choices") or []
     pinned = m.state.get("ai_pinned")
-    label = m.state.get("ai_label") or "…"
-    cycle = [None] + [c.key for c in choices]
-
-    def press():
-        nxt = cycle[(cycle.index(pinned) + 1) % len(cycle)] if pinned in cycle else (cycle[1] if len(cycle) > 1 else None)
-        m.ai.pin(nxt)
-        m.state.set("ai_pinned", nxt)
-        m.run(lambda: refresh_ai_label(m))
-
     how = "pinned for this panel" if pinned else "Titan's AI default"
     return Box(
         Text("✦ Diagnosis AI", dim=True),
-        Button(f"  ⟳ {label}", press),
+        Button(
+            f"  ⟳ {m.state.get('ai_label') or '…'}",
+            lambda: m.ai.configure("Dev status diagnosis", on_done=lambda: m.run(lambda: refresh_ai_label(m))),
+        ),
         Text(f"    {how} · Enter/click to change", dim=True),
     )
 

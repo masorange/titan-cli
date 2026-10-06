@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from titan_cli.core.mods import AIAnswer, AIChoice, Box, Button, ModBus, Text
+from titan_cli.core.mods import AIAnswer, Box, Button, ModBus, Text
 from titan_cli.core.result import ClientError, ClientSuccess
 
 MOD = Path(__file__).resolve().parents[3] / "examples" / "mods" / "dev_status" / "mod.py"
@@ -226,12 +226,16 @@ class DiagnosisHost:
         return self.answer
 
     pinned = None
-    choices = [AIChoice("remote:llm", "MasOrange LLM · qwen3-coder"), AIChoice("cli:claude", "Claude CLI · sonnet")]
+    configured = []
 
-    def ai_choices(self, mod): return self.choices
     def ai_pinned(self, mod): return self.pinned
-    def ai_pin(self, mod, key): self.pinned = key
-    def ai_describe(self, mod): return {None: "MasOrange LLM · qwen3-coder", "remote:llm": "MasOrange LLM · qwen3-coder", "cli:claude": "Claude CLI · sonnet"}[self.pinned]
+    def ai_describe(self, mod): return {None: "MasOrange LLM · qwen3-coder", "cli:claude": "Claude CLI · opus"}[self.pinned]
+
+    def ai_configure(self, mod, title, on_done):
+        # Stands in for the person going through Titan's pickers and choosing Claude / opus.
+        self.configured.append((mod, title))
+        self.pinned = "cli:claude"
+        on_done()
 
 
 def test_diagnose_reads_each_failed_job_and_asks_the_routed_model(dev, tmp_path, monkeypatch):
@@ -274,7 +278,7 @@ def test_diagnosis_failure_is_shown_not_raised(dev, tmp_path, monkeypatch):
     assert m.state.get("diagnoses")["2"].error == "AI: AI is turned off for this task."
 
 
-def test_ai_picker_cycles_default_then_each_real_choice_as_a_task_pin(dev):
+def test_ai_picker_opens_titans_task_picker_and_shows_the_result(dev):
     host = DiagnosisHost(None, AIAnswer())
     bus = ModBus()
     bus.host = host
@@ -282,16 +286,41 @@ def test_ai_picker_cycles_default_then_each_real_choice_as_a_task_pin(dev):
     m = bus._apis["dev_status"]
     dev.refresh_ai_label(m)
 
-    seen = []
-    for _ in range(3):
-        picker = dev.model_picker(m, {})
-        _, button, how = picker.children
-        seen.append((button.label, flatten(how)[0].split(" · ")[0].strip()))
-        button.on_press()  # m.run is inline here, so the label is refreshed before the next look
+    before = flatten(dev.model_picker(m, {}))
+    dev.model_picker(m, {}).children[1].on_press()
+    after = flatten(dev.model_picker(m, {}))
 
-    assert seen == [
-        ("  ⟳ MasOrange LLM · qwen3-coder", "Titan's AI default"),
-        ("  ⟳ MasOrange LLM · qwen3-coder", "pinned for this panel"),
-        ("  ⟳ Claude CLI · sonnet", "pinned for this panel"),
-    ]
-    assert host.pinned is None  # third press wrapped around to AI routing's default
+    assert host.configured == [("dev_status", "Dev status diagnosis")]
+    assert before[1:] == ["  ⟳ MasOrange LLM · qwen3-coder", "    Titan's AI default · Enter/click to change"]
+    assert after[1:] == ["  ⟳ Claude CLI · opus", "    pinned for this panel · Enter/click to change"]
+
+
+def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(dev, tmp_path, monkeypatch):
+    monkeypatch.setattr("titan_cli.core.mods.store.STORE_DIR", tmp_path)
+    copied = []
+
+    class CopyHost(DiagnosisHost):
+        def copy(self, mod, text, what):
+            copied.append((what, text))
+
+    github = SimpleNamespace(get_actions_job_log=lambda job_id: ClientSuccess(data=LOG))
+    bus = ModBus()
+    bus.host = CopyHost(github, AIAnswer(text='{"cause": "FooTest.bar fails", "where": "FooTest.kt:42", "quote": "nope"}', model="m1"))
+    bus.on_for("dev_status")
+    m = bus._apis["dev_status"]
+    pr2 = dev._pr(pr(2, checks="failing", failed=1))
+    m.state.set("prs", dev.Prs(mine=[pr2]))
+
+    assert not any("⧉" in line for line in flatten(dev.diagnosis_of(m, pr2, {})))  # nothing to copy yet
+    dev.diagnose(m, 2, {"diagnosis_jobs": 3})
+    copy = next(b for b in dev.diagnosis_of(m, pr2, {}).children if isinstance(b, Button) and b.label.startswith("⧉"))
+    copy.on_press()
+
+    what, text = copied[0]
+    assert (copy.label, what) == ("⧉ Copy diagnosis", "#2 diagnosis")
+    assert text.splitlines()[:6] == ["PR #2 PR 2", "Diagnosed by m1", "", "✗ job0", "FooTest.bar fails", "at FooTest.kt:42"]
+    assert "(this line is not in the log: do not trust the cause)" in text
+
+    m.state.set("diagnoses", {"2": dev.Diagnosis("error", error="AI: quota exhausted")})
+    dev.diagnosis_of(m, pr2, {}).children[-1].on_press()
+    assert copied[-1] == ("#2 error", "PR #2 PR 2\nCould not diagnose: AI: quota exhausted\n")
