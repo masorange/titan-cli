@@ -58,5 +58,6 @@ def from_network_status(network_status: NetworkGitStatus) -> UIGitStatus:
         staged_files=network_status.staged_files,
         ahead=network_status.ahead,
         behind=network_status.behind,
+        has_upstream=network_status.has_upstream,
         sync_status=sync_status,
     )

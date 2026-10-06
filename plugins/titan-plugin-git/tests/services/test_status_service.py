@@ -56,6 +56,7 @@ class TestStatusServiceGetStatus:
         assert "2 modified" in result.data.status_summary
         assert result.data.ahead == 2
         assert result.data.behind == 1
+        assert result.data.has_upstream is True
         assert result.data.sync_status == "↑2 ↓1"
 
     def test_get_status_with_untracked_files(self, mock_git_network):
@@ -162,3 +163,24 @@ class TestStatusServiceHasUncommittedChanges:
         result = service.has_uncommitted_changes()
 
         assert isinstance(result, ClientError)
+
+
+def test_get_status_without_upstream_says_so(mock_git_network):
+    """A branch with no upstream reports has_upstream False, not just zero counts"""
+    mock_git_network.run_command.side_effect = ["feature", "", ""]
+
+    result = StatusService(mock_git_network).get_status()
+
+    assert result.data.has_upstream is False
+    assert (result.data.ahead, result.data.behind) == (0, 0)
+
+
+def test_get_untracked_files_lists_each_file_and_honours_gitignore(mock_git_network):
+    """ls-files with --exclude-standard: one path per file, ignored files never listed"""
+    mock_git_network.run_command.return_value = "examples/mods/a/mod.py\nexamples/mods/a/mod.toml\n"
+
+    result = StatusService(mock_git_network).get_untracked_files()
+
+    assert result.data == ["examples/mods/a/mod.py", "examples/mods/a/mod.toml"]
+    args = mock_git_network.run_command.call_args.args[0]
+    assert args[-3:] == ["ls-files", "--others", "--exclude-standard"]

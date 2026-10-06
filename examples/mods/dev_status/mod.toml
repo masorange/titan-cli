@@ -1,0 +1,18 @@
+[mod]
+name = "dev_status"
+version = "0.1.0"
+description = "Side panel with git branch, harness focus, review requests, your PRs and the merge queue"
+requires_plugins = ["git", "github"]
+events = ["app.start", "workflow.run", "ui.render"]
+slots = ["pane", "toast"]
+
+[options]
+harness_dir = "harness"
+repo_refresh_seconds = 30
+prs_refresh_seconds = 120
+queue_refresh_seconds = 60
+recent_commits = 10
+queue_shown = 8
+# Failed checks diagnosed per press. Which AI answers is the task
+# "mods.dev_status" in AI routing: the panel's picker pins it.
+diagnosis_jobs = 3

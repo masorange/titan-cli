@@ -116,6 +116,14 @@ A `UIPullRequest` object with the following fields:
 - `labels`: List of label names
 - `requested_reviewers`: GitHub usernames of all users requested to review
 - `pending_reviewers`: GitHub usernames of users who haven't reviewed yet
+- `checks_summary`: Compact check counts (e.g., "2 failing, 5 passing")
+- `review_status_summary`: "approved", "changes requested", "review required" or "draft"
+- `checks_state`: One state for all checks: `"failing"`, `"running"`, `"passing"` or `"none"`
+  (check runs and external commit statuses alike)
+- `failed_checks`: `UIFailedCheck(name, url)` for each failed check, `url` being the
+  Actions job page or the external CI's link
+- `has_conflicts`: True when GitHub reports the PR as conflicting. Filled by
+  `list_pending_review_prs` and `list_my_prs`; `list_all_prs` does not fetch it.
 
 ### List pull requests pending review
 
@@ -341,6 +349,50 @@ client.get_merge_queue_state(pr_number=123)
 
 **Result:** `UIMergeQueueState` with `is_merge_queue_enabled`, `is_in_merge_queue`,
 `pr_state`, `queue_position`, `queue_entry_state` and a pre-formatted `summary`.
+
+### Get the log of a GitHub Actions job
+
+Returns the end of one Actions job's log, e.g. to explain a failed check. The job
+id is the last number of a failed check's URL (`UIFailedCheck.url`,
+`.../actions/runs/<run>/job/<job_id>`); checks reported by external CI have no
+Actions log.
+
+**Call:**
+
+```python
+client.get_actions_job_log(job_id=51234567890, tail_chars=3_000_000)
+```
+
+**Parameters:**
+
+- `job_id`: Required. GitHub Actions job id.
+- `tail_chars`: Optional. How many characters from the end of the log to keep
+  (default 3,000,000); a failure is reported at the end of the log.
+
+**Result:** the log text, timestamps included. `JOB_NOT_FOUND` when the job does
+not exist or its log has expired.
+
+### Get the merge queue
+
+Returns the whole merge queue of the repository's default branch, read-only.
+A repository without a merge queue is a success with `is_configured=False`.
+
+**Call:**
+
+```python
+client.get_merge_queue(max_entries=8)
+```
+
+**Parameters:**
+
+- `max_entries`: Optional. How many entries to list from the head of the queue
+  (default `10`); `total` always counts the whole queue.
+
+**Result:** `UIMergeQueue` with `is_configured`, `branch`, `merge_method`, `total`
+and `entries`. Each `UIMergeQueueEntry` carries `position`, `pr_number`, `title`,
+`author`, `state`, a readable `state_label` (`"running checks"`, `"ready to merge"`…),
+`eta_seconds`, a compact `eta_label` (`"~12m"`) and `is_mine` for the
+authenticated user's own pull requests.
 
 ---
 

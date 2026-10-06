@@ -1,0 +1,283 @@
+"""
+The TUI side of mods: where `m.ui`, `m.clock` and `m.client` land.
+
+Hooks run on whichever thread raised the event (a workflow worker, a timer
+worker, the app thread), so everything that touches a widget is marshalled
+onto the app thread first.
+"""
+import threading
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from rich.markup import escape
+from textual.app import App
+
+from titan_cli.core.logging import get_logger
+from titan_cli.core.mods import AIAnswer, AIChoice, ModBus, UIRender
+
+logger = get_logger(__name__)
+
+
+class TitanModHost:
+    def __init__(self, app: App, bus: ModBus, registry: Any = None):
+        self._app = app
+        self._bus = bus
+        self._registry = registry
+        self._statuses: Dict[str, str] = {}
+        # pane id -> (mod that opened it, title), in the order they were opened
+        self.panes: Dict[str, Tuple[str, str]] = {}
+        self.collapsed = False
+        self._repaint_pending = False
+        self._lock = threading.Lock()
+        self._clients: Dict[str, Any] = {}
+        self._executor = None
+
+    # -- status bar and toasts -------------------------------------------
+
+    def status_text(self) -> str:
+        return "  ·  ".join(self._statuses.values())
+
+    def status(self, mod: str, text: Optional[str]) -> None:
+        if text:
+            self._statuses[mod] = text
+        else:
+            self._statuses.pop(mod, None)
+        self._on_app_thread(self._paint_status)
+
+    def toast(self, mod: str, text: str, severity: str) -> None:
+        # Escaped: a mod's text is not markup, and a stray `[/x]` would raise.
+        self._on_app_thread(
+            lambda: self._app.notify(escape(text), title=mod, severity=severity)
+        )
+
+    def _paint_status(self) -> None:
+        from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
+
+        try:
+            bar = self._app.screen.query_one("#status-bar", StatusBarWidget)
+        except Exception:
+            return  # this screen has no bar; the next one reads status_text()
+        bar.mods_info = self.status_text()
+
+    # -- the side panel ---------------------------------------------------
+
+    def open_pane(self, mod: str, pane: str, title: str) -> None:
+        self.panes[pane] = (mod, title)
+        self.repaint(mod)
+
+    def toggle_collapsed(self) -> None:
+        self.collapsed = not self.collapsed
+        self.repaint("")
+
+    def render(self, pane: str, width: int) -> Any:
+        """Ask the mods for the tree of one pane; None when no hook answers."""
+        return self._bus.dispatch("ui.render", UIRender(component="Pane", pane=pane, width=width), lambda e: None)
+
+    def repaint(self, mod: str) -> None:
+        # State changes come in bursts (three refreshes landing together):
+        # one repaint covers them all.
+        with self._lock:
+            if self._repaint_pending:
+                return
+            self._repaint_pending = True
+        self._on_app_thread(lambda: self._app.call_later(self._repaint_now))
+
+    def _repaint_now(self) -> None:
+        from titan_cli.ui.tui.widgets.mod_side_panel import ModSidePanel
+
+        with self._lock:
+            self._repaint_pending = False
+        try:
+            panel = self._app.screen.query_one(ModSidePanel)
+        except Exception:
+            return  # this screen has no panel; the next one paints on mount
+        panel.refresh_panes()
+
+    # -- timers and clients ----------------------------------------------
+
+    def every(self, mod: str, seconds: float, fn: Callable[[], None], immediately: bool) -> None:
+        running = threading.Event()
+
+        def work() -> None:
+            try:
+                fn()
+            except Exception:
+                logger.exception("mod_timer_failed", mod=mod)
+            finally:
+                running.clear()
+
+        def tick() -> None:
+            # A refresh slower than its interval must not pile up behind itself.
+            if running.is_set() or not self._app.is_running:
+                return
+            running.set()
+            self._app.run_worker(work, thread=True, group=f"mod:{mod}", exit_on_error=False)
+
+        def start() -> None:
+            self._app.set_interval(seconds, tick)
+            if immediately:
+                tick()
+
+        self._on_app_thread(start)
+
+    def client(self, name: str) -> Any:
+        # Cached once found: is_available() can be a network round-trip
+        # (github runs `gh auth status`), and timers ask on every tick.
+        if name in self._clients:
+            return self._clients[name]
+        if self._registry is None:
+            return None
+        try:
+            plugin = self._registry.ensure_initialized(name)
+            if plugin is None or not plugin.is_available():
+                return None
+            client = plugin.get_client()
+        except Exception:
+            logger.warning("mod_client_unavailable", plugin=name, exc_info=True)
+            return None
+        self._clients[name] = client
+        return client
+
+    def run(self, mod: str, fn: Callable[[], None]) -> None:
+        def work() -> None:
+            try:
+                fn()
+            except Exception:
+                logger.exception("mod_run_failed", mod=mod)
+
+        self._on_app_thread(lambda: self._app.run_worker(work, thread=True, group=f"mod:{mod}", exit_on_error=False))
+
+    # -- AI -------------------------------------------------------------------
+
+    @staticmethod
+    def _policy(mod: str):
+        from titan_cli.ai.router import AIProviderType, AIRoutePolicy
+
+        # A mod can run a remote connection or a headless CLI; it never drives an
+        # interactive session, so that type is not offered for its task.
+        return AIRoutePolicy(
+            task=f"mods.{mod}",
+            executes=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
+            preferred=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
+        )
+
+    def _ai_config(self):
+        return getattr(getattr(getattr(self._app, "config", None), "config", None), "ai", None)
+
+    def ai_choices(self, mod: str) -> List[AIChoice]:
+        executor = self._ai_executor()
+        ai_config = self._ai_config()
+        if executor is None or ai_config is None:
+            return []
+        choices = []
+        for c in executor.availability.available_remote_connections():
+            cfg = ai_config.connections.get(c.identifier)
+            name = getattr(cfg, "name", None) or c.identifier
+            choices.append(AIChoice(f"remote:{c.identifier}", f"{name} · {getattr(cfg, 'default_model', None) or 'default'}"))
+        for c in executor.availability.available_headless_clis():
+            model = (ai_config.cli_models or {}).get(c.identifier) or "default"
+            name = c.display_name or c.identifier
+            name = name if name.endswith("CLI") else f"{name} CLI"
+            choices.append(AIChoice(f"cli:{c.identifier}", f"{name} · {model}"))
+        return choices
+
+    def ai_pinned(self, mod: str) -> Optional[str]:
+        ai_config = self._ai_config()
+        prefs = getattr(ai_config, "preferences", None)
+        pin = prefs.tasks.get(f"mods.{mod}") if prefs is not None else None
+        if pin is None:
+            return None
+        if pin.provider == "remote":
+            return f"remote:{pin.connection or ai_config.default_connection}"
+        return f"cli:{pin.cli or ai_config.default_cli}"
+
+    def ai_pin(self, mod: str, key: Optional[str]) -> None:
+        config = getattr(self._app, "config", None)
+        if config is None:
+            return
+        task = f"mods.{mod}"
+        if key is None:
+            config.delete_task_ai_preference(task)
+            return
+        kind, _, instance = key.partition(":")
+        if kind == "remote":
+            config.upsert_task_ai_preference(task, {"provider": "remote", "connection": instance})
+        else:
+            config.upsert_task_ai_preference(task, {"provider": "cli_headless", "cli": instance})
+
+    def ai_describe(self, mod: str) -> str:
+        from titan_cli.ai.router import AIRouteNeedsInput
+
+        executor = self._ai_executor()
+        if executor is None:
+            return "AI not configured"
+        try:
+            decision = executor.resolve(policy=self._policy(mod))
+        except Exception:
+            logger.warning("mod_ai_describe_failed", mod=mod, exc_info=True)
+            return "AI routing could not resolve"
+        if isinstance(decision, AIRouteNeedsInput):
+            return "nothing available"
+        if decision.provider == "off":
+            return "turned off"
+        if decision.connection_id:
+            cfg = self._ai_config().connections.get(decision.connection_id)
+            who = getattr(cfg, "name", None) or decision.connection_id
+        else:
+            from titan_cli.external_cli.configs import CLI_REGISTRY
+
+            who = CLI_REGISTRY.get(decision.cli, {}).get("display_name") or decision.cli
+            who = who if who.endswith("CLI") else f"{who} CLI"
+        return f"{who} · {decision.model or 'default'}"
+
+    def ai(self, mod, prompt, system, max_tokens, model, timeout) -> AIAnswer:
+        from titan_cli.ai.router import AIExecutionSuccess
+
+        executor = self._ai_executor()
+        if executor is None:
+            return AIAnswer(error="AI is not configured")
+        policy = self._policy(mod)
+        try:
+            result = executor.generate_text(
+                prompt, policy=policy, system_prompt=system, max_tokens=max_tokens, model=model, timeout=timeout,
+            )
+        except Exception as e:
+            logger.exception("mod_ai_failed", mod=mod)
+            return AIAnswer(error=str(e))
+        decision_model = getattr(getattr(result, "decision", None), "model", None)
+        if isinstance(result, AIExecutionSuccess):
+            return AIAnswer(text=result.data, model=decision_model or model)
+        return AIAnswer(error=result.error_message, model=decision_model or model)
+
+    def _ai_executor(self):
+        # Rebuilt whenever the AI config object changes: TitanConfig.load() replaces
+        # it on every screen transition, and an executor kept from before would go on
+        # resolving with the old one - blind to a task pin saved since, the picker's
+        # included.
+        with self._lock:
+            ai_config = self._ai_config()
+            if ai_config is None:
+                return None
+            if self._executor is None or self._executor.ai_config is not ai_config:
+                from titan_cli.ai.router import AIExecutor
+                from titan_cli.core.security import create_ai_provider, create_broker_factory
+
+                self._executor = AIExecutor(
+                    ai_config,
+                    provider_factory=create_ai_provider,
+                    secret_broker=create_broker_factory().for_plugin("core"),
+                    session_override=getattr(self._app, "ai_session_override", None),
+                )
+            return self._executor
+
+    # -- threading ----------------------------------------------------------
+
+    def _on_app_thread(self, fn: Callable[[], None]) -> None:
+        if getattr(self._app, "_thread_id", None) == threading.get_ident():
+            fn()
+            return
+        if not self._app.is_running:
+            return
+        try:
+            self._app.call_from_thread(fn)
+        except Exception:
+            logger.debug("mod_ui_call_dropped", exc_info=True)

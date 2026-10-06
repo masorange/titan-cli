@@ -15,7 +15,7 @@ from titan_plugin_git.clients.git_client import GitClient
 from .network import GHNetwork, GraphQLNetwork
 from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService, ContentsService
 from ..models.review_models import ReferencedCommitContext
-from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIMergeQueueState, UIReview, UIFileChange, UIPRCreated, UIRelease
+from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIReview, UIFileChange, UIPRCreated, UIRelease
 
 
 class GitHubClient:
@@ -192,6 +192,14 @@ class GitHubClient:
     def get_merge_queue_state(self, pr_number: int) -> ClientResult[UIMergeQueueState]:
         """Get the merge queue state of a pull request."""
         return self._pr_service.get_merge_queue_state(pr_number)
+
+    def get_actions_job_log(self, job_id: int, tail_chars: int = 3_000_000) -> ClientResult[str]:
+        """Get the end of a GitHub Actions job's log (e.g. a failed check)."""
+        return self._pr_service.get_actions_job_log(job_id, tail_chars)
+
+    def get_merge_queue(self, max_entries: int = 10) -> ClientResult[UIMergeQueue]:
+        """Get the merge queue of the repository's default branch (read-only)."""
+        return self._pr_service.get_merge_queue(max_entries)
 
     def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:
         """Add a comment to a PR."""

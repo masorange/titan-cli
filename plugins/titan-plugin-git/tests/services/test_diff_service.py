@@ -289,6 +289,36 @@ class TestDiffServiceGetBranchNumstat:
 
 
 @pytest.mark.unit
+class TestDiffServiceGetUncommittedNumstat:
+    """Test DiffService.get_uncommitted_numstat()"""
+
+    def test_diffs_against_head_without_touching_the_index(self, service, mock_git_network):
+        """Test it runs one read-only diff against HEAD and parses it"""
+        mock_git_network.run_command.return_value = "3\t1\tsrc/a.py\n-\t-\tlogo.png\n"
+
+        result = service.get_uncommitted_numstat()
+
+        assert isinstance(result, ClientSuccess)
+        assert [(c.path, c.additions, c.deletions, c.is_binary) for c in result.data] == [
+            ("src/a.py", 3, 1, False),
+            ("logo.png", 0, 0, True),
+        ]
+        mock_git_network.run_command.assert_called_once()
+        args = mock_git_network.run_command.call_args.args[0]
+        assert args[-3:] == ["HEAD", "--numstat", "--no-renames"]
+        assert "add" not in args
+
+    def test_error_returns_client_error(self, service, mock_git_network):
+        """Test git error returns ClientError"""
+        mock_git_network.run_command.side_effect = GitCommandError("not a git repository")
+
+        result = service.get_uncommitted_numstat()
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "DIFF_ERROR"
+
+
+@pytest.mark.unit
 class TestDiffServiceGetChangedFiles:
     """Test DiffService.get_changed_files()"""
 

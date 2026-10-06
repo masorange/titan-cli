@@ -109,6 +109,39 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 }
 '''
 
+GET_MERGE_QUEUE = '''
+query($owner: String!, $repo: String!, $first: Int!) {
+  viewer {
+    login
+  }
+  repository(owner: $owner, name: $repo) {
+    defaultBranchRef {
+      name
+    }
+    mergeQueue {
+      configuration {
+        mergeMethod
+      }
+      entries(first: $first) {
+        totalCount
+        nodes {
+          position
+          state
+          estimatedTimeToMerge
+          pullRequest {
+            number
+            title
+            author {
+              login
+            }
+          }
+        }
+      }
+    }
+  }
+}
+'''
+
 ENQUEUE_PULL_REQUEST = '''
 mutation($prId: ID!) {
   enqueuePullRequest(input: {pullRequestId: $prId}) {

@@ -293,6 +293,10 @@ class GitClient:
         """Get repository status."""
         return self.status_service.get_status()
 
+    def get_untracked_files(self) -> ClientResult[List[str]]:
+        """List untracked files one by one (new directories expanded), honouring .gitignore."""
+        return self.status_service.get_untracked_files()
+
     def has_uncommitted_changes(self) -> ClientResult[bool]:
         """Check if repository has uncommitted changes."""
         return self.status_service.has_uncommitted_changes()
@@ -353,6 +357,17 @@ class GitClient:
             ClientResult[List[UIFileChurn]] with one entry per changed file
         """
         return self.diff_service.get_branch_numstat(base_branch, head_branch, use_remote)
+
+    def get_uncommitted_numstat(self) -> ClientResult[List[UIFileChurn]]:
+        """
+        Get per-file addition/deletion counters of uncommitted changes against HEAD.
+
+        Read-only and safe to poll; untracked files are not counted.
+
+        Returns:
+            ClientResult[List[UIFileChurn]] with one entry per changed tracked file
+        """
+        return self.diff_service.get_uncommitted_numstat()
 
     def get_changed_files(self, base_ref: str, head_ref: str) -> ClientResult[List[str]]:
         """

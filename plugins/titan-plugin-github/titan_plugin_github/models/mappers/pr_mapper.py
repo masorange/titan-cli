@@ -5,10 +5,12 @@ Pull Request Mappers
 Converts network models (REST/GraphQL) to view models (UI).
 All presentation logic and transformations live here.
 """
+from typing import Optional
+
 from ..review_enums import FileChangeStatus
 from ..network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
-from ..network.graphql import GraphQLPullRequestMergeQueueState
-from ..view import UIPullRequest, UIPRMergeResult, UIMergeQueueState, UIFileChange, UIPRCreated
+from ..network.graphql import GraphQLMergeQueue, GraphQLPullRequestMergeQueueState
+from ..view import UIFailedCheck, UIPullRequest, UIPRMergeResult, UIMergeQueue, UIMergeQueueEntry, UIMergeQueueState, UIFileChange, UIPRCreated
 from ..formatting import (
     format_date,
     get_pr_status_icon,
@@ -16,6 +18,7 @@ from ..formatting import (
     format_branch_info,
     calculate_review_summary,
     summarize_status_check_rollup,
+    classify_status_check_rollup,
     summarize_review_status,
     format_short_sha,
 )
@@ -43,6 +46,8 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
     reviewed_logins = {review.user.login for review in rest_pr.reviews if review.state != "PENDING"}
     pending_reviewers = [login for login in requested_reviewers if login not in reviewed_logins]
 
+    checks_state, failed = classify_status_check_rollup(rest_pr.statusCheckRollup)
+
     return UIPullRequest(
         number=rest_pr.number,
         title=rest_pr.title,
@@ -68,6 +73,9 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         head_repository_name=rest_pr.headRepositoryName,
         requested_reviewers=requested_reviewers,
         pending_reviewers=pending_reviewers,
+        checks_state=checks_state,
+        failed_checks=[UIFailedCheck(name=name, url=url) for name, url in failed],
+        has_conflicts=(rest_pr.mergeable == "CONFLICTING"),
     )
 
 
@@ -193,4 +201,59 @@ def from_graphql_merge_queue_state(
         queue_position=graphql_state.mergeQueueEntryPosition,
         queue_entry_state=graphql_state.mergeQueueEntryState,
         summary=summary,
+    )
+
+
+_MERGE_QUEUE_STATE_LABELS = {
+    "QUEUED": "queued",
+    "AWAITING_CHECKS": "running checks",
+    "MERGEABLE": "ready to merge",
+    "UNMERGEABLE": "unmergeable",
+    "LOCKED": "locked",
+}
+
+
+def format_merge_eta(seconds: Optional[int]) -> str:
+    """Compact time-to-merge estimate: "<1m", "~12m", "~1h05", or "" when unknown."""
+    if seconds is None:
+        return ""
+    if seconds < 60:
+        return "<1m"
+    minutes = round(seconds / 60)
+    if minutes < 60:
+        return f"~{minutes}m"
+    return f"~{minutes // 60}h{minutes % 60:02d}"
+
+
+def from_graphql_merge_queue(graphql_queue: GraphQLMergeQueue) -> UIMergeQueue:
+    """
+    Convert a GraphQL merge queue to the UI merge queue.
+
+    Args:
+        graphql_queue: GraphQLMergeQueue from the GraphQL API
+
+    Returns:
+        UIMergeQueue with labels and ETAs pre-formatted and the viewer's own
+        entries flagged
+    """
+    viewer = graphql_queue.viewerLogin
+    return UIMergeQueue(
+        is_configured=graphql_queue.isConfigured,
+        branch=graphql_queue.defaultBranch,
+        merge_method=(graphql_queue.mergeMethod or "").lower(),
+        total=graphql_queue.totalCount,
+        entries=[
+            UIMergeQueueEntry(
+                position=entry.position,
+                pr_number=entry.pullRequestNumber,
+                title=entry.pullRequestTitle,
+                author=entry.authorLogin or "?",
+                state=entry.state,
+                state_label=_MERGE_QUEUE_STATE_LABELS.get(entry.state, entry.state.lower()),
+                eta_seconds=entry.estimatedTimeToMerge,
+                eta_label=format_merge_eta(entry.estimatedTimeToMerge),
+                is_mine=viewer is not None and entry.authorLogin == viewer,
+            )
+            for entry in graphql_queue.entries
+        ],
     )

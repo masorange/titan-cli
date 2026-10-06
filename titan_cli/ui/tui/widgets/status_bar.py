@@ -31,6 +31,8 @@ class StatusBarWidget(Widget):
     cli_info: reactive[str] = reactive("N/A")
     ai_info: reactive[str] = reactive("N/A")
     project_name: reactive[str] = reactive("N/A")
+    # What loaded mods put in the bar with `m.ui.status`; hidden while empty.
+    mods_info: reactive[str] = reactive("")
 
     DEFAULT_CSS = """
     StatusBarWidget {
@@ -72,6 +74,12 @@ class StatusBarWidget(Widget):
         color: green;
     }
 
+    StatusBarWidget #mods-info {
+        width: 2fr;
+        text-align: center;
+        color: yellow;
+    }
+
     StatusBarWidget #project-info {
         text-align: right;
         color: orange;
@@ -84,6 +92,9 @@ class StatusBarWidget(Widget):
             yield Static(f"{self.git_branch}", id="branch-info")
             yield Static(f"{self.cli_info}", id="cli-info")
             yield Static(f"{self.ai_info}", id="ai-info")
+            mods = Static(self.mods_info, id="mods-info", markup=False)
+            mods.display = bool(self.mods_info)
+            yield mods
             yield Static(f"{self.project_name}", id="project-info")
 
     def _update_branch(self, value: str) -> None:
@@ -120,6 +131,13 @@ class StatusBarWidget(Widget):
         """Update AI display when ai_info changes."""
         if self.is_mounted:
             self._update_ai(new_value)
+
+    def watch_mods_info(self, new_value: str) -> None:
+        """Show the mods cell only while some mod has something in it."""
+        if self.is_mounted:
+            mods_widget = self.query_one("#mods-info", Static)
+            mods_widget.update(new_value)
+            mods_widget.display = bool(new_value)
 
     def watch_project_name(self, new_value: str) -> None:
         """Update project display when project_name changes."""

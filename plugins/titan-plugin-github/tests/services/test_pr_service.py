@@ -542,3 +542,100 @@ def test_get_pr_commit_sha_returns_api_error_on_network_failure(pr_service, mock
 
     assert isinstance(result, ClientError)
     assert result.error_code == "API_ERROR"
+
+
+def merge_queue_list_response(*, configured=True, nodes=(), total=None, viewer="me"):
+    queue = None
+    if configured:
+        queue = {
+            "configuration": {"mergeMethod": "SQUASH"},
+            "entries": {"totalCount": len(nodes) if total is None else total, "nodes": list(nodes)},
+        }
+    return {
+        "data": {
+            "viewer": {"login": viewer},
+            "repository": {"defaultBranchRef": {"name": "master"}, "mergeQueue": queue},
+        }
+    }
+
+
+def queue_node(position, number, author, state="QUEUED", eta=None):
+    return {
+        "position": position,
+        "state": state,
+        "estimatedTimeToMerge": eta,
+        "pullRequest": {"number": number, "title": f"PR {number}", "author": {"login": author}},
+    }
+
+
+def test_get_merge_queue_lists_entries_and_flags_mine(pr_service, mock_graphql_network):
+    """The queue comes back in order, labelled, with the viewer's PRs flagged"""
+    mock_graphql_network.run_query.return_value = merge_queue_list_response(
+        nodes=[
+            queue_node(1, 10, "someone", "AWAITING_CHECKS", eta=30),
+            queue_node(2, 11, "me", "MERGEABLE", eta=3900),
+        ],
+        total=5,
+    )
+
+    result = pr_service.get_merge_queue(max_entries=2)
+
+    assert isinstance(result, ClientSuccess)
+    queue = result.data
+    assert (queue.is_configured, queue.branch, queue.merge_method, queue.total) == (True, "master", "squash", 5)
+    assert [(e.pr_number, e.state_label, e.eta_label, e.is_mine) for e in queue.entries] == [
+        (10, "running checks", "<1m", False),
+        (11, "ready to merge", "~1h05", True),
+    ]
+    assert mock_graphql_network.run_query.call_args.args[1]["first"] == 2
+
+
+def test_get_merge_queue_without_a_queue_is_not_an_error(pr_service, mock_graphql_network):
+    """A default branch with no merge queue is reported as not configured"""
+    mock_graphql_network.run_query.return_value = merge_queue_list_response(configured=False)
+
+    result = pr_service.get_merge_queue()
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.is_configured is False
+    assert result.data.entries == []
+
+
+def test_get_merge_queue_malformed_response(pr_service, mock_graphql_network):
+    """A response without a repository is INVALID_RESPONSE"""
+    mock_graphql_network.run_query.return_value = {"data": {"repository": None}}
+
+    result = pr_service.get_merge_queue()
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "INVALID_RESPONSE"
+
+
+def test_get_merge_queue_requires_graphql(no_graphql_pr_service):
+    """Without the GraphQL network there is no merge queue lookup"""
+    result = no_graphql_pr_service.get_merge_queue()
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "GRAPHQL_UNAVAILABLE"
+
+
+def test_get_actions_job_log_keeps_the_end(pr_service, mock_gh_network):
+    """Only the tail of a long log comes back, read from the repo's jobs endpoint"""
+    mock_gh_network.get_repo_string.return_value = "o/r"
+    mock_gh_network.run_command.return_value = "start\n" + "x" * 50 + "\nBUILD FAILED\n"
+
+    result = pr_service.get_actions_job_log(42, tail_chars=20)
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.endswith("BUILD FAILED\n") and len(result.data) == 20
+    assert mock_gh_network.run_command.call_args.args[0] == ["api", "/repos/o/r/actions/jobs/42/logs"]
+
+
+def test_get_actions_job_log_not_found(pr_service, mock_gh_network):
+    """An expired or unknown job is JOB_NOT_FOUND"""
+    mock_gh_network.run_command.side_effect = GitHubAPIError("HTTP 404: Not Found")
+
+    result = pr_service.get_actions_job_log(42)
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "JOB_NOT_FOUND"

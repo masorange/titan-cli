@@ -246,20 +246,35 @@ class DiffService:
                 check=True,
             )
 
-            churns: List[UIFileChurn] = []
-            for line in output.splitlines():
-                parts = line.split("\t")
-                if len(parts) != 3:
-                    continue
-                added, deleted, path = parts
-                if added == "-" or deleted == "-":
-                    churns.append(UIFileChurn(path=path, additions=0, deletions=0, is_binary=True))
-                    continue
-                churns.append(UIFileChurn(path=path, additions=int(added), deletions=int(deleted)))
-
             return ClientSuccess(
-                data=churns,
+                data=_parse_numstat(output),
                 message=f"Numstat between {base_branch} and {head_branch} retrieved",
+            )
+        except (GitError, ValueError) as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+    @log_client_operation()
+    def get_uncommitted_numstat(self) -> ClientResult[List[UIFileChurn]]:
+        """
+        Get per-file addition/deletion counters of uncommitted changes
+        (working tree and index against HEAD).
+
+        Read-only: unlike get_uncommitted_diff_stat it does not mark untracked
+        files with intent-to-add, so it is safe to poll. Untracked files are
+        therefore not counted.
+
+        Returns:
+            ClientResult[List[UIFileChurn]] with one entry per changed tracked file.
+            Binary files are included with is_binary=True and zero counters.
+        """
+        try:
+            output = self.git.run_command(
+                ["git", "-c", "core.quotePath=false", "diff", "HEAD", "--numstat", "--no-renames"],
+                check=True,
+            )
+            return ClientSuccess(
+                data=_parse_numstat(output),
+                message="Uncommitted numstat retrieved",
             )
         except (GitError, ValueError) as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
@@ -312,3 +327,18 @@ class DiffService:
             return ClientSuccess(data=diff_stat, message="Diff stat retrieved")
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+
+def _parse_numstat(output: str) -> List[UIFileChurn]:
+    """Parse `git diff --numstat --no-renames` lines; binary files print "-" counters."""
+    churns: List[UIFileChurn] = []
+    for line in output.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        added, deleted, path = parts
+        if added == "-" or deleted == "-":
+            churns.append(UIFileChurn(path=path, additions=0, deletions=0, is_binary=True))
+            continue
+        churns.append(UIFileChurn(path=path, additions=int(added), deletions=int(deleted)))
+    return churns

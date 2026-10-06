@@ -25,6 +25,8 @@ from .network.graphql import (
     GraphQLPullRequestReviewComment,
     GraphQLPullRequestReviewThread,
     GraphQLIssueComment,
+    GraphQLMergeQueue,
+    GraphQLMergeQueueEntry,
     GraphQLPullRequestMergeQueueState,
 )
 
@@ -66,6 +68,8 @@ __all__ = [
     "GraphQLPullRequestReviewComment",
     "GraphQLPullRequestReviewThread",
     "GraphQLIssueComment",
+    "GraphQLMergeQueue",
+    "GraphQLMergeQueueEntry",
     "GraphQLPullRequestMergeQueueState",
     # View models
     "UIComment",

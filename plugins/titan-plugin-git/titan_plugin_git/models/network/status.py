@@ -18,3 +18,4 @@ class NetworkGitStatus:
     staged_files: List[str]
     ahead: int = 0
     behind: int = 0
+    has_upstream: bool = False

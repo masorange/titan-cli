@@ -9,6 +9,7 @@ from textual.screen import Screen
 from titan_cli.core.config import TitanConfig
 from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
 from titan_cli.ui.tui.widgets.header import HeaderWidget
+from titan_cli.ui.tui.widgets.mod_side_panel import ModSidePanel
 from titan_cli.core.result import ClientSuccess
 
 class BaseScreen(Screen):
@@ -76,6 +77,10 @@ class BaseScreen(Screen):
 
         # Content area - subclasses define this
         yield from self.compose_content()
+
+        # Textual lays docked widgets out last-first: yielded before the status
+        # bar, the panel stops above it and the bar keeps the full width.
+        yield ModSidePanel()
 
         # StatusBar with current config values (optional)
         if self.show_status_bar:
@@ -167,6 +172,9 @@ class BaseScreen(Screen):
         status_bar.cli_info = cli_info
         status_bar.ai_info = ai_info
         status_bar.project_name = project_name
+        mods_host = getattr(self.app, "mods_host", None)
+        if mods_host is not None:
+            status_bar.mods_info = mods_host.status_text()
 
     def on_screen_resume(self) -> None:
         """Called when screen is resumed (e.g., after another screen is dismissed)."""

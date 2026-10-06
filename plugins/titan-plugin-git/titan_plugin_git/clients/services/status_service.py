@@ -5,7 +5,7 @@ Status Service
 Business logic for Git status operations.
 Uses network layer to execute commands, parses to network models, maps to view models.
 """
-from typing import Tuple
+from typing import List, Tuple
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
@@ -71,7 +71,7 @@ class StatusService:
             is_clean = not (modified or untracked or staged)
 
             # Get ahead/behind status
-            ahead, behind = self._get_upstream_status()
+            ahead, behind, has_upstream = self._get_upstream_status()
 
             # Create network model
             network_status = NetworkGitStatus(
@@ -81,7 +81,8 @@ class StatusService:
                 untracked_files=untracked,
                 staged_files=staged,
                 ahead=ahead,
-                behind=behind
+                behind=behind,
+                has_upstream=has_upstream,
             )
 
             # Map to UI model
@@ -92,6 +93,29 @@ class StatusService:
                 message="Status retrieved"
             )
 
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="STATUS_ERROR")
+
+    @log_client_operation()
+    def get_untracked_files(self) -> ClientResult[List[str]]:
+        """
+        List untracked files one by one, honouring .gitignore.
+
+        Unlike `get_status().untracked_files`, which comes from `git status`
+        and collapses a new directory into one "dir/" entry, every file is
+        listed, and ignored files (build output, __pycache__) never are.
+
+        Returns:
+            ClientResult[List[str]] of paths relative to the repository root
+        """
+        try:
+            output = self.git.run_command(
+                ["git", "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"]
+            )
+            return ClientSuccess(
+                data=[line for line in output.splitlines() if line],
+                message="Untracked files listed",
+            )
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STATUS_ERROR")
 
@@ -113,12 +137,13 @@ class StatusService:
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STATUS_CHECK_ERROR")
 
-    def _get_upstream_status(self) -> Tuple[int, int]:
+    def _get_upstream_status(self) -> Tuple[int, int, bool]:
         """
         Get commits ahead/behind upstream.
 
         Returns:
-            Tuple of (ahead, behind) counts
+            Tuple of (ahead, behind, has_upstream); without an upstream the
+            counts are 0 and has_upstream is False
         """
         try:
             output = self.git.run_command(
@@ -128,8 +153,8 @@ class StatusService:
             if output:
                 parts = output.split()
                 if len(parts) == 2:
-                    return int(parts[0]), int(parts[1])
+                    return int(parts[0]), int(parts[1]), True
         except GitCommandError:
             # No upstream configured
             pass
-        return 0, 0
+        return 0, 0, False

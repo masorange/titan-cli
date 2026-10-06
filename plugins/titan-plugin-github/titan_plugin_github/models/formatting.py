@@ -190,6 +190,41 @@ def summarize_status_check_rollup(status_check_rollup: list[dict[str, Any]]) -> 
     return ", ".join(parts) if parts else "No checks"
 
 
+_FAILED_OUTCOMES = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"}
+_PASSED_OUTCOMES = {"SUCCESS", "SKIPPED", "NEUTRAL"}
+
+
+def classify_status_check_rollup(status_check_rollup: list[dict[str, Any]]) -> tuple[str, list[tuple[str, str]]]:
+    """
+    Reduce a PR's checks to one state and the checks that failed.
+
+    Counts both check runs (GitHub Actions and apps) and commit statuses
+    (external CI reporting through the statuses API).
+
+    Returns:
+        ("failing" | "running" | "passing" | "none", [(name, url), ...] of the
+        failed checks, url being where GitHub shows each one)
+    """
+    if not status_check_rollup:
+        return "none", []
+
+    def outcome(check: dict[str, Any]) -> str:
+        return str(check.get("conclusion") or check.get("state") or "").upper()
+
+    failed = [
+        (check.get("name") or check.get("context") or "?", check.get("detailsUrl") or check.get("targetUrl") or "")
+        for check in status_check_rollup
+        if outcome(check) in _FAILED_OUTCOMES
+    ]
+    if failed:
+        return "failing", failed
+    running = any(
+        str(check.get("status") or "").upper() != "COMPLETED" and outcome(check) not in _PASSED_OUTCOMES
+        for check in status_check_rollup
+    )
+    return ("running" if running else "passing"), []
+
+
 def summarize_review_status(review_decision: Optional[PRReviewDecision | str], is_draft: bool) -> str:
     """Summarize PR review state for list displays."""
     if is_draft:
@@ -262,6 +297,7 @@ __all__ = [
     "format_branch_info",
     "calculate_review_summary",
     "summarize_status_check_rollup",
+    "classify_status_check_rollup",
     "summarize_review_status",
     "get_review_state_icon",
     "format_short_sha",

@@ -151,6 +151,15 @@ class TitanPlugin(ABC):
         return True
 
     @property
+    def mods_path(self) -> Optional[Path]:
+        """
+        Optional directory holding mods this plugin ships, one folder per mod
+        (`mod.toml` + `mod.py`). They load while the plugin is enabled, unless
+        the user turns one off with `[mods.<name>] enabled = false`.
+        """
+        return None
+
+    @property
     def workflows_path(self) -> Optional[Path]:
         """
         Optional path to the directory containing workflow definitions for this plugin.

@@ -11,8 +11,11 @@ from typing import Optional
 from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.logging import get_logger
+from titan_cli.core.mods import AppStart, build_mod_bus
+from titan_cli.core.utils import find_project_root
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.external_cli.launcher import launcher_for
+from .mods_ui import TitanModHost
 from .theme import TITAN_THEME_CSS
 from .screens import MainMenuScreen
 
@@ -43,6 +46,7 @@ class TitanApp(App):
         Binding("ctrl+shift+c", "toggle_copy_mode", "Copy Mode"),
         Binding("f2", "quick_cli", "AI CLI"),
         Binding("f3", "quick_model", "AI Model"),
+        Binding("f4", "toggle_mods_panel", "Panel"),
         Binding("?", "help", "Help"),
     ]
 
@@ -72,8 +76,19 @@ class TitanApp(App):
         # it between runs takes effect without rebuilding anything. Never persisted.
         self.ai_session_override = AISessionOverride()
 
+        # Mods load once per app: their hooks wrap every workflow run from here on.
+        registry = getattr(config, "registry", None)
+        self.mods = build_mod_bus(_plugin_mod_paths(config, registry))
+        self.mods_host = TitanModHost(self, self.mods, registry)
+        self.mods.host = self.mods_host
+
     def on_mount(self) -> None:
         """Initialize app and show initial screen."""
+        # Before the first screen composes, so the panes mods open are there for it.
+        try:
+            self.mods.dispatch("app.start", AppStart(project_root=str(find_project_root())), lambda e: None)
+        except Exception:
+            get_logger(__name__).exception("mods_app_start_failed")
         if self._initial_screen is not None:
             # Use custom initial screen
             if callable(self._initial_screen):
@@ -368,6 +383,10 @@ class TitanApp(App):
                 # to prevent, and a bare pass leaves no trace of it happening.
                 get_logger(__name__).debug("status_bar_refresh_failed", exc_info=True)
 
+    def action_toggle_mods_panel(self) -> None:
+        """Collapse or expand the mods' side panel, on every screen."""
+        self.mods_host.toggle_collapsed()
+
     def action_toggle_copy_mode(self) -> None:
         """Toggle copy mode - disables mouse capture to allow text selection."""
         # Toggle mouse capture
@@ -390,3 +409,21 @@ class TitanApp(App):
             # Re-enable mouse
             self._driver._enable_mouse_support()
             self.notify("🖱️  Copy Mode OFF - Mouse interactions restored", timeout=3)
+
+
+def _plugin_mod_paths(config, registry) -> dict:
+    """Where each enabled plugin keeps the mods it ships."""
+    paths = {}
+    try:
+        enabled = registry.list_enabled(config) if registry is not None else []
+    except Exception:
+        return paths
+    for name in enabled:
+        try:
+            plugin = registry.get_plugin(name)
+            path = plugin.mods_path if plugin is not None else None
+        except Exception:
+            continue
+        if path is not None:
+            paths[name] = path
+    return paths

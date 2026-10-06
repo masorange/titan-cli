@@ -9,9 +9,11 @@ import uuid
 from typing import Any, Dict, Optional
 
 import structlog
+from rich.markup import escape
 from textual.message import Message
 
 from titan_cli.core.interrupt import WorkflowAborted, abort_requested
+from titan_cli.core.mods import ModBus, StepCall, WorkflowRun
 from titan_cli.core.workflows import ParsedWorkflow
 from titan_cli.core.workflows.workflow_exceptions import WorkflowExecutionError
 from titan_cli.core.workflows.workflow_registry import WorkflowRegistry
@@ -114,7 +116,8 @@ class TextualWorkflowExecutor:
         self,
         plugin_registry: PluginRegistry,
         workflow_registry: WorkflowRegistry,
-        message_target: Any = None
+        message_target: Any = None,
+        mods: Optional[ModBus] = None,
     ):
         """
         Initialize the Textual workflow executor.
@@ -123,10 +126,12 @@ class TextualWorkflowExecutor:
             plugin_registry: Plugin registry for resolving plugins
             workflow_registry: Workflow registry for resolving workflows
             message_target: Target to post messages to (typically a Textual Widget/Screen)
+            mods: Loaded mods whose `workflow.run` and `step.call` hooks wrap execution
         """
         self._plugin_registry = plugin_registry
         self._workflow_registry = workflow_registry
         self._message_target = message_target
+        self._mods = mods or ModBus()
         # Mints the namespace-scoped broker each step receives as
         # ctx.secret_broker. The vault stays inside the factory; neither the
         # executor nor the context ever holds it.
@@ -180,14 +185,50 @@ class TextualWorkflowExecutor:
         # event names and no way to separate them. Nested workflows share the
         # parent's id so the whole tree stays one run.
         if ctx._workflow_stack:
-            return self._execute_tagged(workflow, ctx, params_override)
+            return self._run_workflow(workflow, ctx, params_override)
 
         self.run_id = uuid.uuid4().hex[:8]
         token = structlog.contextvars.bind_contextvars(run=self.run_id)
         try:
-            return self._execute_tagged(workflow, ctx, params_override)
+            return self._run_workflow(workflow, ctx, params_override)
         finally:
             structlog.contextvars.reset_contextvars(**token)
+
+    def _run_workflow(
+        self,
+        workflow: ParsedWorkflow,
+        ctx: WorkflowContext,
+        params_override: Optional[Dict[str, Any]] = None
+    ) -> WorkflowResult:
+        """Run the workflow through the mods' `workflow.run` hooks."""
+        if not self._mods.has_hooks("workflow.run"):
+            return self._execute_tagged(workflow, ctx, params_override)
+
+        started = False
+
+        def run(_event: WorkflowRun) -> WorkflowResult:
+            nonlocal started
+            started = True
+            return self._execute_tagged(workflow, ctx, params_override)
+
+        event = WorkflowRun(
+            workflow=workflow.name,
+            source=workflow.source,
+            nested=bool(ctx._workflow_stack),
+        )
+        result = self._mods.dispatch("workflow.run", event, run)
+
+        # A mod that refused the workflow answered before anything was posted,
+        # and the screen only learns a run is over from these messages.
+        if not started and is_error(result):
+            self._post_message_sync(
+                self.WorkflowFailed(
+                    workflow_name=workflow.name,
+                    step_name="mods",
+                    error_message=result.message,
+                )
+            )
+        return result
 
     def _execute_tagged(
         self,
@@ -302,14 +343,7 @@ class TextualWorkflowExecutor:
                     ctx.secret_broker = None
 
                 try:
-                    if step_config.workflow:
-                        step_result = self._execute_workflow_step(step_config, ctx)
-                    elif step_config.plugin and step_config.step:
-                        step_result = self._execute_plugin_step(step_config, ctx)
-                    elif step_config.command:
-                        step_result = self._execute_command_step(step_config, ctx)
-                    else:
-                        step_result = Error(f"Invalid step configuration for '{step_id}'.")
+                    step_result = self._call_step(workflow.name, step_config, ctx)
                 except Exception as e:
                     logger.exception("step_exception",
                         workflow=workflow.name,
@@ -470,6 +504,48 @@ class TextualWorkflowExecutor:
         #     f.write(f"[{time.time():.3f}] WorkflowCompleted message posted\n")
 
         return Success(f"Workflow '{workflow.name}' finished.", {})
+
+    def _call_step(self, workflow_name: str, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
+        """Run one step through the mods' `step.call` hooks."""
+        if not self._mods.has_hooks("step.call"):
+            return self._dispatch_step(step_config, ctx)
+
+        ran = False
+
+        def run(event: StepCall) -> WorkflowResult:
+            nonlocal ran
+            ran = True
+            # A hook may hand `next` different params; the step sees those.
+            return self._dispatch_step(
+                step_config.model_copy(update={"params": dict(event.params)}), ctx
+            )
+
+        event = StepCall(
+            workflow=workflow_name,
+            step_id=step_config.id,
+            step_name=step_config.name or step_config.id,
+            plugin=step_config.plugin,
+            step=step_config.step,
+            command=step_config.command,
+            nested_workflow=step_config.workflow,
+            params=step_config.params,
+        )
+        result = self._mods.dispatch("step.call", event, run)
+
+        # A step shows its own errors; one a mod refused never ran, so nothing
+        # would say why it failed.
+        if not ran and is_error(result) and ctx.textual is not None:
+            ctx.textual.error_text(escape(result.message))
+        return result
+
+    def _dispatch_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
+        if step_config.workflow:
+            return self._execute_workflow_step(step_config, ctx)
+        if step_config.plugin and step_config.step:
+            return self._execute_plugin_step(step_config, ctx)
+        if step_config.command:
+            return self._execute_command_step(step_config, ctx)
+        return Error(f"Invalid step configuration for '{step_config.id}'.")
 
     def _execute_workflow_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
         """Execute a nested workflow as a step."""

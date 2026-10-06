@@ -46,7 +46,7 @@ def _cells(ai_config):
             captured["cli"] = bar.cli_info
             captured["ai"] = bar.ai_info
             captured["rendered"] = [
-                str(cell.render()) for cell in bar.query(Static)
+                str(cell.render()) for cell in bar.query(Static) if cell.display
             ]
 
     asyncio.run(run())

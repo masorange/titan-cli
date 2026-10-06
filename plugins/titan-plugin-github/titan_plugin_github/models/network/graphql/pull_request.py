@@ -6,7 +6,7 @@ Faithful representations of GitHub PullRequest fields that are only available
 through the GraphQL API (the gh CLI's `pr view --json` does not expose them).
 """
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -60,4 +60,93 @@ class GraphQLPullRequestMergeQueueState:
             isInMergeQueue=bool(data.get("isInMergeQueue", False)),
             mergeQueueEntryPosition=entry.get("position"),
             mergeQueueEntryState=entry.get("state"),
+        )
+
+
+@dataclass
+class GraphQLMergeQueueEntry:
+    """
+    One entry of a repository's merge queue from the GraphQL API.
+
+    See: https://docs.github.com/en/graphql/reference/objects#mergequeueentry
+
+    Attributes:
+        position: 1-based position in the queue
+        state: Entry state ("QUEUED", "AWAITING_CHECKS", "MERGEABLE",
+            "UNMERGEABLE", "LOCKED")
+        estimatedTimeToMerge: Seconds GitHub estimates until it merges, if known
+        pullRequestNumber: Number of the queued pull request
+        pullRequestTitle: Title of the queued pull request
+        authorLogin: Login of the pull request's author, if visible
+    """
+    position: int
+    state: str
+    pullRequestNumber: int
+    pullRequestTitle: str
+    estimatedTimeToMerge: Optional[int] = None
+    authorLogin: Optional[str] = None
+
+    @classmethod
+    def from_graphql(cls, data: Dict[str, Any]) -> 'GraphQLMergeQueueEntry':
+        """
+        Create GraphQLMergeQueueEntry from a GraphQL MergeQueueEntry node.
+
+        Raises:
+            ValueError: If the node has no position or no pull request number
+        """
+        pr = data.get("pullRequest") or {}
+        if data.get("position") is None or pr.get("number") is None:
+            raise ValueError('missing "position" or "pullRequest.number" in MergeQueueEntry node')
+        return cls(
+            position=int(data["position"]),
+            state=data.get("state") or "",
+            pullRequestNumber=int(pr["number"]),
+            pullRequestTitle=pr.get("title") or "",
+            estimatedTimeToMerge=data.get("estimatedTimeToMerge"),
+            authorLogin=(pr.get("author") or {}).get("login"),
+        )
+
+
+@dataclass
+class GraphQLMergeQueue:
+    """
+    A repository's merge queue for its default branch, from the GraphQL API.
+
+    See: https://docs.github.com/en/graphql/reference/objects#mergequeue
+
+    Attributes:
+        viewerLogin: Login of the authenticated user
+        defaultBranch: Name of the repository's default branch
+        isConfigured: Whether the default branch has a merge queue at all
+        mergeMethod: Configured merge method ("MERGE", "SQUASH", "REBASE"), if any
+        totalCount: Entries in the queue, including those not fetched
+        entries: The first entries of the queue, in order
+    """
+    viewerLogin: Optional[str]
+    defaultBranch: str
+    isConfigured: bool
+    mergeMethod: Optional[str]
+    totalCount: int
+    entries: List[GraphQLMergeQueueEntry]
+
+    @classmethod
+    def from_graphql(cls, data: Dict[str, Any]) -> 'GraphQLMergeQueue':
+        """
+        Create GraphQLMergeQueue from the GET_MERGE_QUEUE response's "data" object.
+
+        Raises:
+            ValueError: If the response has no repository
+        """
+        repository = data.get("repository")
+        if repository is None:
+            raise ValueError('missing "repository" in GraphQL merge queue response')
+        queue = repository.get("mergeQueue")
+        entries = (queue or {}).get("entries") or {}
+        return cls(
+            viewerLogin=(data.get("viewer") or {}).get("login"),
+            defaultBranch=(repository.get("defaultBranchRef") or {}).get("name") or "",
+            isConfigured=queue is not None,
+            mergeMethod=((queue or {}).get("configuration") or {}).get("mergeMethod"),
+            totalCount=int(entries.get("totalCount") or 0),
+            entries=[GraphQLMergeQueueEntry.from_graphql(n) for n in entries.get("nodes") or []],
         )

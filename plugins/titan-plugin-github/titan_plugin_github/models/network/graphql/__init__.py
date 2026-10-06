@@ -10,12 +10,14 @@ from .user import GraphQLUser
 from .review_comment import GraphQLPullRequestReviewComment
 from .review_thread import GraphQLPullRequestReviewThread
 from .issue_comment import GraphQLIssueComment
-from .pull_request import GraphQLPullRequestMergeQueueState
+from .pull_request import GraphQLMergeQueue, GraphQLMergeQueueEntry, GraphQLPullRequestMergeQueueState
 
 __all__ = [
     "GraphQLUser",
     "GraphQLPullRequestReviewComment",
     "GraphQLPullRequestReviewThread",
     "GraphQLIssueComment",
+    "GraphQLMergeQueue",
+    "GraphQLMergeQueueEntry",
     "GraphQLPullRequestMergeQueueState",
 ]

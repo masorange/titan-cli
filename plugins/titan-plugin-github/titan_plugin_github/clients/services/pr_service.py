@@ -15,12 +15,13 @@ from titan_cli.core.logging.config import get_logger
 
 from ..network import GHNetwork, GraphQLNetwork, graphql_queries
 from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
-from ...models.network.graphql import GraphQLPullRequestMergeQueueState
+from ...models.network.graphql import GraphQLMergeQueue, GraphQLPullRequestMergeQueueState
 from ...models.review_models import ReferencedCommitContext
-from ...models.view import UIPullRequest, UIPRMergeResult, UIMergeQueueState, UIFileChange, UIPRCreated
+from ...models.view import UIPullRequest, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIFileChange, UIPRCreated
 from ...models.mappers import (
     from_rest_pr,
     from_network_pr_merge_result,
+    from_graphql_merge_queue,
     from_graphql_merge_queue_state,
     from_network_pr_file,
     from_network_pr_created,
@@ -129,7 +130,7 @@ class PRService:
                 "--search", f"review-requested:{current_user}",
                 "--state", "open",
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,reviewRequests,statusCheckRollup,reviewDecision",
+                "--json", "number,title,author,updatedAt,labels,isDraft,reviewRequests,statusCheckRollup,reviewDecision,mergeable",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
@@ -186,7 +187,7 @@ class PRService:
                 "pr", "list",
                 "--state", state,
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,statusCheckRollup,reviewDecision",
+                "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,statusCheckRollup,reviewDecision,mergeable",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
@@ -835,6 +836,86 @@ class PRService:
                     f"Malformed GraphQL merge queue response for PR "
                     f"#{pr_number}: {e}"
                 ),
+                error_code="INVALID_RESPONSE",
+                log_level="warning",
+            )
+
+    @log_client_operation()
+    def get_actions_job_log(self, job_id: int, tail_chars: int = 3_000_000) -> ClientResult[str]:
+        """
+        Get the log of one GitHub Actions job, e.g. a failed check of a PR.
+
+        Logs run to megabytes and a job's failure is reported at its end, so
+        only the last `tail_chars` characters are kept.
+
+        Args:
+            job_id: The job id, as in `.../actions/runs/<run>/job/<job_id>`
+            tail_chars: How much of the end of the log to return
+
+        Returns:
+            ClientResult[str] with the log text (timestamps included)
+        """
+        try:
+            repo = self.gh.get_repo_string()
+            log = self.gh.run_command(["api", f"/repos/{repo}/actions/jobs/{job_id}/logs"], strip_output=False)
+            return ClientSuccess(data=log[-tail_chars:], message=f"Log of job {job_id} retrieved")
+        except GitHubAPIError as e:
+            if "not found" in str(e).lower():
+                return ClientError(
+                    error_message=f"Job {job_id} not found, or its log has expired",
+                    error_code="JOB_NOT_FOUND",
+                    log_level="warning",
+                )
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @log_client_operation()
+    def get_merge_queue(self, max_entries: int = 10) -> ClientResult[UIMergeQueue]:
+        """
+        Get the merge queue of the repository's default branch.
+
+        Read-only. A repository without a merge queue is a success with
+        `is_configured=False`, not an error.
+
+        Args:
+            max_entries: How many entries to list from the head of the queue;
+                `total` still counts all of them
+
+        Returns:
+            ClientResult[UIMergeQueue]
+        """
+        if not self.graphql:
+            return ClientError(
+                error_message="GraphQL network is not available for merge queue lookups",
+                error_code="GRAPHQL_UNAVAILABLE",
+                log_level="warning",
+            )
+
+        repo_string = self.gh.get_repo_string()
+        parts = repo_string.split('/', 1)
+        if len(parts) != 2 or not all(parts):
+            return ClientError(
+                error_message=f"Cannot parse repository string: {repo_string!r}",
+                error_code="INVALID_REPO_STRING",
+                log_level="warning",
+            )
+        owner, repo = parts
+
+        try:
+            response = self.graphql.run_query(
+                graphql_queries.GET_MERGE_QUEUE,
+                {"owner": owner, "repo": repo, "first": max_entries},
+            )
+            graphql_queue = GraphQLMergeQueue.from_graphql(response.get("data") or {})
+            ui_queue = from_graphql_merge_queue(graphql_queue)
+            return ClientSuccess(
+                data=ui_queue,
+                message=f"Merge queue of {ui_queue.branch or 'the default branch'} retrieved",
+            )
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+        except (ValueError, TypeError) as e:
+            return ClientError(
+                error_message=f"Malformed GraphQL merge queue response: {e}",
                 error_code="INVALID_RESPONSE",
                 log_level="warning",
             )
