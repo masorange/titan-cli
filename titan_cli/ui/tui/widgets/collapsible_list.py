@@ -307,7 +307,7 @@ class CollapsibleEntry:
     #: Plain text, Rich markup, or any Rich renderable. Textual is built on Rich
     #: and its widgets take renderables directly, so a highlighted block can be
     #: passed as data instead of as a markup string nobody has to escape.
-    body: list[Union[str, RenderableType]] = field(default_factory=list)
+    body: list[Union[str, RenderableType, Widget]] = field(default_factory=list)
     #: Content colour. Body text inherits the output panel's green otherwise, which
     #: makes payloads read as status rather than as data.
     body_colour: str = "#d8d8d8"
@@ -350,8 +350,11 @@ def _widget_for(entry: CollapsibleEntry, inherited_colour: str = "") -> Widget:
     style = entry.style or ""
 
     body: list[Widget] = []
-    for text in entry.body:
-        static = Static(text)
+    for item in entry.body:
+        if isinstance(item, Widget):
+            body.append(item)
+            continue
+        static = Static(item)
         static.styles.height = "auto"
         static.styles.color = colour
         body.append(static)

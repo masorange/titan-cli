@@ -206,7 +206,15 @@ class PluginConfigWizardScreen(BaseScreen):
         # For now, we'll create one step per field for simplicity
         # In the future, plugins could define custom step grouping
 
-        for field_name in self.properties.keys():
+        for field_name, field_schema in self.properties.items():
+            if field_schema.get("ui_hidden"):
+                logger.debug(
+                    "plugin_config_field_hidden",
+                    plugin=self.plugin_name,
+                    field=field_name,
+                )
+                continue
+
             self.steps.append({
                 "id": field_name,
                 "title": field_name.replace("_", " ").title(),

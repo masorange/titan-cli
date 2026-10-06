@@ -277,7 +277,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `merge_queue_enabled` | bool \| None | Whether the base branch requires a merge queue, or None when the lookup failed. |
+    | `merge_queue_enabled` | bool | None | Whether the base branch requires a merge queue, or None when the lookup failed. |
     | `merge_queue_state` | - | The merge queue state object, when the lookup succeeded. |
 
     **Returns**
@@ -394,14 +394,15 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `pr_number` | int | Pull request number to inspect. |
-    | `merge_queued` | bool, optional | Set by `merge_pull_request` when the PR was added to the merge queue. |
+    | `merge_queued` | bool | Set by `merge_pull_request`; True when the PR was added to the merge queue. |
+    | Required - a missing value is treated as a workflow configuration error. | - | - |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `verified_pr_info` | - | The pull request object; saved only on the regular merge path (`merge_queued` falsy). |
-    | `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (`merge_queued` truthy). |
+    | `verified_pr_info` | - | The pull request object; saved only on the regular merge path (merge_queued falsy). |
+    | `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (merge_queued truthy). |
 
     **Returns**
 

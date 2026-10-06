@@ -60,6 +60,7 @@ class WorkflowContextBuilder:
         self._github = None
         self._jira = None
         self._slack = None
+        self._firebase = None
         self._docker = None
 
         # Plugin managers (keyed by plugin name)
@@ -241,6 +242,34 @@ class WorkflowContextBuilder:
                 self._slack = None
         return self
 
+    def with_firebase(self, firebase_client: Optional[Any] = None) -> WorkflowContextBuilder:
+        """
+        Add Firebase client to workflow context.
+
+        The Firebase client is optional and only used by Firebase plugin steps.
+        Other plugin steps will have ctx.firebase = None and should ignore it.
+
+        Args:
+            firebase_client: Optional FirebaseClient instance (auto-loaded if None).
+                            If plugin is not available or fails to load, sets
+                            ctx.firebase = None.
+
+        Returns:
+            Self for method chaining
+        """
+        if firebase_client:
+            self._firebase = firebase_client
+        else:
+            firebase_plugin = self._plugin_registry.ensure_initialized("firebase")
+            if firebase_plugin and firebase_plugin.is_available():
+                try:
+                    self._firebase = firebase_plugin.get_client()
+                except Exception:
+                    self._firebase = None
+            else:
+                self._firebase = None
+        return self
+
     def with_docker(self, docker_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add Docker client to workflow context.
@@ -282,4 +311,5 @@ class WorkflowContextBuilder:
             jira=self._jira,
             slack=self._slack,
             docker=self._docker,
+            firebase=self._firebase,
         )
