@@ -1,0 +1,18 @@
+# Throwaway: gives a PR one failing check, to try the dev_status mod's
+# "Diagnose failure" against a real GitHub Actions log. Never merge.
+name: Diagnose demo
+
+on:
+  pull_request:
+
+jobs:
+  tests:
+    name: Diagnose demo tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: pytest tests/diagnose_demo -q
