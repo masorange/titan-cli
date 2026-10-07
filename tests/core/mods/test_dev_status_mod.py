@@ -57,7 +57,7 @@ def test_split_pr_takes_the_squash_suffix(dev):
 def test_read_harness_counts_the_focused_domain(dev, tmp_path):
     write_harness(tmp_path, [("a", "done"), ("b", "in-progress"), ("c", "planned"), ("d", "superseded")])
 
-    hs = dev.read_harness(tmp_path, "harness")
+    hs = dev.read_harness(tmp_path, ["harness"])
 
     assert (hs.name, hs.status, hs.done, hs.total) == ("Domain", "active", 1, 3)
     assert [f.id for f in hs.in_progress] == ["b"]
@@ -66,7 +66,26 @@ def test_read_harness_counts_the_focused_domain(dev, tmp_path):
 
 
 def test_read_harness_without_one_is_none(dev, tmp_path):
-    assert dev.read_harness(tmp_path, "harness") is None
+    assert dev.read_harness(tmp_path, ["harness"]) is None
+
+
+def test_read_harness_takes_the_first_dir_with_an_index_and_root_relative_paths(dev, tmp_path):
+    (tmp_path / "harness").mkdir()
+    (tmp_path / "harness" / "notes.md").write_text("not a harness")
+    base = tmp_path / "docs" / "harness"
+    (base / "shield").mkdir(parents=True)
+    (base / "feature-list.json").write_text(json.dumps({
+        "currentFocus": "shield",
+        "tasks": [{"id": "task-shield", "name": "Shield", "path": "docs/harness/shield", "status": "active"}],
+    }))
+    (base / "shield" / "feature-list.json").write_text(json.dumps({"features": [
+        {"id": "f1", "name": "F1", "status": "done"}, {"id": "f2", "name": "F2", "status": "pending"},
+    ]}))
+
+    hs = dev.read_harness(tmp_path, ["harness", "docs/harness"])
+
+    assert (hs.name, hs.done, hs.total) == ("Shield", 1, 2)
+    assert [f.id for f in hs.up_next] == ["f2"]
 
 
 def test_untracked_lines_reads_the_listed_files(dev, tmp_path):
@@ -87,14 +106,14 @@ def test_read_repo_combines_status_numstat_untracked_and_log(dev, tmp_path):
         ]),
     )
 
-    repo = dev.read_repo(git, tmp_path, {"harness_dir": "harness", "recent_commits": 10})
+    repo = dev.read_repo(git, tmp_path, {"harness_dirs": ["harness"], "recent_commits": 10})
 
     assert (repo.branch, repo.ahead, repo.behind, repo.added, repo.removed) == ("feat/x", 2, 1, 7, 3)
     assert repo.commits == [dev.Commit("abc1234", "feat: y", 9, "2026-10-06")]
 
 
 def test_read_repo_without_git_says_so(dev, tmp_path):
-    assert dev.read_repo(None, tmp_path, {"harness_dir": "harness"}).error == "git plugin not available"
+    assert dev.read_repo(None, tmp_path, {"harness_dirs": ["harness"]}).error == "git plugin not available"
 
 
 def pr(number, review="review required", checks="passing", failed=0, draft=False, conflicts=False):
@@ -116,6 +135,25 @@ def test_read_prs_and_the_error_path(dev):
 
     github.list_my_prs = lambda: ClientError(error_message="gh: not logged in")
     assert dev.read_prs(github).error == "gh: not logged in"
+
+
+def test_active_feature_line_lifts_open_features_out_of_the_groups(dev, tmp_path):
+    write_harness(tmp_path, [("feat-1", "in-progress"), ("feat-2", "done"), ("feat-3", "in-progress"), ("feat-4", "pending")])
+    (tmp_path / "harness" / "dom" / "progress.md").write_text(
+        "# P\n\n**Active Feature:** `feat-1` (pending verification); and `feat-2` (restructure).\n"
+    )
+    bus = ModBus()
+    bus.on_for("dev_status")
+    m = bus._apis["dev_status"]
+    hs = dev.read_harness(tmp_path, ["harness"])
+    m.state.set("repo", dev.Repo(branch="x", harness=hs))
+
+    assert [f.id for f in hs.focused] == ["feat-1"]  # feat-2 is done, so it is not shown
+    assert [f.id for f in hs.in_progress] == ["feat-3"]
+    lines = flatten(dev.draw(m, 44))
+    assert "◐ feat-1 FEAT-1" in lines
+    assert "▸ In progress (1)" in lines
+    assert "▸ Pending (1)" in lines
 
 
 def test_toasts_only_announce_changes_after_a_good_poll(dev):
@@ -140,7 +178,7 @@ def test_draw_shows_every_section(dev, tmp_path):
     m = bus._apis["dev_status"]
     write_harness(tmp_path, [("a", "done"), ("b", "in-progress")])
     m.state.set("repo", dev.Repo(branch="feat/x", has_upstream=True, ahead=1, added=4, commits=[dev.Commit("abc", "feat: y", 9, "today")],
-                                 harness=dev.read_harness(tmp_path, "harness")))
+                                 harness=dev.read_harness(tmp_path, ["harness"])))
     m.state.set("prs", dev.Prs(repo="o/r", to_review=[dev._pr(pr(5))],
                                mine=[dev._pr(pr(2, review="changes requested", checks="failing", failed=2, conflicts=True))],
                                open_count=3))

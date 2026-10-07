@@ -11,7 +11,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from titan_cli.core.mods import Box, Button, Text
 from titan_cli.core.result import ClientError, ClientSuccess
@@ -22,6 +22,7 @@ UNTRACKED_READ_LIMIT = 100
 GROUP_SHOWN = 12
 UP_NEXT = ("planned", "pending", "not-started")
 NOT_COUNTED = ("superseded", "deferred", "discarded")
+UNFINISHED = ("in-progress", *UP_NEXT)
 
 
 # -- what the pane shows ---------------------------------------------------
@@ -48,6 +49,8 @@ class Harness:
     status: str
     done: int
     total: int
+    # Named on the `**Active Feature:**` line of the domain's progress.md and still open.
+    focused: List[Feature]
     in_progress: List[Feature]
     up_next: List[Feature]
     other_active: List[str]
@@ -138,12 +141,16 @@ def untracked_lines(root: Path, files: List[str]) -> int:
     return total
 
 
-def read_harness(root: Path, harness_dir: str) -> Optional[Harness]:
-    """The focused domain of a root harness (`feature-list.json` with `currentFocus`)."""
-    base = root / harness_dir
-    try:
-        index = json.loads((base / "feature-list.json").read_text())
-    except (OSError, ValueError):
+def read_harness(root: Path, harness_dirs: Sequence[str]) -> Optional[Harness]:
+    """The focused domain of the first root harness (`feature-list.json` with `currentFocus`) in `harness_dirs`."""
+    for harness_dir in harness_dirs:
+        base = root / harness_dir
+        try:
+            index = json.loads((base / "feature-list.json").read_text())
+            break
+        except (OSError, ValueError):
+            continue
+    else:
         return None
     focus = index.get("currentFocus") or ""
     tasks = index.get("tasks") or []
@@ -156,20 +163,32 @@ def read_harness(root: Path, harness_dir: str) -> Optional[Harness]:
     if task is None:
         return None
     try:
-        domain = json.loads((base / (task.get("path") or focus) / "feature-list.json").read_text())
+        # `path` is relative to the repo root in some harnesses (docs/harness/x), to the harness in others (x).
+        domain_dir = (task.get("path") or focus).split("/")[-1]
+        domain = json.loads((base / domain_dir / "feature-list.json").read_text())
         features = [
             Feature(f.get("id", "?"), f.get("name", ""), f.get("status", ""))
             for f in domain.get("features") or []
         ]
     except (OSError, ValueError):
         features = []
+    try:
+        progress = (base / domain_dir / "progress.md").read_text()
+    except OSError:
+        progress = ""
+    # The Active Feature line is prose; keep only the feature ids it names that are still open.
+    active = next((line for line in progress.splitlines() if line.startswith("**Active Feature:**")), "")
+    words = set(re.findall(r"[\w.-]+", active))
+    focused = [f for f in features if f.id in words and f.status in UNFINISHED]
+    focused_ids = {f.id for f in focused}
     return Harness(
         name=task.get("name") or focus,
         status=task.get("status") or "?",
         done=sum(f.status == "done" for f in features),
         total=sum(f.status not in NOT_COUNTED for f in features),
-        in_progress=[f for f in features if f.status == "in-progress"],
-        up_next=[f for f in features if f.status in UP_NEXT],
+        focused=focused,
+        in_progress=[f for f in features if f.status == "in-progress" and f.id not in focused_ids],
+        up_next=[f for f in features if f.status in UP_NEXT and f.id not in focused_ids],
         other_active=[t.get("name") or t.get("path") or "?" for t in tasks if t.get("status") == "active" and not is_focus(t)],
     )
 
@@ -181,7 +200,7 @@ def read_repo(git, root: Path, options) -> Repo:
         case ClientSuccess(data=status):
             pass
         case ClientError(error_message=err):
-            return Repo(branch="(no git)", error=err, harness=read_harness(root, options["harness_dir"]))
+            return Repo(branch="(no git)", error=err, harness=read_harness(root, options["harness_dirs"]))
 
     added = removed = 0
     match git.get_uncommitted_numstat():
@@ -215,7 +234,7 @@ def read_repo(git, root: Path, options) -> Repo:
         added=added,
         removed=removed,
         commits=commits,
-        harness=read_harness(root, options["harness_dir"]),
+        harness=read_harness(root, options["harness_dirs"]),
     )
 
 
@@ -597,12 +616,14 @@ def draw(m, width: int, options=None):
 
         hs = repo.harness
         if hs is not None:
-            idle = not hs.in_progress
+            # With nothing in progress, what comes next is the useful list, so it starts open.
+            idle = not hs.in_progress and all(f.status != "in-progress" for f in hs.focused)
             parts.append(
                 section(
                     Text(Text(f"◆ {hs.name}", bold=True, color="accent"), Text(f" {hs.status}", dim=True)),
                     "accent",
                     bar(hs.done, hs.total, width),
+                    hs.focused and Box(*[feature_row(f) for f in hs.focused]),
                     hs.in_progress and group(m, "in_progress_open", "In progress", hs.in_progress, False),
                     hs.up_next and group(m, "up_next_open", "Up next" if idle else "Pending", hs.up_next, idle),
                     idle and not hs.up_next and Text("✓ Nothing left to do", color="success"),

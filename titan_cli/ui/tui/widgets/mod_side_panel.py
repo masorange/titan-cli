@@ -103,9 +103,18 @@ class _Pressable(_Line, can_focus=True):
     """
 
     def __init__(self, button: Button):
-        style = Style(dim=True) if button.dim else Style()
-        super().__init__(RichText(button.label, style=style, no_wrap=True, overflow="ellipsis"))
+        super().__init__(self._label(button))
         self._button = button
+
+    @staticmethod
+    def _label(button: Button) -> RichText:
+        style = Style(dim=True) if button.dim else Style()
+        return RichText(button.label, style=style, no_wrap=True, overflow="ellipsis")
+
+    def set_button(self, button: Button) -> None:
+        """Take a redrawn button's label and handler, keeping this widget (and its focus)."""
+        self._button = button
+        self.update(self._label(button))
 
     def on_click(self) -> None:
         self.action_press()
@@ -127,30 +136,110 @@ def _spread(texts: List[Text], width: int) -> RichText:
     return line
 
 
+def kind(element: Any) -> type:
+    """The widget class `build` makes for an element: a widget of that class can be patched to it."""
+    if isinstance(element, Button):
+        return _Pressable
+    if isinstance(element, Box):
+        if _is_spread(element):
+            return _Line
+        return _Row if element.row else _Group
+    return _Line
+
+
+def _is_spread(box: Box) -> bool:
+    return box.row and bool(box.children) and all(isinstance(c, Text) for c in box.children)
+
+
+def _line_text(element: Any, width: int) -> RichText:
+    if isinstance(element, Text):
+        return to_rich(element)
+    if isinstance(element, Box):
+        return _spread(list(element.children), width)
+    return RichText(str(element), no_wrap=True, overflow="ellipsis")
+
+
+def _inner_width(box: Box, width: int) -> int:
+    return (width - 4 if box.border else width) - box.indent
+
+
+def _style_box(widget: Widget, box: Box, children: List[Widget]) -> None:
+    """Inline styles for a box; a style the box does not ask for is cleared, so the CSS shows through."""
+    if isinstance(widget, _Row):
+        return
+    if box.indent:
+        widget.styles.padding = (0, 0, 0, box.indent)
+    else:
+        widget.styles.clear_rule("padding")
+    for i, child in enumerate(children):
+        if box.gap and i:
+            child.styles.margin = (box.gap, 0, 0, 0)
+        else:
+            child.styles.clear_rule("margin")
+    widget.set_class(bool(box.border), "-bordered")
+    if box.border:
+        widget.styles.border = ("round", _color(box.border))
+    else:
+        # `border` is a shorthand stored per edge.
+        for edge in ("border_top", "border_right", "border_bottom", "border_left"):
+            widget.styles.clear_rule(edge)
+
+
 def build(element: Any, width: int) -> Widget:
     """Turn one element of a mod's tree into a widget `width` columns wide."""
-    if isinstance(element, Text):
-        return _Line(to_rich(element))
-    if isinstance(element, Button):
+    cls = kind(element)
+    if cls is _Pressable:
         return _Pressable(element)
-    if isinstance(element, Box):
-        if element.row and element.children and all(isinstance(c, Text) for c in element.children):
-            return _Line(_spread(list(element.children), width))
-        inner = (width - 4 if element.border else width) - element.indent
-        children = [build(child, inner) for child in element.children]
-        if element.row:
-            return _Row(*children)
-        group = _Group(*children)
-        if element.indent:
-            group.styles.padding = (0, 0, 0, element.indent)
-        if element.gap:
-            for child in children[1:]:
-                child.styles.margin = (element.gap, 0, 0, 0)
-        if element.border:
-            group.add_class("-bordered")
-            group.styles.border = ("round", _color(element.border))
-        return group
-    return _Line(RichText(str(element), no_wrap=True, overflow="ellipsis"))
+    if cls is _Line:
+        return _Line(_line_text(element, width))
+    children = [build(child, _inner_width(element, width)) for child in element.children]
+    widget = cls(*children)
+    _style_box(widget, element, children)
+    return widget
+
+
+def live_children(widget: Widget) -> List[Widget]:
+    """Children not already on their way out (removal finishes on a later tick)."""
+    return [c for c in widget.children if not getattr(c, "_pruning", False)]
+
+
+def patch(widget: Widget, element: Any, width: int) -> bool:
+    """Bring a mounted widget in line with a redrawn element without remounting it.
+
+    False when the widget is of another kind: the caller replaces it.
+    """
+    cls = kind(element)
+    if type(widget) is not cls:
+        return False
+    if cls is _Pressable:
+        widget.set_button(element)
+    elif cls is _Line:
+        widget.update(_line_text(element, width))
+    else:
+        reconcile(widget, list(element.children), _inner_width(element, width))
+        _style_box(widget, element, live_children(widget))
+        widget.refresh(layout=True)  # cleared inline rules do not repaint by themselves
+    return True
+
+
+def reconcile(container: Widget, elements: List[Any], width: int) -> None:
+    """Make `container`'s children match `elements`, position by position.
+
+    Each child that can be patched is updated in place, so nothing on screen is
+    torn down and remounted (no flash) and a focused button keeps its focus; only
+    children of another kind are replaced, and the surplus at the end added or removed.
+    """
+    current = live_children(container)
+    for i, element in enumerate(elements):
+        if i < len(current):
+            old = current[i]
+            if not patch(old, element, width):
+                container.mount(build(element, width), before=old)
+                old.remove()
+        else:
+            container.mount(build(element, width))
+    for old in current[len(elements):]:
+        old.remove()
 
 
 class ModSidePanel(Vertical):
@@ -211,7 +300,7 @@ class ModSidePanel(Vertical):
 
         body = self.query_one("#mod-panel-body", VerticalScroll)
         width = max(10, PANEL_WIDTH - 3)
-        widgets: List[Widget] = []
+        trees: List[Any] = []
         for pane in host.panes:
             try:
                 tree = host.render(pane, width)
@@ -219,10 +308,7 @@ class ModSidePanel(Vertical):
                 logger.exception("mod_pane_render_failed", pane=pane)
                 tree = Text(f"{pane}: render failed (see log)", color="error")
             if tree is not None:
-                widgets.append(build(tree, width))
+                trees.append(tree)
 
-        scroll_y = body.scroll_y
         with self.app.batch_update():
-            body.remove_children()
-            body.mount_all(widgets)
-        body.call_after_refresh(body.scroll_to, y=scroll_y, animate=False)
+            reconcile(body, trees, width)

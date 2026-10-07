@@ -7,7 +7,9 @@ events = ["app.start", "workflow.run", "ui.render"]
 slots = ["pane", "toast"]
 
 [options]
-harness_dir = "harness"
+# Where a root harness may live, relative to the repo root; the first
+# holding a feature-list.json wins.
+harness_dirs = ["harness", "docs/harness"]
 repo_refresh_seconds = 30
 prs_refresh_seconds = 120
 queue_refresh_seconds = 60
