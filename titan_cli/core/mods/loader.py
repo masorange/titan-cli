@@ -6,15 +6,18 @@ and slots it uses, its option defaults) and `mod.py` (`register(on, options)`).
 Titan reads the manifest without executing anything, so a mod can be listed,
 explained and switched off before its code ever runs.
 
-Sources, later overriding earlier by name:
+Sources, from the widest to the most personal; a later one overrides an
+earlier one of the same name:
 
-    plugin mods   each enabled plugin's `mods_path`
-    user mods     ~/.titan/mods/<name>/
+    titan mods     titan_cli/mods/<name>/       shipped with Titan, for anyone
+    plugin mods    each enabled plugin's `mods_path`
+    project mods   <repo root>/.titan/mods/<name>/   shared with the team
+    user mods      ~/.titan/mods/<name>/        the user's own
 
-Project mods (`<repo>/.titan/mods/`) are deliberately not read: they would run
-at start-up straight from a cloned repo, so they wait for a consent flow.
+A project mod runs from the repo as `.titan/steps` already do: committing it
+is sharing it with whoever runs Titan there.
 
-A user mod is enabled by being there; `[mods.<name>] enabled = false` in
+A mod is enabled by being there; `[mods.<name>] enabled = false` in
 `~/.titan/config.toml` turns any mod off, and `[mods.<name>.options]`
 overrides the manifest's option defaults.
 
@@ -37,6 +40,8 @@ logger = get_logger(__name__)
 
 MANIFEST = "mod.toml"
 ENTRYPOINT = "mod.py"
+TITAN_MODS = Path(__file__).resolve().parents[2] / "mods"
+PROJECT_MODS = Path(".titan") / "mods"  # under the project root
 USER_MODS = Path.home() / ".titan" / "mods"
 USER_CONFIG = Path.home() / ".titan" / "config.toml"
 
@@ -46,7 +51,7 @@ class ModManifest:
     name: str
     version: str
     description: str
-    source: str  # "user" or "plugin:<name>"
+    source: str  # "titan", "plugin:<name>", "project" or "user"
     folder: Path
     requires_plugins: Tuple[str, ...] = ()
     events: Tuple[str, ...] = ()
@@ -108,10 +113,29 @@ def discover_mods(sources: List[Tuple[str, Path]]) -> Dict[str, ModManifest]:
     return found
 
 
-def mod_sources(plugin_mod_paths: Dict[str, Path], user_root: Optional[Path] = None) -> List[Tuple[str, Path]]:
-    sources = [(f"plugin:{plugin}", path) for plugin, path in sorted(plugin_mod_paths.items())]
+def mod_sources(
+    plugin_mod_paths: Dict[str, Path],
+    project_root: Optional[Path] = None,
+    user_root: Optional[Path] = None,
+    titan_root: Optional[Path] = None,
+) -> List[Tuple[str, Path]]:
+    """Every place mods live, in override order (see the module docstring)."""
+    sources = [("titan", titan_root or TITAN_MODS)]
+    sources += [(f"plugin:{plugin}", path) for plugin, path in sorted(plugin_mod_paths.items())]
+    if project_root is not None:
+        sources.append(("project", project_root / PROJECT_MODS))
     sources.append(("user", user_root or USER_MODS))
     return sources
+
+
+def project_root() -> Optional[Path]:
+    """The project Titan runs in (git root, else the working directory)."""
+    from titan_cli.core.utils import find_project_root
+
+    try:
+        return Path(find_project_root())
+    except Exception:
+        return None
 
 
 def read_mods_config(config_path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
@@ -158,5 +182,5 @@ def load_mods(
 
 def build_mod_bus(plugin_mod_paths: Optional[Dict[str, Path]] = None) -> ModBus:
     bus = ModBus()
-    load_mods(bus, discover_mods(mod_sources(plugin_mod_paths or {})), read_mods_config())
+    load_mods(bus, discover_mods(mod_sources(plugin_mod_paths or {}, project_root())), read_mods_config())
     return bus

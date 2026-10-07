@@ -36,6 +36,25 @@ def test_user_mod_overrides_plugin_mod_of_the_same_name(tmp_path):
     assert found["only_in_plugin"].source == "plugin:github"
 
 
+def test_sources_go_from_titan_to_plugin_to_project_to_user(tmp_path):
+    titan, plugin, repo, user = (tmp_path / n for n in ("titan", "plugin", "repo", "user"))
+    for root in (titan, plugin, repo / ".titan" / "mods", user):
+        write_mod(root, "everywhere")
+    write_mod(titan, "from_titan")
+    write_mod(repo / ".titan" / "mods", "from_repo")
+    write_mod(repo / ".titan" / "mods", "repo_and_user")
+    write_mod(user, "repo_and_user")
+
+    found = discover_mods(mod_sources({"github": plugin}, project_root=repo, user_root=user, titan_root=titan))
+
+    assert {name: m.source for name, m in found.items()} == {
+        "everywhere": "user",
+        "from_titan": "titan",
+        "from_repo": "project",
+        "repo_and_user": "user",
+    }
+
+
 def test_manifest_is_read_without_running_the_mod(tmp_path):
     write_mod(
         tmp_path,

@@ -39,16 +39,18 @@ def _isolate_titan_logs():
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_titan_mods():
     """
-    Keep the user's own mods out of the suite.
+    Keep every mod out of the suite: Titan's own, the repo's and the user's.
 
-    Every test that builds a TitanApp loads mods from ~/.titan/mods, and a
-    mod's timers start on app.start: without this a UI test would run the
-    developer's mods, network calls included, and pass or fail with them.
+    Every test that builds a TitanApp loads mods, and a mod's timers start on
+    app.start: without this a UI test would run whatever mods are installed,
+    network calls included, and pass or fail with them.
     """
     from unittest import mock
 
     with tempfile.TemporaryDirectory(prefix="titan-test-mods-") as tmp:
         with mock.patch("titan_cli.core.mods.loader.USER_MODS", Path(tmp) / "mods"), \
+                mock.patch("titan_cli.core.mods.loader.TITAN_MODS", Path(tmp) / "titan-mods"), \
+                mock.patch("titan_cli.core.mods.loader.project_root", lambda: None), \
                 mock.patch("titan_cli.core.mods.loader.USER_CONFIG", Path(tmp) / "config.toml"), \
                 mock.patch("titan_cli.core.mods.store.STORE_DIR", Path(tmp) / "mods-data"):
             yield
