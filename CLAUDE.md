@@ -4,10 +4,9 @@ Documentation for the Titan CLI project to assist Claude in development.
 
 ## Session Bootstrap
 
-Before doing any work in this repo, read [`harness/README.md`](harness/README.md) — it names
-the current-focus domain/task and points to that domain's own state files
-(`feature-list.json`, `progress.md`, `session-handoff.md`). Don't ask which task we're on;
-that file answers it.
+Before doing any work in this repo, read [`harness/README.md`](harness/README.md) and follow
+its Session Start section — it says which domain has focus and what else to read. Don't ask
+which task we're on; that file answers it.
 
 ## Project Overview
 
