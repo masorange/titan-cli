@@ -102,3 +102,15 @@ def test_broken_mods_are_left_out_without_stopping_the_rest(tmp_path):
     write_mod(tmp_path, "e_good")
 
     assert load_mods(ModBus(), discover_mods([("user", tmp_path)])) == ["e_good"]
+
+
+def test_loaded_mods_keep_their_manifest_and_declared_ai_task(tmp_path):
+    write_mod(tmp_path, "ai_mod", source="def register(on, options):\n    pass\n",
+              manifest='[mod]\nname = "ai_mod"\nai_task = "My diagnosis"\n')
+    write_mod(tmp_path, "plain", source="def register(on, options):\n    pass\n", manifest='[mod]\nname = "plain"\n')
+    bus = ModBus()
+
+    load_mods(bus, discover_mods([("user", tmp_path)]))
+
+    assert bus.manifests["ai_mod"].ai_task == "My diagnosis"
+    assert bus.manifests["plain"].ai_task is None

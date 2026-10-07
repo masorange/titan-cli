@@ -700,7 +700,14 @@ def register(on, options):
         m.clock.every(options["prs_refresh_seconds"], lambda: refresh_prs(m))
         m.clock.every(options["queue_refresh_seconds"], lambda: refresh_queue(m))
         m.run(lambda: refresh_ai_label(m))
+        if options.get("refresh_key"):
+            m.keys.bind(options["refresh_key"], "Refresh status", lambda: m.run(lambda: refresh_all(m)))
         return next(e)
+
+    def refresh_all(m):
+        refresh_repo(m)
+        refresh_prs(m)
+        refresh_queue(m)
 
     # Workflows are what change the tree, so refresh right after one ends.
     @on("workflow.run")

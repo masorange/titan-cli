@@ -612,14 +612,16 @@ class AIConfigScreen(BaseScreen):
 
         preferences = ai_config.preferences if ai_config else None
         try:
-            self._routings = {
-                routing.task: routing
-                for routing in build_task_routings(
-                    discovery.discover_all(),
-                    resolver,
-                    preferences=preferences.tasks if preferences else None,
-                )
-            }
+            routings = build_task_routings(
+                discovery.discover_all(),
+                resolver,
+                preferences=preferences.tasks if preferences else None,
+            )
+            # Mods' tasks come from their manifests, not from workflow steps.
+            mods_host = getattr(self.app, "mods_host", None)
+            if mods_host is not None:
+                routings = sorted(routings + mods_host.ai_routings(), key=lambda r: r.label.lower())
+            self._routings = {routing.task: routing for routing in routings}
         except Exception as e:
             # A single broken plugin or malformed workflow must not take down the
             # whole AI Configuration screen; degrade this tab and keep the rest.

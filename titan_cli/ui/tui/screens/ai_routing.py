@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
+from rich.text import Text as RichText
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
@@ -34,6 +35,7 @@ from titan_cli.core.workflows.ai_usage_discovery import (
     DiscoveredAIStep,
     DiscoveredWorkflowAIUsage,
 )
+from titan_cli.ui.tui import colors
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.screens.model_picker import DEFAULT_OPTION_ID
 from titan_cli.ui.tui.widgets import (
@@ -94,6 +96,8 @@ class TaskRouting:
     pinned_cli: Optional[str] = None
     pinned_connection: Optional[str] = None
     pinned_model: Optional[str] = None
+    # The mod whose `m.ai` calls run under this task, when no workflow step declares it.
+    mod: Optional[str] = None
 
     @property
     def configurable(self) -> bool:
@@ -896,6 +900,10 @@ class TaskRoutingRow(Container):
         border-left: thick $primary;
     }
 
+    TaskRoutingRow.-mod {
+        border-left: thick $accent;
+    }
+
     TaskRoutingRow.needs-setup {
         border-left: thick $warning;
     }
@@ -922,10 +930,14 @@ class TaskRoutingRow(Container):
     def __init__(self, routing: TaskRouting, **kwargs):
         super().__init__(**kwargs)
         self.routing = routing
+        self.set_class(routing.mod is not None, "-mod")
 
     def compose(self) -> ComposeResult:
         routing = self.routing
-        yield Static(routing.label, classes="task-name")
+        title = RichText(routing.label)
+        if routing.mod is not None:
+            title.append("  MOD", style=f"bold {colors.ACCENT}")
+        yield Static(title, classes="task-name")
 
         # A task nothing can execute gets no options and no actions - offering either would
         # be inviting the user to configure something that cannot take effect.
@@ -1034,6 +1046,8 @@ class TaskRoutingRow(Container):
             yield DimText(f"  Model: {noun} default")
 
     def _usage_summary(self) -> str:
+        if self.routing.mod is not None:
+            return f"used by mod {self.routing.mod}"
         count = len(self.routing.workflows)
         if count == 1:
             return f"used by 1 workflow: {self.routing.workflows[0]}"

@@ -183,3 +183,27 @@ def test_mod_ai_follows_a_reloaded_config(monkeypatch):
 
     assert built == [first, reloaded]
     assert executor.ai_config is reloaded
+
+
+def test_ai_screen_lists_only_mods_that_declare_an_ai_task():
+    from types import SimpleNamespace
+
+    from titan_cli.core.models import AIConfig
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+    from titan_cli.ui.tui.screens.ai_routing import TaskRoutingRow
+
+    bus = ModBus()
+    bus.manifests = {"dev": SimpleNamespace(ai_task="Dev diagnosis"), "clock": SimpleNamespace(ai_task=None)}
+    host = TitanModHost(SimpleNamespace(config=SimpleNamespace(config=SimpleNamespace(ai=AIConfig()))), bus)
+
+    class FakeExecutor:
+        ai_config = host._ai_config()
+
+        def resolve(self, policy):
+            return None
+
+    host._executor = FakeExecutor()
+    [routing] = host.ai_routings()
+
+    assert (routing.task, routing.label, routing.mod) == ("mods.dev", "Dev diagnosis", "dev")
+    assert TaskRoutingRow._usage_summary(SimpleNamespace(routing=routing)) == "used by mod dev"

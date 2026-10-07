@@ -5,14 +5,17 @@ Hooks run on whichever thread raised the event (a workflow worker, a timer
 worker, the app thread), so everything that touches a widget is marshalled
 onto the app thread first.
 """
+import importlib
+import pkgutil
 import threading
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 from rich.markup import escape
 from textual.app import App
 
 from titan_cli.core.logging import get_logger
 from titan_cli.core.mods import AIAnswer, ModBus, UIRender
+from titan_cli.core.mods.keys import key_refusal
 
 logger = get_logger(__name__)
 
@@ -30,6 +33,9 @@ class TitanModHost:
         self._lock = threading.Lock()
         self._clients: Dict[str, Any] = {}
         self._executor = None
+        # key -> (mod, description, fn)
+        self._keys: Dict[str, Tuple[str, str, Callable[[], None]]] = {}
+        self._titan_keys: Optional[Set[str]] = None
 
     # -- status bar and toasts -------------------------------------------
 
@@ -96,6 +102,71 @@ class TitanModHost:
         except Exception:
             return  # this screen has no panel; the next one paints on mount
         panel.refresh_panes()
+
+    # -- keys ---------------------------------------------------------------
+
+    def bind_key(self, mod: str, key: str, description: str, fn: Callable[[], None]) -> Optional[str]:
+        from textual.binding import Binding
+
+        if key and "," not in key:
+            # Textual's own spelling, the one titan_keys() holds: "?" -> "question_mark".
+            key = next(iter(Binding.make_bindings([Binding(key, "")]))).key
+        with self._lock:
+            mod_keys = {k: holder for k, (holder, _, _) in self._keys.items()}
+            refusal = key_refusal(key, self.titan_keys(), mod_keys, mod)
+            if refusal is not None:
+                return refusal
+            self._keys[key] = (mod, description, fn)
+
+        def bind() -> None:
+            self._app.bind(key, f"mod_key({key!r})", description=description, show=True)
+
+        if getattr(self._app, "is_running", True):
+            self._on_app_thread(bind)
+        else:
+            bind()  # from a mod's register(), before the app runs: nothing else touches it yet
+        return None
+
+    def press_key(self, key: str) -> None:
+        """Run the mod function bound to `key` (the app's `mod_key` action lands here)."""
+        entry = self._keys.get(key)
+        if entry is None:
+            return
+        mod, _, fn = entry
+        try:
+            fn()
+        except Exception:
+            logger.exception("mod_key_failed", mod=mod, key=key)
+
+    def titan_keys(self) -> Set[str]:
+        """Every key Titan itself binds: the app's, and every screen's and widget's in titan_cli.ui.tui."""
+        if self._titan_keys is None:
+            from textual.binding import Binding
+            from textual.dom import DOMNode
+
+            import titan_cli.ui.tui as tui
+
+            # Screens and widgets are imported lazily across the TUI: import them
+            # all so none of their bindings is missed.
+            for info in pkgutil.walk_packages(tui.__path__, tui.__name__ + "."):
+                try:
+                    importlib.import_module(info.name)
+                except Exception:
+                    logger.debug("mod_keys_import_skipped", module=info.name, exc_info=True)
+
+            def subclasses(cls):
+                for sub in cls.__subclasses__():
+                    yield sub
+                    yield from subclasses(sub)
+
+            owners = [c for c in type(self._app).__mro__ if "BINDINGS" in vars(c)]
+            owners += [c for c in subclasses(DOMNode) if c.__module__.startswith("titan_cli.")]
+            keys: Set[str] = set()
+            for owner in owners:
+                for binding in Binding.make_bindings(vars(owner).get("BINDINGS", [])):
+                    keys.add(binding.key)
+            self._titan_keys = keys
+        return self._titan_keys
 
     # -- timers and clients ----------------------------------------------
 
@@ -178,6 +249,14 @@ class TitanModHost:
             return f"remote:{pin.connection or ai_config.default_connection}"
         return f"cli:{pin.cli or ai_config.default_cli}"
 
+    def ai_routings(self) -> list:
+        """A task row for every loaded mod whose manifest declares `ai_task`, for the AI screen."""
+        return [
+            self._task_routing(name, manifest.ai_task)
+            for name, manifest in self._bus.manifests.items()
+            if manifest.ai_task
+        ]
+
     def _task_routing(self, mod: str, title: str):
         """This mod's task as the AI screen's task rows see one."""
         from titan_cli.ui.tui.screens.ai_routing import TaskRouting
@@ -195,6 +274,7 @@ class TitanModHost:
             pinned_cli=pin.cli if pin else None,
             pinned_connection=pin.connection if pin else None,
             pinned_model=pin.model if pin else None,
+            mod=mod,
         )
 
     def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None:

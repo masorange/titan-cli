@@ -19,8 +19,7 @@ class BaseScreen(Screen):
     Provides:
     - Header (top)
     - Content area (middle) - to be defined by subclasses
-    - StatusBar (bottom, above footer)
-    - Footer (bottom)
+    - StatusBar (bottom); shortcuts are listed by `?`, there is no footer
 
     Subclasses should override `compose_content()` to define their content.
     """

@@ -25,6 +25,7 @@ from titan_cli.core.logging import get_logger
 from titan_cli.engine.results import Error
 
 from . import store as _store
+from .keys import normalize_key
 from .state import ModState
 from .store import ModStore
 
@@ -65,6 +66,8 @@ class ModHost(Protocol):
     def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None: ...
 
     def ai_describe(self, mod: str) -> str: ...
+
+    def bind_key(self, mod: str, key: str, description: str, fn: Callable[[], None]) -> Optional[str]: ...
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,9 @@ class _HeadlessHost:
 
     def ai_describe(self, mod: str) -> str:
         return "AI not available"
+
+    def bind_key(self, mod: str, key: str, description: str, fn: Callable[[], None]) -> Optional[str]:
+        return "there are no keys here"
 
 
 class _ModUI:
@@ -198,6 +204,26 @@ class _ModAI:
         return self._bus.host.ai_describe(self._mod)
 
 
+class _ModKeys:
+    def __init__(self, bus: "ModBus", mod: str):
+        self._bus = bus
+        self._mod = mod
+
+    def bind(self, key: str, description: str, fn: Callable[[], None]) -> bool:
+        """
+        Make `key` (Textual's spelling: `"f5"`, `"ctrl+k"`) run `fn` on every
+        screen, listed in the footer as `description`. Refused, with a warning
+        in the log, when Titan or another mod already uses the key: the return
+        says whether it was bound. `fn` runs on the UI thread: hand slow work
+        to `m.run`.
+        """
+        refusal = self._bus.host.bind_key(self._mod, normalize_key(key), description, fn)
+        if refusal is not None:
+            logger.warning("mod_key_refused", mod=self._mod, key=key, reason=refusal)
+            return False
+        return True
+
+
 class ModAPI:
     """What a mod reaches Titan through."""
 
@@ -206,6 +232,7 @@ class ModAPI:
         self.ui = _ModUI(bus, name)
         self.clock = _ModClock(bus, name)
         self.ai = _ModAI(bus, name)
+        self.keys = _ModKeys(bus, name)
         self.state = ModState(on_change=lambda: bus.host.repaint(name))
         # Read through the module so tests can point every store elsewhere.
         self.store = ModStore(name, root=lambda: _store.STORE_DIR)
@@ -249,6 +276,8 @@ class ModBus:
     def __init__(self) -> None:
         self._hooks: Dict[str, List[_Registration]] = {event: [] for event in self.EVENTS}
         self._apis: Dict[str, ModAPI] = {}
+        # name -> ModManifest of every mod that loaded (filled by the loader)
+        self.manifests: Dict[str, Any] = {}
         self.host: ModHost = _HeadlessHost()
 
     @property

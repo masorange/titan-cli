@@ -387,6 +387,19 @@ class TitanApp(App):
         """Collapse or expand the mods' side panel, on every screen."""
         self.mods_host.toggle_collapsed()
 
+    def action_help(self) -> None:
+        """Show or hide the list of every shortcut active here, Titan's and the mods'."""
+        from textual.widgets import HelpPanel
+
+        if self.screen.query(HelpPanel):
+            self.action_hide_help_panel()
+        else:
+            self.action_show_help_panel()
+
+    def action_mod_key(self, key: str) -> None:
+        """A key a mod bound with `m.keys.bind`."""
+        self.mods_host.press_key(key)
+
     def action_toggle_copy_mode(self) -> None:
         """Toggle copy mode - disables mouse capture to allow text selection."""
         # Toggle mouse capture

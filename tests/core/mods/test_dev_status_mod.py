@@ -362,3 +362,31 @@ def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(dev, tmp_path, mo
     m.state.set("diagnoses", {"2": dev.Diagnosis("error", error="AI: quota exhausted")})
     dev.diagnosis_of(m, pr2, {}).children[-1].on_press()
     assert copied[-1] == ("#2 error", "PR #2 PR 2\nCould not diagnose: AI: quota exhausted\n")
+
+
+def test_refresh_key_is_bound_at_start_and_refreshes_every_section(dev, tmp_path):
+    from titan_cli.core.mods import AppStart
+
+    keys, runs = {}, []
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, every=lambda *a: None, repaint=lambda mod: None,
+        run=lambda mod, fn: runs.append(fn),
+        client=lambda name: None,
+        bind_key=lambda mod, key, description, fn: keys.setdefault(key, (description, fn)) and None,
+    )
+    bus = ModBus()
+    bus.host = host
+    options = {"repo_refresh_seconds": 30, "prs_refresh_seconds": 120, "queue_refresh_seconds": 60,
+               "refresh_key": "f5", "harness_dirs": ["harness"], "recent_commits": 10, "queue_shown": 8}
+    dev.register(bus.on_for("dev_status"), options)
+
+    bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
+    assert list(keys) == ["f5"] and keys["f5"][0] == "Refresh status"
+
+    runs.clear()
+    keys["f5"][1]()
+    assert len(runs) == 1  # the refresh goes off the UI thread
+    runs[0]()
+    state = bus._apis["dev_status"].state
+    assert state.get("repo").error == "git plugin not available"
+    assert state.get("prs") is not None and state.get("queue") is not None

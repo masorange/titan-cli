@@ -5,6 +5,8 @@ description = "Side panel with git branch, harness focus, review requests, your 
 requires_plugins = ["git", "github"]
 events = ["app.start", "workflow.run", "ui.render"]
 slots = ["pane", "toast"]
+# Its AI diagnosis runs under the routing task "mods.dev_status", listed with this label.
+ai_task = "Dev status diagnosis"
 
 [options]
 # Where a root harness may live, relative to the repo root; the first
@@ -13,6 +15,8 @@ harness_dirs = ["harness", "docs/harness"]
 repo_refresh_seconds = 30
 prs_refresh_seconds = 120
 queue_refresh_seconds = 60
+# Key that refreshes every section now; empty for none.
+refresh_key = "f5"
 recent_commits = 10
 queue_shown = 8
 # Failed checks diagnosed per press. Which AI answers is the task

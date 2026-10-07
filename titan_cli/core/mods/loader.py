@@ -52,6 +52,9 @@ class ModManifest:
     events: Tuple[str, ...] = ()
     slots: Tuple[str, ...] = ()
     options: Dict[str, Any] = field(default_factory=dict)
+    # The label of the routing task `mods.<name>` its `m.ai` calls run under, when it
+    # uses AI: the AI screen lists the task with it, so it can be pinned there too.
+    ai_task: Optional[str] = None
 
     @property
     def entrypoint(self) -> Path:
@@ -80,6 +83,7 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         events=tuple(mod.get("events", [])),
         slots=tuple(mod.get("slots", [])),
         options=dict(data.get("options", {})),
+        ai_task=mod.get("ai_task") or None,
     )
 
 
@@ -147,6 +151,7 @@ def load_mods(
             logger.exception("mod_load_failed", mod=name, path=str(manifest.folder))
             continue
         loaded.append(name)
+        bus.manifests[name] = manifest
         logger.info("mod_loaded", mod=name, source=manifest.source, version=manifest.version)
     return loaded
 
