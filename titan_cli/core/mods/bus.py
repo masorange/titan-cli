@@ -300,6 +300,13 @@ class ModBus:
 
         return on
 
+    def forget(self, mod: str) -> None:
+        """Drop every hook `mod` registered and its handle, as if it never loaded."""
+        for event, registrations in self._hooks.items():
+            self._hooks[event] = [r for r in registrations if r.mod != mod]
+        self._apis.pop(mod, None)
+        self.manifests.pop(mod, None)
+
     def has_hooks(self, event: str) -> bool:
         return bool(self._hooks.get(event))
 

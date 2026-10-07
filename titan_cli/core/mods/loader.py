@@ -22,8 +22,8 @@ A mod is enabled by being there; `[mods.<name>] enabled = false` in
 overrides the manifest's option defaults.
 
 Mods are trusted, in-process code: nothing here sandboxes them. A mod that
-fails to parse, import or register is logged and left out; it never stops
-Titan from starting.
+fails to parse, import or register is logged and left out whole (no hook it
+registered before failing stays); it never stops Titan from starting.
 """
 
 import importlib.util
@@ -172,6 +172,9 @@ def load_mods(
                 raise AttributeError(f"{manifest.entrypoint} defines no register(on, options)")
             register(bus.on_for(name), options)
         except Exception:
+            # All or nothing: hooks a register() added before failing would run
+            # for a mod that is reported as not loaded.
+            bus.forget(name)
             logger.exception("mod_load_failed", mod=name, path=str(manifest.folder))
             continue
         loaded.append(name)

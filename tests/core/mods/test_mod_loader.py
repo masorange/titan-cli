@@ -123,6 +123,16 @@ def test_broken_mods_are_left_out_without_stopping_the_rest(tmp_path):
     assert load_mods(ModBus(), discover_mods([("user", tmp_path)])) == ["e_good"]
 
 
+def test_a_register_that_fails_half_way_leaves_no_hooks_behind(tmp_path):
+    write_mod(tmp_path, "half", source=GUARD + "    raise RuntimeError('boom')\n")
+    bus = ModBus()
+
+    assert load_mods(bus, discover_mods([("user", tmp_path)])) == []
+    assert not bus.has_hooks("step.call")
+    assert bus.mods == [] and "half" not in bus.manifests
+    assert isinstance(push_result(bus), Success)
+
+
 def test_loaded_mods_keep_their_manifest_and_declared_ai_task(tmp_path):
     write_mod(tmp_path, "ai_mod", source="def register(on, options):\n    pass\n",
               manifest='[mod]\nname = "ai_mod"\nai_task = "My diagnosis"\n')
