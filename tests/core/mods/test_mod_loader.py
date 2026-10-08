@@ -1,4 +1,8 @@
+import os
+from pathlib import Path
+
 from titan_cli.core.mods import ModBus, StepCall, discover_mods, load_mods, mod_sources
+from titan_cli.core.mods.loader import mod_dirs, read_mods_config
 from titan_cli.engine.results import Error, Success
 
 GUARD = """
@@ -143,3 +147,54 @@ def test_loaded_mods_keep_their_manifest_and_declared_ai_task(tmp_path):
 
     assert bus.manifests["ai_mod"].ai_task == "My diagnosis"
     assert bus.manifests["plain"].ai_task is None
+
+
+def test_dev_folder_is_one_mod_and_overrides_every_other_source(tmp_path):
+    user = tmp_path / "user"
+    write_mod(user, "guard")
+    checkout = write_mod(tmp_path / "git", "guard")
+    second = write_mod(tmp_path / "git", "other")
+
+    found = discover_mods(mod_sources({}, user_root=user, dev_dirs=[checkout, second]))
+
+    assert (found["guard"].source, found["guard"].folder) == ("dev", checkout)
+    assert found["other"].source == "dev"
+
+
+def test_dev_folder_takes_its_name_from_the_manifest(tmp_path):
+    checkout = write_mod(tmp_path, "titan-mod-guard", manifest='[mod]\nname = "guard"\n')
+
+    found = discover_mods([("dev", checkout)])
+
+    assert list(found) == ["guard"]
+
+
+def test_dev_folder_without_a_mod_is_skipped(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    assert discover_mods([("dev", empty), ("dev", tmp_path / "missing")]) == {}
+
+
+def test_dirs_cannot_name_a_mod(tmp_path):
+    write_mod(tmp_path, "dirs")
+
+    assert discover_mods([("user", tmp_path)]) == {}
+
+
+def test_mod_dirs_come_from_config_then_env_then_flag(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text('[mods]\ndirs = ["~/from-config", "/shared"]\n\n[mods.guard]\nenabled = false\n')
+    env = {"TITAN_MOD_DIRS": f"/from-env{os.pathsep}/shared"}
+
+    dirs = mod_dirs(["/from-flag"], config_path=config, environ=env)
+
+    assert dirs == [Path.home() / "from-config", Path("/from-env"), Path("/shared"), Path("/from-flag")]
+    assert read_mods_config(config) == {"guard": {"enabled": False}}
+
+
+def test_invalid_mod_dirs_config_is_ignored(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text('[mods]\ndirs = "/not-a-list"\n')
+
+    assert mod_dirs(config_path=config, environ={}) == []

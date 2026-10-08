@@ -22,6 +22,8 @@ logger = get_logger(__name__)
 
 class TitanModHost:
     def __init__(self, app: App, bus: ModBus, registry: Any = None):
+        from titan_cli.ui.tui.widgets.mod_side_panel import PANEL_WIDTH
+
         self._app = app
         self._bus = bus
         self._registry = registry
@@ -29,6 +31,8 @@ class TitanModHost:
         # pane id -> (mod that opened it, title), in the order they were opened
         self.panes: Dict[str, Tuple[str, str]] = {}
         self.collapsed = False
+        # Shared by every screen's panel, so a resize on one holds on all; for this session only.
+        self.width = PANEL_WIDTH
         self._repaint_pending = False
         self._lock = threading.Lock()
         self._clients: Dict[str, Any] = {}

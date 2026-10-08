@@ -5,7 +5,8 @@ Docked on the right of every BaseScreen; shows the panes mods open with
 `m.ui.open(...)`, each drawn from the element tree its `ui.render` hook
 answers. The panel only translates that tree into widgets: what is in it,
 and when it changes, is the mods' business (their `m.state`). Collapsing it
-(F4, or a click on its header) leaves a one-column strip.
+(F4, or a click on its header) leaves a one-column strip; dragging its left
+border resizes it, on every screen at once.
 """
 from typing import Any, List
 
@@ -22,7 +23,10 @@ from titan_cli.ui.tui import colors
 
 logger = get_logger(__name__)
 
-PANEL_WIDTH = 48
+PANEL_WIDTH = 56
+MIN_PANEL_WIDTH = 24
+MIN_MAIN_WIDTH = 40  # what a drag must leave to the screen's own content
+COLLAPSED_WIDTH = 3
 
 _COLORS = {
     "primary": colors.PRIMARY,
@@ -33,6 +37,12 @@ _COLORS = {
     "info": colors.INFO,
     "subtle": colors.TEXT_MUTED,
 }
+
+
+def clamp_panel_width(requested: int, screen_width: int) -> int:
+    """The width a drag may give the panel on a screen this wide."""
+    widest = max(MIN_PANEL_WIDTH, screen_width - MIN_MAIN_WIDTH)
+    return max(MIN_PANEL_WIDTH, min(requested, widest))
 
 
 def _color(name: Any) -> Any:
@@ -251,8 +261,8 @@ class ModSidePanel(Vertical):
         border-left: tall $primary 40%;
         background: $surface;
     }}
-    ModSidePanel.-collapsed {{
-        width: 3;
+    ModSidePanel.-resizing {{
+        border-left: tall $primary;
     }}
     ModSidePanel #mod-panel-header {{
         height: 1;
@@ -272,9 +282,42 @@ class ModSidePanel(Vertical):
     }}
     """
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._resizing = False
+
     def compose(self) -> ComposeResult:
         yield Static(id="mod-panel-header")
         yield VerticalScroll(id="mod-panel-body")
+
+    # Column 0 is the left border: pressing there starts a resize, and the mouse
+    # stays captured until it is released, wherever the pointer goes meanwhile.
+    def on_mouse_down(self, event) -> None:
+        host = getattr(self.app, "mods_host", None)
+        if host is None or host.collapsed or event.x != 0:
+            return
+        self._resizing = True
+        self.add_class("-resizing")
+        self.capture_mouse()
+        event.stop()
+
+    def on_mouse_move(self, event) -> None:
+        if not self._resizing:
+            return
+        width = clamp_panel_width(self.app.size.width - event.screen_x, self.app.size.width)
+        self.app.mods_host.width = width
+        self.styles.width = width
+        event.stop()
+
+    def on_mouse_up(self, event) -> None:
+        if not self._resizing:
+            return
+        self._resizing = False
+        self.remove_class("-resizing")
+        self.release_mouse()
+        event.stop()
+        # Panes are laid out for a width: redraw them for the new one.
+        self.app.mods_host.repaint("")
 
     def on_mount(self) -> None:
         self.refresh_panes()
@@ -290,6 +333,7 @@ class ModSidePanel(Vertical):
             return
         self.display = True
         self.set_class(host.collapsed, "-collapsed")
+        self.styles.width = COLLAPSED_WIDTH if host.collapsed else host.width
 
         header = self.query_one("#mod-panel-header", Static)
         if host.collapsed:
@@ -299,7 +343,7 @@ class ModSidePanel(Vertical):
         header.update(RichText(f"▸ {titles}  (F4)", no_wrap=True, overflow="ellipsis"))
 
         body = self.query_one("#mod-panel-body", VerticalScroll)
-        width = max(10, PANEL_WIDTH - 3)
+        width = max(10, host.width - 3)
         trees: List[Any] = []
         for pane in host.panes:
             try:

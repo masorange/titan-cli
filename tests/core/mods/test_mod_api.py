@@ -207,3 +207,12 @@ def test_ai_screen_lists_only_mods_that_declare_an_ai_task():
 
     assert (routing.task, routing.label, routing.mod) == ("mods.dev", "Dev diagnosis", "dev")
     assert TaskRoutingRow._usage_summary(SimpleNamespace(routing=routing)) == "used by mod dev"
+
+
+def test_a_dragged_panel_stays_between_its_minimum_and_the_room_the_screen_needs():
+    from titan_cli.ui.tui.widgets.mod_side_panel import MIN_MAIN_WIDTH, MIN_PANEL_WIDTH, clamp_panel_width
+
+    assert clamp_panel_width(70, 200) == 70
+    assert clamp_panel_width(5, 200) == MIN_PANEL_WIDTH
+    assert clamp_panel_width(190, 200) == 200 - MIN_MAIN_WIDTH
+    assert clamp_panel_width(60, 50) == MIN_PANEL_WIDTH  # a tiny terminal still gets a usable panel

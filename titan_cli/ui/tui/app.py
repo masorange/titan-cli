@@ -6,7 +6,7 @@ Main Textual application for Titan CLI with fixed status bar and theme support.
 from textual.app import App
 from textual.binding import Binding
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.config import TitanConfig
@@ -50,7 +50,7 @@ class TitanApp(App):
         Binding("?", "help", "Help"),
     ]
 
-    def __init__(self, config: TitanConfig = None, initial_screen=None, **kwargs):
+    def __init__(self, config: TitanConfig = None, initial_screen=None, mod_dirs: Sequence[str] = (), **kwargs):
         """
         Initialize the Titan TUI application.
 
@@ -58,6 +58,7 @@ class TitanApp(App):
             config: TitanConfig instance. If None, creates a new one.
             initial_screen: Initial screen to show. If None, shows MainMenuScreen.
                           Can be a screen instance or a callable that returns a screen.
+            mod_dirs: Extra mod folders from `--mod-dir`, one mod each.
         """
         super().__init__(**kwargs)
 
@@ -78,7 +79,7 @@ class TitanApp(App):
 
         # Mods load once per app: their hooks wrap every workflow run from here on.
         registry = getattr(config, "registry", None)
-        self.mods = build_mod_bus(_plugin_mod_paths(config, registry))
+        self.mods = build_mod_bus(_plugin_mod_paths(config, registry), mod_dirs)
         self.mods_host = TitanModHost(self, self.mods, registry)
         self.mods.host = self.mods_host
 

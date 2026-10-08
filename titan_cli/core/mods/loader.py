@@ -13,13 +13,22 @@ earlier one of the same name:
     plugin mods    each enabled plugin's `mods_path`
     project mods   <repo root>/.titan/mods/<name>/   shared with the team
     user mods      ~/.titan/mods/<name>/        the user's own
+    dev mods       extra mod folders, see below
+
+A mod being developed lives in its own checkout, anywhere on disk. Each path
+in `[mods] dirs` (user config only, never the project's), in TITAN_MOD_DIRS
+(separated like PATH) and in each `--mod-dir` is one mod folder, loaded above
+every other source; there the manifest's name wins over the folder's, so a
+checkout called `titan-mod-x` can hold the mod `x`. A path that does not
+exist or holds no mod is logged and skipped. Titan does not watch them:
+editing a mod means restarting Titan.
 
 A project mod runs from the repo as `.titan/steps` already do: committing it
 is sharing it with whoever runs Titan there.
 
 A mod is enabled by being there; `[mods.<name>] enabled = false` in
 `~/.titan/config.toml` turns any mod off, and `[mods.<name>.options]`
-overrides the manifest's option defaults.
+overrides the manifest's option defaults. `dirs` is therefore not a mod name.
 
 Mods are trusted, in-process code: nothing here sandboxes them. A mod that
 fails to parse, import or register is logged and left out whole (no hook it
@@ -27,10 +36,11 @@ registered before failing stays); it never stops Titan from starting.
 """
 
 import importlib.util
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from titan_cli.core.logging import get_logger
 
@@ -44,6 +54,9 @@ TITAN_MODS = Path(__file__).resolve().parents[2] / "mods"
 PROJECT_MODS = Path(".titan") / "mods"  # under the project root
 USER_MODS = Path.home() / ".titan" / "mods"
 USER_CONFIG = Path.home() / ".titan" / "config.toml"
+MOD_DIRS_ENV = "TITAN_MOD_DIRS"
+DIRS_KEY = "dirs"  # `[mods] dirs`: the extra mod folders, not a mod
+DEV = "dev"
 
 
 @dataclass(frozen=True)
@@ -51,7 +64,7 @@ class ModManifest:
     name: str
     version: str
     description: str
-    source: str  # "titan", "plugin:<name>", "project" or "user"
+    source: str  # "titan", "plugin:<name>", "project", "user" or "dev"
     folder: Path
     requires_plugins: Tuple[str, ...] = ()
     events: Tuple[str, ...] = ()
@@ -76,7 +89,10 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
 
     mod = data.get("mod", {})
     name = mod.get("name") or folder.name
-    if name != folder.name:
+    if name == DIRS_KEY:
+        raise ValueError(f"{path}: '{DIRS_KEY}' is reserved in [mods] and cannot name a mod")
+    # Under a mods root the folder is the name; a dev folder is a checkout named freely.
+    if source != DEV and name != folder.name:
         raise ValueError(f"{path}: name '{name}' does not match its folder '{folder.name}'")
     return ModManifest(
         name=name,
@@ -93,14 +109,23 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
 
 
 def discover_mods(sources: List[Tuple[str, Path]]) -> Dict[str, ModManifest]:
-    """Every mod folder under each `(source, root)`, later sources overriding earlier by name."""
+    """
+    Every mod under each `(source, root)`, later sources overriding earlier by name.
+
+    A root holds one mod per subfolder, except a "dev" root, which is the mod folder itself.
+    """
     found: Dict[str, ModManifest] = {}
     for source, root in sources:
-        if not root.is_dir():
-            continue
-        for folder in sorted(p for p in root.iterdir() if p.is_dir()):
-            if not (folder / MANIFEST).is_file():
+        if source == DEV:
+            if not (root / MANIFEST).is_file():
+                logger.warning("mod_dir_without_mod", path=str(root))
                 continue
+            folders = [root]
+        elif root.is_dir():
+            folders = sorted(p for p in root.iterdir() if p.is_dir() and (p / MANIFEST).is_file())
+        else:
+            continue
+        for folder in folders:
             try:
                 manifest = read_manifest(folder, source)
             except ValueError:
@@ -118,6 +143,7 @@ def mod_sources(
     project_root: Optional[Path] = None,
     user_root: Optional[Path] = None,
     titan_root: Optional[Path] = None,
+    dev_dirs: Sequence[Path] = (),
 ) -> List[Tuple[str, Path]]:
     """Every place mods live, in override order (see the module docstring)."""
     sources = [("titan", titan_root or TITAN_MODS)]
@@ -125,6 +151,7 @@ def mod_sources(
     if project_root is not None:
         sources.append(("project", project_root / PROJECT_MODS))
     sources.append(("user", user_root or USER_MODS))
+    sources += [(DEV, folder) for folder in dev_dirs]
     return sources
 
 
@@ -138,12 +165,44 @@ def project_root() -> Optional[Path]:
         return None
 
 
-def read_mods_config(config_path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
-    """The `[mods.*]` tables of the user config, or nothing."""
+def _read_mods_table(config_path: Optional[Path]) -> Dict[str, Any]:
     try:
         return tomllib.loads((config_path or USER_CONFIG).read_text()).get("mods", {})
     except (OSError, tomllib.TOMLDecodeError):
         return {}
+
+
+def read_mods_config(config_path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
+    """The `[mods.<name>]` tables of the user config, or nothing."""
+    return {name: table for name, table in _read_mods_table(config_path).items() if name != DIRS_KEY}
+
+
+def mod_dirs(
+    cli_dirs: Sequence[str] = (),
+    config_path: Optional[Path] = None,
+    environ: Optional[Mapping[str, str]] = None,
+) -> List[Path]:
+    """
+    The extra mod folders: `[mods] dirs`, then TITAN_MOD_DIRS, then `--mod-dir`.
+
+    The most explicit comes last, so it wins when two folders hold a mod of the same name.
+    """
+    configured = _read_mods_table(config_path).get(DIRS_KEY, [])
+    if not isinstance(configured, list) or not all(isinstance(d, str) for d in configured):
+        logger.warning("mod_dirs_config_invalid", value=repr(configured))
+        configured = []
+    env = (os.environ if environ is None else environ).get(MOD_DIRS_ENV, "")
+    raw = [*configured, *env.split(os.pathsep), *cli_dirs]
+
+    folders: List[Path] = []
+    for entry in raw:
+        if not entry.strip():
+            continue
+        folder = Path(entry.strip()).expanduser().resolve()
+        if folder in folders:
+            folders.remove(folder)
+        folders.append(folder)
+    return folders
 
 
 def load_mods(
@@ -183,7 +242,11 @@ def load_mods(
     return loaded
 
 
-def build_mod_bus(plugin_mod_paths: Optional[Dict[str, Path]] = None) -> ModBus:
+def build_mod_bus(
+    plugin_mod_paths: Optional[Dict[str, Path]] = None,
+    cli_mod_dirs: Sequence[str] = (),
+) -> ModBus:
     bus = ModBus()
-    load_mods(bus, discover_mods(mod_sources(plugin_mod_paths or {}, project_root())), read_mods_config())
+    sources = mod_sources(plugin_mod_paths or {}, project_root(), dev_dirs=mod_dirs(cli_mod_dirs))
+    load_mods(bus, discover_mods(sources), read_mods_config())
     return bus

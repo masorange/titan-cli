@@ -3,6 +3,8 @@ Titan TUI Module
 
 Textual-based Terminal User Interface for Titan CLI.
 """
+from typing import Sequence
+
 from .app import TitanApp
 
 __all__ = ["TitanApp"]
@@ -38,7 +40,7 @@ def _run_app(app: TitanApp) -> None:
     os._exit(0)
 
 
-def launch_tui(debug: bool = False, devtools: bool = False):
+def launch_tui(debug: bool = False, devtools: bool = False, mod_dirs: Sequence[str] = ()):
     """
     Launch the Titan TUI application.
 
@@ -47,6 +49,7 @@ def launch_tui(debug: bool = False, devtools: bool = False):
     Args:
         debug: Enable DEBUG level file logging (set by titan-dev or --debug)
         devtools: Enable Textual devtools for visual debugging (requires `textual console` in another terminal)
+        mod_dirs: Extra mod folders from `--mod-dir`, one mod each
 
     Flow:
     1. Check if global config exists (~/.titan/config.toml)
@@ -190,7 +193,7 @@ def launch_tui(debug: bool = False, devtools: bool = False):
                 self.app.push_screen(GlobalSetupWizardScreen(self.config), on_global_wizard_complete)
 
         # Create app with the flow screen
-        app = TitanApp(config=config, initial_screen=WizardFlowScreen(config))
+        app = TitanApp(config=config, initial_screen=WizardFlowScreen(config), mod_dirs=mod_dirs)
         _run_app(app)
         return
 
@@ -252,12 +255,12 @@ def launch_tui(debug: bool = False, devtools: bool = False):
                 )
 
         # Create app with the flow screen
-        app = TitanApp(config=config, initial_screen=ProjectWizardFlowScreen(config))
+        app = TitanApp(config=config, initial_screen=ProjectWizardFlowScreen(config), mod_dirs=mod_dirs)
         _run_app(app)
         return
 
     # Both global and project configs exist: Initialize normally with plugins
     plugin_registry = PluginRegistry()
     config = TitanConfig(registry=plugin_registry)  # Plugins will initialize here
-    app = TitanApp(config=config)
+    app = TitanApp(config=config, mod_dirs=mod_dirs)
     _run_app(app)
