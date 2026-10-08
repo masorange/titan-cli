@@ -43,8 +43,9 @@ class WorkflowsScreen(BaseScreen):
         # did less than if the line had never been written.
     ]
 
-    def __init__(self, config):
+    def __init__(self, config, plugin: Optional[str] = None):
         super().__init__(config, title="⚡ Available Workflows", show_back=True)
+        self._initial_plugin = plugin  # a dock tile opens the screen on one plugin
         self.selected_plugin = "all"  # Track selected plugin filter (start with "all")
         self._is_mounting = False  # Flag to prevent auto-update during mount
         self._all_workflows = None  # Cache for discovered workflows (sorted, favorites first)
@@ -71,6 +72,21 @@ class WorkflowsScreen(BaseScreen):
         finally:
             # Re-enable auto-filtering after mount completes
             self._is_mounting = False
+        if self._initial_plugin:
+            self.select_plugin(self._initial_plugin)
+
+    def select_plugin(self, plugin: str) -> None:
+        """Filter to `plugin`'s workflows (matched case-insensitively: the list shows "Github")."""
+        try:
+            plugin_list = self.query_one("#plugin-list", OptionList)
+        except NoMatches:
+            return
+        for index in range(plugin_list.option_count):
+            option = plugin_list.get_option_at_index(index)
+            if option.id and option.id.lower() == plugin.lower():
+                plugin_list.highlighted = index  # filters through on_option_list_option_highlighted
+                return
+        self.app.notify(f"No workflow uses {plugin} yet", severity="information")
 
     def refresh_favorites(self) -> None:
         """Re-sort and re-render the workflow list to reflect updated favorite state.

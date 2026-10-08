@@ -8,13 +8,13 @@ onto the app thread first.
 import importlib
 import pkgutil
 import threading
-from typing import Any, Callable, Dict, Mapping, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from rich.markup import escape
 from textual.app import App
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods import AIAnswer, ModBus, UIRender
+from titan_cli.core.mods import AIAnswer, DockSlot, ModBus, UIRender
 from titan_cli.core.mods.keys import key_refusal
 
 logger = get_logger(__name__)
@@ -27,7 +27,10 @@ class TitanModHost:
         self._app = app
         self._bus = bus
         self._registry = registry
-        self._statuses: Dict[str, str] = {}
+        # mod -> its slot in the dock, in the order the mods first asked for one
+        self._dock: Dict[str, DockSlot] = {}
+        # plugin -> mod -> (badge text, severity) the mod put on that plugin's tile
+        self._badges: Dict[str, Dict[str, Tuple[str, Optional[str]]]] = {}
         # pane id -> (mod that opened it, title, rail icon), in the order they were opened
         self.panes: Dict[str, Tuple[str, str, str]] = {}
         # The one pane shown; the rest wait behind their rail icon.
@@ -43,17 +46,38 @@ class TitanModHost:
         self._keys: Dict[str, Tuple[str, str, Callable[[], None]]] = {}
         self._titan_keys: Optional[Set[str]] = None
 
-    # -- status bar and toasts -------------------------------------------
+    # -- dock and toasts ---------------------------------------------------
 
-    def status_text(self) -> str:
-        return "  ·  ".join(self._statuses.values())
+    def dock_slots(self) -> List[Tuple[str, DockSlot]]:
+        return list(self._dock.items())
 
-    def status(self, mod: str, text: Optional[str]) -> None:
-        if text:
-            self._statuses[mod] = text
+    def dock(self, mod: str, slot: Optional[DockSlot]) -> None:
+        if slot is not None:
+            self._dock[mod] = slot
         else:
-            self._statuses.pop(mod, None)
-        self._on_app_thread(self._paint_status)
+            self._dock.pop(mod, None)
+        self._on_app_thread(self._paint_dock)
+
+    def badges(self, plugin: str) -> List[Tuple[str, Optional[str]]]:
+        """What the mods put on `plugin`'s tile, in the order they first did."""
+        return list(self._badges.get(plugin, {}).values())
+
+    def badge(self, mod: str, plugin: str, text: Optional[str], severity: Optional[str]) -> None:
+        if text:
+            self._badges.setdefault(plugin, {})[mod] = (text, severity)
+        else:
+            self._badges.get(plugin, {}).pop(mod, None)
+        self._on_app_thread(self._paint_dock)
+
+    def press_dock(self, mod: str) -> None:
+        """A click on a mod's dock tile: its own action, if it gave one."""
+        slot = self._dock.get(mod)
+        if slot is None or slot.on_click is None:
+            return
+        try:
+            slot.on_click()
+        except Exception:
+            logger.exception("mod_dock_click_failed", mod=mod)
 
     def toast(self, mod: str, text: str, severity: str) -> None:
         # Escaped: a mod's text is not markup, and a stray `[/x]` would raise.
@@ -66,14 +90,14 @@ class TitanModHost:
 
         self._on_app_thread(lambda: copy_with_feedback(self._app, text, what))
 
-    def _paint_status(self) -> None:
-        from titan_cli.ui.tui.widgets.status_bar import StatusBarWidget
+    def _paint_dock(self) -> None:
+        from titan_cli.ui.tui.widgets.dock import Dock
 
         try:
-            bar = self._app.screen.query_one("#status-bar", StatusBarWidget)
+            dock = self._app.screen.query_one(Dock)
         except Exception:
-            return  # this screen has no bar; the next one reads status_text()
-        bar.mods_info = self.status_text()
+            return  # this screen has no dock; the next one reads dock_slots() on mount
+        dock.refresh_tiles()
 
     # -- the side panel ---------------------------------------------------
 

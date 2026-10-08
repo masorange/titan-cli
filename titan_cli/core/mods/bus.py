@@ -42,7 +42,9 @@ class ModHost(Protocol):
     is reachable.
     """
 
-    def status(self, mod: str, text: Optional[str]) -> None: ...
+    def dock(self, mod: str, slot: Optional["DockSlot"]) -> None: ...
+
+    def badge(self, mod: str, plugin: str, text: Optional[str], severity: Optional[str]) -> None: ...
 
     def toast(self, mod: str, text: str, severity: str) -> None: ...
 
@@ -73,6 +75,20 @@ class ModHost(Protocol):
 
 
 @dataclass(frozen=True)
+class DockSlot:
+    """
+    What a mod shows in its slot of the dock: a short label behind its icon,
+    and an optional badge (a count, a mark) coloured by `severity`.
+    """
+
+    label: str
+    icon: Optional[str] = None
+    badge: Optional[str] = None
+    severity: Optional[str] = None  # a semantic color name, as in elements.Text
+    on_click: Optional[Callable[[], None]] = None
+
+
+@dataclass(frozen=True)
 class AIAnswer:
     """What `m.ai.complete` returns: the text, or why there is none."""
 
@@ -86,8 +102,11 @@ class AIAnswer:
 
 
 class _HeadlessHost:
-    def status(self, mod: str, text: Optional[str]) -> None:
-        logger.debug("mod_status", mod=mod, text=text)
+    def dock(self, mod: str, slot: Optional[DockSlot]) -> None:
+        logger.debug("mod_dock", mod=mod, label=slot.label if slot else None)
+
+    def badge(self, mod: str, plugin: str, text: Optional[str], severity: Optional[str]) -> None:
+        logger.debug("mod_badge", mod=mod, plugin=plugin, text=text)
 
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, text=text, severity=severity)
@@ -134,9 +153,36 @@ class _ModUI:
         self._bus = bus
         self._mod = mod
 
-    def status(self, text: Optional[str]) -> None:
-        """Show `text` in this mod's slot of the status bar; `None` clears it."""
-        self._bus.host.status(self._mod, text)
+    def dock(
+        self,
+        label: Optional[str],
+        badge: Optional[str] = None,
+        severity: Optional[str] = None,
+        on_click: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """
+        Show this mod in the dock at the bottom of every screen: its `mod.toml`
+        `icon`, `label`, and an optional `badge` coloured by `severity`
+        (`success`, `warning`, `error`, ...). A click runs `on_click` on the UI
+        thread; without one the tile only informs. `None` as label removes it.
+
+        For news about a plugin's own world (PRs, issues), prefer `badge` on
+        that plugin's tile over a tile of the mod's own.
+        """
+        if not label:
+            self._bus.host.dock(self._mod, None)
+            return
+        manifest = self._bus.manifests.get(self._mod)
+        icon = manifest.icon if manifest else None
+        self._bus.host.dock(self._mod, DockSlot(label, icon, badge, severity, on_click))
+
+    def badge(self, plugin: str, text: Optional[str], severity: Optional[str] = None) -> None:
+        """
+        Put `text` on the dock tile of `plugin` (`"github"`, `"jira"`, ...),
+        coloured by `severity`; `None` takes this mod's badge off it. The tile
+        shows only while the plugin is enabled.
+        """
+        self._bus.host.badge(self._mod, plugin, text, severity)
 
     def toast(self, text: str, severity: str = "information") -> None:
         """Show a toast. `severity` is `information`, `warning` or `error`."""

@@ -164,7 +164,7 @@ class AIConfigWizardScreen(BaseScreen):
             config,
             title=f"{Icons.AI_CONFIG} Configure AI Connection",
             show_back=True,
-            show_status_bar=False
+            show_dock=False
         )
         self.current_step = 0
         self.wizard_data = {}

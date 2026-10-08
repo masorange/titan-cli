@@ -155,7 +155,7 @@ class InstallPluginScreen(BaseScreen):
             config,
             title=f"{Icons.PLUGIN} Add Plugin",
             show_back=False,
-            show_status_bar=False,
+            show_dock=False,
         )
         self.current_step = 0
         self._raw_url: str = ""

@@ -14,11 +14,11 @@ def step_event(**overrides):
 
 class RecordingSink:
     def __init__(self):
-        self.statuses = []
+        self.docked = []
         self.toasts = []
 
-    def status(self, mod, text):
-        self.statuses.append((mod, text))
+    def dock(self, mod, slot):
+        self.docked.append((mod, slot.label if slot else None))
 
     def toast(self, mod, text, severity):
         self.toasts.append((mod, text, severity))
@@ -67,13 +67,13 @@ def test_hook_observes_the_result():
     @on("step.call")
     def watch(m, e, next):
         result = next(e)
-        m.ui.status(f"{e.step_id}: {result.message}")
+        m.ui.dock(f"{e.step_id}: {result.message}")
         return result
 
     result = bus.dispatch("step.call", step_event(), lambda e: Success("done"))
 
     assert result.message == "done"
-    assert sink.statuses == [("watcher", "push: done")]
+    assert sink.docked == [("watcher", "push: done")]
 
 
 def test_hooks_chain_in_load_order():
@@ -188,3 +188,33 @@ def test_unknown_event_is_rejected_at_registration():
 def test_event_params_are_read_only():
     with pytest.raises(TypeError):
         step_event().params["remote"] = "x"
+
+
+def test_a_dock_slot_carries_the_manifest_icon_and_an_empty_label_clears_it():
+    from types import SimpleNamespace
+
+    bus = ModBus()
+    bus.host = sink = RecordingSink()
+    bus.manifests["watcher"] = SimpleNamespace(icon="👀")
+    slots = []
+    sink.dock = lambda mod, slot: slots.append(slot)
+    m = bus.api("watcher")
+
+    m.ui.dock("PRs", badge="2", severity="error")
+    m.ui.dock(None)
+
+    assert (slots[0].icon, slots[0].label, slots[0].badge, slots[0].severity) == ("👀", "PRs", "2", "error")
+    assert slots[1] is None
+
+
+def test_a_badge_names_the_plugin_tile_and_none_takes_it_off():
+    bus = ModBus()
+    bus.host = sink = RecordingSink()
+    badges = []
+    sink.badge = lambda mod, plugin, text, severity: badges.append((mod, plugin, text, severity))
+    m = bus.api("git")
+
+    m.ui.badge("github", "2 to review", severity="warning")
+    m.ui.badge("github", None)
+
+    assert badges == [("git", "github", "2 to review", "warning"), ("git", "github", None, None)]

@@ -26,7 +26,7 @@ from titan_cli.core.workflows import (
 )
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import Button, StatusBarWidget, WorkflowCard
+from titan_cli.ui.tui.widgets import Button, WorkflowCard
 from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
     PluginChannel,
@@ -36,8 +36,6 @@ from titan_cli.core.plugins.community_sources import (
 from .base import BaseScreen
 from .card_grid import CardGridNavigationMixin
 
-from .ai_config import AIConfigScreen
-from .plugin_management import PluginManagementScreen
 
 # Width a card needs before another one fits beside it. The column count is derived from
 # this on resize; the SET of cards never is - a grid whose contents changed with the window
@@ -99,9 +97,9 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("escape", "quit", "Quit"),
-        Binding("w", "open_workflows", "Workflows"),
-        Binding("p", "open_plugins", "Plugins"),
-        Binding("a", "open_ai_config", "AI"),
+        Binding("w", "app.open_workflows", "Workflows"),
+        Binding("p", "app.open_plugins", "Plugins"),
+        Binding("a", "app.open_ai_config", "AI"),
     ] + [
         Binding(str(number), f"launch_slot({number})", show=False)
         for number in range(1, DEFAULT_SLOT_COUNT + 1)
@@ -428,9 +426,9 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """An action button was pressed or clicked."""
         actions = {
-            "home-action-w": self.action_open_workflows,
-            "home-action-p": self.action_open_plugins,
-            "home-action-a": self.action_open_ai_config,
+            "home-action-w": self.app.action_open_workflows,
+            "home-action-p": self.app.action_open_plugins,
+            "home-action-a": self.app.action_open_ai_config,
         }
         action = actions.get(event.button.id)
         if action is not None:
@@ -449,33 +447,9 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
 
         self.app.push_screen(WorkflowExecutionScreen(self.config, workflow_name))
 
-    def action_open_workflows(self) -> None:
-        """Open the full workflow list."""
-        from .workflows import WorkflowsScreen
-
-        self.app.push_screen(WorkflowsScreen(self.config))
-
-    def action_open_plugins(self) -> None:
-        """Open plugin management.
-
-        Enabling or disabling a plugin changes which workflows exist, so the cached
-        discovery this screen holds is marked stale for the resume that follows.
-        """
+    def mark_discovery_stale(self) -> None:
+        """Rediscover workflows on the next resume: a plugin may be enabled or disabled."""
         self._discovery_dirty = True
-        self.app.push_screen(PluginManagementScreen(self.config))
-
-    def action_open_ai_config(self) -> None:
-        """Open AI configuration."""
-        def on_ai_config_closed(result) -> None:
-            """Refresh the status bar with whatever the screen changed."""
-            try:
-                self.config.load()
-                status_bar = self.query_one("#status-bar", StatusBarWidget)
-                self._update_status_bar(status_bar)
-            except Exception as e:
-                self.app.notify(f"Error refreshing status bar: {e}", severity="error")
-
-        self.app.push_screen(AIConfigScreen(self.config), callback=on_ai_config_closed)
 
     def action_quit(self) -> None:
         """Quit the application."""

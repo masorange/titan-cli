@@ -3,7 +3,7 @@ Titan TUI Widgets
 
 Reusable Textual widgets for the Titan TUI.
 """
-from .status_bar import StatusBarWidget
+from .dock import Dock, DockItem
 from .header import HeaderWidget
 from .panel import Panel
 from .panel_container import PanelContainer
@@ -43,7 +43,8 @@ from .text import (
 )
 
 __all__ = [
-    "StatusBarWidget",
+    "Dock",
+    "DockItem",
     "HeaderWidget",
     "Panel",
     "PanelContainer",

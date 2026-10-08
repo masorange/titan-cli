@@ -505,7 +505,7 @@ class AIConfigScreen(BaseScreen):
     def on_screen_resume(self) -> None:
         """Reload when returning from a wizard or modal."""
         self.load_sections()
-        self._refresh_status_bar()
+        self.refresh_dock()
 
     def load_sections(self) -> None:
         """
@@ -519,15 +519,6 @@ class AIConfigScreen(BaseScreen):
         self.load_connections()
         self.load_cli_defaults()
         self.load_task_routing()
-
-    def _refresh_status_bar(self) -> None:
-        """Refresh the status bar with current AI info."""
-        try:
-            from titan_cli.ui.tui.widgets import StatusBarWidget
-            status_bar = self.query_one(StatusBarWidget)
-            self._update_status_bar(status_bar)
-        except Exception:
-            pass  # Status bar might not be available
 
     def load_connections(self) -> None:
         """Display all configured AI connections."""
@@ -753,7 +744,7 @@ class AIConfigScreen(BaseScreen):
             # Task rows quote this model as "default for this CLI", so they go stale the
             # moment it changes.
             self.load_task_routing()
-            self._refresh_status_bar()
+            self.refresh_dock()
 
         open_cli_model_picker(self.app, self.config, cli_name, on_saved)
 
@@ -772,7 +763,7 @@ class AIConfigScreen(BaseScreen):
             # The F2 cell is rendered from default_cli, and nothing else here tells it
             # to change - it kept naming the old CLI until the screen was resumed. The
             # model-change path already did this.
-            self._refresh_status_bar()
+            self.refresh_dock()
         except Exception as e:
             self.app.notify(f"Failed to set default CLI: {e}", severity="error")
 
@@ -789,7 +780,7 @@ class AIConfigScreen(BaseScreen):
             self.config.set_default_ai_connection(connection_id)
 
             self.load_sections()
-            self._refresh_status_bar()
+            self.refresh_dock()
 
             connection_name = self.config.config.ai.connections[connection_id].name
             self.app.notify(
@@ -819,7 +810,7 @@ class AIConfigScreen(BaseScreen):
 
         def on_saved() -> None:
             self.load_sections()
-            self._refresh_status_bar()
+            self.refresh_dock()
 
         open_connection_model_picker(self.app, self.config, connection_id, on_saved)
 
@@ -844,7 +835,7 @@ class AIConfigScreen(BaseScreen):
                 pass
 
             self.load_sections()
-            self._refresh_status_bar()
+            self.refresh_dock()
 
             self.app.notify(
                 f"Connection '{connection_name}' deleted",

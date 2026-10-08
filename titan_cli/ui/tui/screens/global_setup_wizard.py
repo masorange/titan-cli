@@ -125,7 +125,7 @@ class GlobalSetupWizardScreen(BaseScreen):
             config,
             title=f"{Icons.SETTINGS} Titan Setup Wizard",
             show_back=False,
-            show_status_bar=False
+            show_dock=False
         )
         self.current_step = 0
         self.wizard_data = {}

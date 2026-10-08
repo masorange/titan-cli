@@ -1,12 +1,12 @@
 """
 Titan TUI Application
 
-Main Textual application for Titan CLI with fixed status bar and theme support.
+Main Textual application for Titan CLI with a fixed dock and theme support.
 """
 from textual.app import App
 from textual.binding import Binding
 
-from typing import Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.config import TitanConfig
@@ -25,13 +25,12 @@ class TitanApp(App):
     The main Titan TUI application.
 
     This is a Textual-based TUI that provides a visual interface for Titan CLI,
-    with a fixed status bar at the bottom and interactive menus/workflows.
+    with a fixed dock at the bottom and interactive menus/workflows.
 
     The layout is:
     - Header (top): Title and clock
     - Main content area (scrollable)
-    - Status bar (bottom, fixed): Git branch, AI info, Project
-    - Footer (bottom): Keybindings
+    - Dock (bottom, fixed): launcher, mods' slots, project, branch and AI info
     """
 
     # Combine theme CSS with app-specific CSS
@@ -129,7 +128,7 @@ class TitanApp(App):
         """The model this CLI should run with, session override included.
 
         `config.get_cli_model` sees only the persisted global pin. A session override
-        outranks it everywhere else - the resolver honours it and the status bar
+        outranks it everywhere else - the resolver honours it and the dock
         advertises it - so reading the config directly here made a session-only model
         show as active while never reaching the CLI that was launched.
         """
@@ -264,14 +263,14 @@ class TitanApp(App):
                     apply(result)
             except Exception as e:
                 # `apply` can make two writes, so a failure on the second leaves the
-                # first persisted: the bar has to be repainted either way, and the
+                # first persisted: the dock has to be repainted either way, and the
                 # wording must not claim the whole change was rejected.
-                self.refresh_status_bar()
+                self.refresh_dock()
                 self.notify(
                     f"Only part of that could be applied: {e}", severity="error"
                 )
                 return
-            self.refresh_status_bar()
+            self.refresh_dock()
             self.notify(self._quick_picker_notice(result, noun, dropped=dropped))
 
         self.push_screen(
@@ -363,26 +362,26 @@ class TitanApp(App):
             if not override.is_active_for(remote):
                 return
             override.clear_for(remote)
-        self.refresh_status_bar()
+        self.refresh_dock()
         self.notify("Session override cleared - your saved settings apply again.")
 
-    def refresh_status_bar(self) -> None:
-        """Repaint the current screen's status bar, if it has one.
+    def refresh_dock(self) -> None:
+        """Repaint the current screen's dock, if it has one.
 
         The session override is app state with no config write behind it, so nothing else
-        would tell the bar to change - and an override the bar does not show is an
+        would tell the dock to change - and an override the dock does not show is an
         override the user will forget is on.
         """
         screen = self.screen
-        updater = getattr(screen, "refresh_status_bar", None)
+        updater = getattr(screen, "refresh_dock", None)
         if callable(updater):
             try:
                 updater()
             except Exception:
-                # Never fatal - a stale bar must not take the app down - but not silent
-                # either: a bar that stops updating is exactly what this method exists
+                # Never fatal - a stale dock must not take the app down - but not silent
+                # either: a dock that stops updating is exactly what this method exists
                 # to prevent, and a bare pass leaves no trace of it happening.
-                get_logger(__name__).debug("status_bar_refresh_failed", exc_info=True)
+                get_logger(__name__).debug("dock_refresh_failed", exc_info=True)
 
     def action_toggle_mods_panel(self) -> None:
         """Collapse or expand the mods' side panel, on every screen."""
@@ -400,6 +399,57 @@ class TitanApp(App):
     def action_mod_key(self, key: str) -> None:
         """A key a mod bound with `m.keys.bind`."""
         self.mods_host.press_key(key)
+
+    # -- the dock's launcher: Titan's destinations, from any screen ---------
+
+    def _launcher_refusal(self, screen_type: type) -> Optional[str]:
+        from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
+
+        if isinstance(self.screen, screen_type):
+            return "already here"
+        if any(isinstance(screen, WorkflowExecutionScreen) for screen in self.screen_stack):
+            # Leaving would orphan the run; its screen is still under whatever opens.
+            return "a workflow is running; finish it first"
+        return None
+
+    def _launch(self, screen_type: type, make: Callable[[], Any]) -> None:
+        refusal = self._launcher_refusal(screen_type)
+        if refusal == "already here":
+            return
+        if refusal is not None:
+            self.notify(refusal, severity="warning")
+            return
+        self.push_screen(make())
+
+    def action_open_workflows(self, plugin: Optional[str] = None) -> None:
+        """Open the workflow list, filtered to `plugin`'s workflows when given."""
+        from titan_cli.ui.tui.screens.workflows import WorkflowsScreen
+
+        if plugin is not None and isinstance(self.screen, WorkflowsScreen):
+            self.screen.select_plugin(plugin)
+            return
+        self._launch(WorkflowsScreen, lambda: WorkflowsScreen(self.config, plugin=plugin))
+
+    def action_open_plugins(self) -> None:
+        """Open plugin management.
+
+        Enabling or disabling a plugin changes which workflows exist, so the home
+        screen's cached discovery is marked stale for when it is shown again.
+        """
+        from titan_cli.ui.tui.screens.main_menu import MainMenuScreen
+        from titan_cli.ui.tui.screens.plugin_management import PluginManagementScreen
+
+        if self._launcher_refusal(PluginManagementScreen) is None:
+            for screen in self.screen_stack:
+                if isinstance(screen, MainMenuScreen):
+                    screen.mark_discovery_stale()
+        self._launch(PluginManagementScreen, lambda: PluginManagementScreen(self.config))
+
+    def action_open_ai_config(self) -> None:
+        """Open AI configuration."""
+        from titan_cli.ui.tui.screens.ai_config import AIConfigScreen
+
+        self._launch(AIConfigScreen, lambda: AIConfigScreen(self.config))
 
     def action_toggle_copy_mode(self) -> None:
         """Toggle copy mode - disables mouse capture to allow text selection."""
