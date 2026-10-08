@@ -37,8 +37,18 @@ def build_free_review_prompt(
     from .review_material_operations import BASE_DIR, DIFFS_DIR, PR_FILE, WHOLE_DIFF_FILE
 
     # Only for a CLI that can spawn them: asking one that cannot costs a failed tool call
-    # and leaves the session reviewing a large PR alone anyway.
-    subagent_hint = " If the PR is large, split the work across subagents." if use_subagents else ""
+    # and leaves the session reviewing a large PR alone anyway. The wait is spelled out
+    # because a headless session has no later turn: Claude's subagents default to the
+    # background, and on #276 the session ended its turn to wait for two, was forced to
+    # answer at once, then stopped the one still running and lost its files' review.
+    subagent_hint = (
+        " If the PR is large, split the work across subagents. Run them in the foreground,"
+        " not in the background (independent ones together, in one message), and answer"
+        " only once every one has reported: this session gets no later turn, so ending a"
+        " turn to wait for a subagent ends the review without its work."
+        if use_subagents
+        else ""
+    )
     return (
         f"Review pull request #{pr_number} \"{title}\" ({head} → {base}).\n\n"
         f"`{worktree}` is a checkout of the PR head. Work only inside it, with paths under "

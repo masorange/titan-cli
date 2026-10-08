@@ -39,6 +39,14 @@ def test_subagents_are_only_suggested_to_a_cli_that_can_spawn_them():
     assert "split the work across subagents" in build_free_review_prompt(*args, use_subagents=True)
 
 
+def test_subagents_are_told_to_run_in_the_foreground_and_be_awaited():
+    """A headless session that ends its turn to wait for a background subagent loses it."""
+    prompt = build_free_review_prompt(273, "t", "h", "b", "/repo/wt", use_subagents=True)
+
+    assert "in the foreground" in prompt
+    assert "answer only once every one has reported" in prompt
+
+
 def test_prompt_asks_for_a_review_and_prescribes_no_procedure():
     prompt = _prompt()
 
@@ -166,14 +174,6 @@ def test_partition_keeps_real_files_outside_the_pr_and_drops_invented_ones():
     assert rejected == [{"path": "ghost.kt", "title": "made up"}]
 
 
-def test_partition_keeps_pathless_findings():
-    kept, rejected = partition_findings_by_path([{"title": "general"}], {"a.py"})
-
-    assert kept == [{"title": "general"}]
-    assert rejected == []
-
-
-def test_normalize_finding_path_only_strips_separators_and_dot_prefix():
 def test_partition_moves_findings_on_review_material_to_the_file_it_copies():
     findings = [
         {"path": ".titan-review/base/src/a.py", "title": "old code"},
@@ -187,4 +187,12 @@ def test_partition_moves_findings_on_review_material_to_the_file_it_copies():
     assert rejected == [{"path": ".titan-review/pr.md", "title": "about the PR file"}]
 
 
+def test_partition_keeps_pathless_findings():
+    kept, rejected = partition_findings_by_path([{"title": "general"}], {"a.py"})
+
+    assert kept == [{"title": "general"}]
+    assert rejected == []
+
+
+def test_normalize_finding_path_only_strips_separators_and_dot_prefix():
     assert normalize_finding_path(" ././Src\\A.py ") == "Src/A.py"
