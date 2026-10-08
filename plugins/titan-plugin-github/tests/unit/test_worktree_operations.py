@@ -83,6 +83,17 @@ class TestSetupWorktree:
         assert success is False
         assert abs_path == ""
 
+    def test_creation_failure_deletes_the_fetched_refs(self, mock_git_client):
+        """No worktree means no cleanup step: the fetched ref must not stay behind."""
+        mock_git_client.create_worktree.return_value = ClientError(
+            error_message="Creation failed", error_code="WORKTREE_CREATE_ERROR"
+        )
+
+        setup_worktree(mock_git_client, 123, "feature-branch")
+
+        refs = [c.args[0] for c in mock_git_client.delete_ref.call_args_list]
+        assert "refs/titan/review/pr-123" in refs
+
     def test_uses_custom_base_path(self, mock_git_client):
         """Test using custom base path for worktrees"""
         abs_path, success = setup_worktree(

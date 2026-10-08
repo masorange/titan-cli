@@ -101,10 +101,10 @@ def cleanup_worktree_step(ctx: WorkflowContext) -> WorkflowResult:
 
     with ctx.textual.loading("Cleaning up worktree..."):
         success = cleanup_worktree(ctx.git, worktree_path)
-        if success:
-            pr_number = ctx.get("selected_pr_number") or ctx.get("review_pr_number")
-            if pr_number:
-                delete_review_refs(ctx.git, pr_number)
+        # The refs are independent of the worktree: delete them even if its removal failed.
+        pr_number = ctx.get("selected_pr_number") or ctx.get("review_pr_number")
+        if pr_number:
+            delete_review_refs(ctx.git, pr_number)
 
     if success:
         ctx.textual.success_text("✓ Worktree cleaned up")

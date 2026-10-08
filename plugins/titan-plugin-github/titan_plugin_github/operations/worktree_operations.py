@@ -72,9 +72,13 @@ def setup_worktree(
             case ClientSuccess():
                 return (full_worktree_path, True)
             case ClientError():
+                # No worktree means no cleanup step will run for this review, so the
+                # ref the fetch just created would stay in the user's repository.
+                delete_review_refs(git_client, pr_number)
                 return ("", False)
 
     except Exception:
+        delete_review_refs(git_client, pr_number)
         return ("", False)
 
 
