@@ -9,7 +9,9 @@ from titan_cli.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-STORE_DIR = Path.home() / ".titan" / "mods-data"
+# App state, not configuration: beside the logs (XDG state), out of ~/.titan,
+# which holds what the user edits.
+STORE_DIR = Path.home() / ".local" / "state" / "titan" / "mods"
 
 
 class ModStore:
