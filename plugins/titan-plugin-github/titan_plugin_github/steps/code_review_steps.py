@@ -1637,8 +1637,13 @@ def _review_tool_options(adapter) -> dict:
     )
 
     restrict = adapter.supports_tool_restriction
+    disallowed = list(REVIEW_DISALLOWED_TOOLS)
+    if not adapter.supports_subagents:
+        # The prompt does not offer subagents to this CLI, so the session must not spawn
+        # them unverified either (grok turns this into --no-subagents).
+        disallowed.append("Agent")
     return {
-        "disallowed_tools": list(REVIEW_DISALLOWED_TOOLS) if restrict else None,
+        "disallowed_tools": disallowed if restrict else None,
         "allowed_tools": list(REVIEW_ALLOWED_TOOLS) if restrict else None,
         "effort": REVIEW_EFFORT if adapter.supports_effort_control else None,
         "max_budget_usd": REVIEW_MAX_BUDGET_USD,
@@ -1758,6 +1763,9 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Textual UI context is not available for this step.")
 
     ctx.textual.begin_step("Review")
+    # Failed until the session's answer is in: an exception anywhere below must not leave
+    # the publishing step presenting an unreviewed PR as clean.
+    ctx.data["ai_findings_failed"] = True
 
     from ..operations.findings_operations import (
         REVIEW_TIMEOUT_SECONDS,
@@ -2444,10 +2452,11 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
             OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
         ]
-    elif ctx.get("ai_findings_failed", False) or ctx.get("raw_findings") is None:
-        # The AI review never produced findings (it failed, or an earlier step failed before
-        # it could publish any), so "no findings" says nothing about the
-        # PR — don't present it as clean or offer to approve it.
+    elif ctx.get("ai_findings_failed", False):
+        # The AI review never produced findings, so "no findings" says nothing about the
+        # PR — don't present it as clean or offer to approve it. Keyed on the review step's
+        # own flag, not on `raw_findings`: Thread Resolution publishes through this step
+        # without running a review.
         ctx.textual.warning_text("⚠ The AI review did not run — this PR has NOT been reviewed")
         ctx.textual.text("")
 

@@ -154,6 +154,14 @@ def test_a_finding_without_line_or_snippet_still_validates():
     assert finding.evidence == ""
 
 
+def test_a_quoted_line_number_is_kept_and_a_boolean_is_not():
+    quoted = to_finding_payload({"path": "a.py", "line": " 42 ", "severity": "nit", "title": "t", "body": "b"})
+    boolean = to_finding_payload({"path": "a.py", "line": True, "severity": "nit", "title": "t", "body": "b"})
+
+    assert quoted["line"] == 42
+    assert boolean["line"] is None
+
+
 def test_a_non_dict_finding_is_left_for_normalization_to_reject():
     assert to_finding_payload("oops") == "oops"
 
@@ -185,6 +193,20 @@ def test_partition_moves_findings_on_review_material_to_the_file_it_copies():
 
     assert kept == [{"path": "src/a.py", "title": "old code"}, {"path": "src/a.py", "title": "diff"}]
     assert rejected == [{"path": ".titan-review/pr.md", "title": "about the PR file"}]
+
+
+def test_partition_drops_the_line_of_a_finding_moved_off_review_material():
+    findings = [
+        {"path": ".titan-review/diffs/src/a.py.diff", "line": 40, "snippet": "x = 1", "title": "diff"},
+        {"path": "src/a.py", "line": 12, "title": "direct"},
+    ]
+
+    kept, _ = partition_findings_by_path(findings, {"src/a.py"}, lambda path: True)
+
+    assert kept == [
+        {"path": "src/a.py", "line": None, "snippet": "x = 1", "title": "diff"},
+        {"path": "src/a.py", "line": 12, "title": "direct"},
+    ]
 
 
 def test_partition_keeps_pathless_findings():

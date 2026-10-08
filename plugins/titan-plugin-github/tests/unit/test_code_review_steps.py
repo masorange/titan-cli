@@ -565,7 +565,9 @@ def test_the_session_gets_subagents_read_only_git_effort_and_a_ceiling_where_enf
         free_review_json_schema,
     )
 
-    adapter = _FakeReviewAdapter([(0, _ONE_FINDING)], structured=True, restricts=True, effort=True)
+    adapter = _FakeReviewAdapter(
+        [(0, _ONE_FINDING)], structured=True, restricts=True, effort=True, subagents=True
+    )
     ctx = _review_ctx(tmp_path, monkeypatch, adapter)
 
     ai_review_findings(ctx)
@@ -639,6 +641,30 @@ def test_a_failed_or_timed_out_session_fails_visibly_without_retrying(tmp_path, 
 
     assert isinstance(result, Error)
     assert len(adapter.calls) == 1
+    assert ctx.data["ai_findings_failed"] is True
+
+
+def test_a_cli_without_verified_subagents_is_denied_them(tmp_path, monkeypatch):
+    adapter = _FakeReviewAdapter([(0, _ONE_FINDING)], structured=True, restricts=True, subagents=False)
+    ctx = _review_ctx(tmp_path, monkeypatch, adapter)
+
+    ai_review_findings(ctx)
+
+    assert "Agent" in adapter.calls[0]["disallowed_tools"]
+
+
+def test_a_session_that_raises_leaves_the_review_marked_failed(tmp_path, monkeypatch):
+    class _RaisingAdapter(_FakeReviewAdapter):
+        def execute(self, prompt, **kwargs):
+            raise RuntimeError("boom")
+
+    ctx = _review_ctx(tmp_path, monkeypatch, _RaisingAdapter([]))
+
+    try:
+        ai_review_findings(ctx)
+    except RuntimeError:
+        pass
+
     assert ctx.data["ai_findings_failed"] is True
 
 

@@ -209,13 +209,24 @@ def to_finding_payload(raw: Any) -> Any:
         "severity": raw.get("severity"),
         "category": raw.get("category") or "review",
         "path": raw.get("path") or "",
-        "line": raw.get("line") if isinstance(raw.get("line"), int) else None,
+        "line": _line_number(raw.get("line")),
         "title": raw.get("title") or "",
         "why": body,
         "evidence": raw.get("evidence") or snippet or "",
         "snippet": snippet,
         "suggested_comment": body,
     }
+
+
+def _line_number(value: Any) -> Optional[int]:
+    """A line as an int: CLIs without structured output often quote it ("42")."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
 
 
 def normalize_finding_path(path: str) -> str:
@@ -244,8 +255,8 @@ def partition_findings_by_path(
     diff -- on ragnarok PR #3688 the one blocking defect was in a file the PR never touched.
     It cannot anchor inline, so it publishes in the review body. A finding with no path is
     kept: a general observation is not misattributed to anything. A finding citing Titan's
-    own review material (a copy under `.titan-review/`) is moved to the file it copies, or
-    rejected when it copies none.
+    own review material (a copy under `.titan-review/`) is moved to the file it copies,
+    without the copy's line number, or rejected when it copies none.
 
     Returns `(kept, rejected)`, where each rejected entry is `{"path", "title"}`.
     """
@@ -257,7 +268,10 @@ def partition_findings_by_path(
         if not path:
             kept.append(finding)
             continue
-        normalized = material_source_path(normalize_finding_path(path))
+        canonical_path = normalize_finding_path(path)
+        normalized = material_source_path(canonical_path)
+        if normalized is not None and normalized != canonical_path:
+            finding = _without_line(finding)
         if normalized is None:
             rejected.append({"path": path, "title": _finding_title(finding)})
         elif normalized in canonical:
@@ -284,6 +298,18 @@ def _with_path(finding: Any, path: str) -> Any:
     """Return the finding carrying the given spelling of its path."""
     if isinstance(finding, dict) and finding.get("path") != path:
         return {**finding, "path": path}
+    return finding
+
+
+def _without_line(finding: Any) -> Any:
+    """Drop a line counted in a material copy: it is no line of the file the copy stands for.
+
+    A `diffs/` copy numbers its own header lines and a `base/` copy is the old file, so
+    keeping the number could anchor the comment on an unrelated line of the PR's file.
+    The snippet still anchors it, or the comment goes to the review body.
+    """
+    if isinstance(finding, dict) and finding.get("line") is not None:
+        return {**finding, "line": None}
     return finding
 
 
