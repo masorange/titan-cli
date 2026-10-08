@@ -26,6 +26,9 @@ from ...models.network.rest.issue import NetworkJiraComponent, NetworkJiraVersio
 from ...exceptions import JiraAPIError
 
 
+# Fields a search returns when the caller names none: enough for a list of issues.
+DEFAULT_SEARCH_FIELDS = ["summary", "status", "assignee", "priority", "created", "updated"]
+
 class IssueService:
     """
     Service for Jira issue operations.
@@ -113,7 +116,7 @@ class IssueService:
             payload = {
                 "jql": jql,
                 "maxResults": max_results,
-                "fields": fields or ["summary", "status", "assignee", "priority", "created", "updated"]
+                "fields": fields or DEFAULT_SEARCH_FIELDS
             }
 
             data = self.network.make_request("POST", "search/jql", json=payload)

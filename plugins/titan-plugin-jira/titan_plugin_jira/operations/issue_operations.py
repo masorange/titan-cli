@@ -5,7 +5,9 @@ Pure business logic for issue-related operations.
 """
 
 
-from titan_cli.core.result import ClientSuccess, ClientError
+from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
+
+from ..models import UIJiraIssue, UIJiraUser
 
 
 def find_ready_to_dev_transition(jira_client, issue_key: str):
@@ -140,3 +142,34 @@ def find_subtask_issue_type(jira_client, project_key: str):
 
         case ClientError(error_message=err):
             raise Exception(f"Failed to get issue types: {err}")
+
+
+def assign_issue_to_current_user(jira_client, issue_key: str) -> ClientResult[UIJiraUser]:
+    """Assign `issue_key` to the authenticated user; the user on success."""
+    match jira_client.get_current_user():
+        case ClientError(error_message=err):
+            return ClientError(error_message=f"Cannot read your Jira user: {err}")
+        case ClientSuccess(data=user):
+            pass
+    match jira_client.assign_issue(issue_key=issue_key, account_id=user.account_id):
+        case ClientError(error_message=err):
+            return ClientError(error_message=f"Cannot assign {issue_key}: {err}")
+    return ClientSuccess(data=user, message=f"Assigned {issue_key} to {user.display_name}")
+
+
+def take_issue(jira_client, issue: UIJiraIssue, status: str) -> ClientResult[UIJiraUser]:
+    """
+    Take `issue`: assign it to the authenticated user, then move it to `status`
+    unless it is already there. A failed move still leaves the issue assigned,
+    and the error says so.
+    """
+    match assign_issue_to_current_user(jira_client, issue.key):
+        case ClientError() as error:
+            return error
+        case ClientSuccess(data=user):
+            pass
+    if issue.status.strip().lower() != status.strip().lower():
+        match jira_client.transition_issue(issue_key=issue.key, new_status=status):
+            case ClientError(error_message=err):
+                return ClientError(error_message=f"{issue.key} is yours, but cannot move to {status}: {err}")
+    return ClientSuccess(data=user, message=f"{issue.key} is yours, in {status}")

@@ -317,6 +317,23 @@ class TestDiffServiceGetUncommittedNumstat:
         assert isinstance(result, ClientError)
         assert result.error_code == "DIFF_ERROR"
 
+    def test_include_untracked_counts_new_files_lines(self, service, mock_git_network, tmp_path):
+        """New files are outside `git diff`: their lines are read and counted as additions"""
+        (tmp_path / "new.py").write_text("a\nb\nc")
+        (tmp_path / "blob.bin").write_bytes(b"\0\1\2")
+        mock_git_network.get_repo_path.return_value = str(tmp_path)
+        mock_git_network.run_command.side_effect = ["3\t1\tsrc/a.py\n", "new.py\nblob.bin\ngone.txt\n"]
+
+        result = service.get_uncommitted_numstat(include_untracked=True)
+
+        assert [(c.path, c.additions, c.is_binary) for c in result.data] == [
+            ("src/a.py", 3, False),
+            ("new.py", 3, False),
+            ("blob.bin", 0, True),
+            ("gone.txt", 0, True),
+        ]
+        assert mock_git_network.run_command.call_args.args[0][-3:] == ["ls-files", "--others", "--exclude-standard"]
+
 
 @pytest.mark.unit
 class TestDiffServiceGetChangedFiles:

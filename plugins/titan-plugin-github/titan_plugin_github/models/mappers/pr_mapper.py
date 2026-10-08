@@ -21,6 +21,7 @@ from ..formatting import (
     classify_status_check_rollup,
     summarize_review_status,
     format_short_sha,
+    actions_job_id,
 )
 
 
@@ -74,8 +75,9 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         requested_reviewers=requested_reviewers,
         pending_reviewers=pending_reviewers,
         checks_state=checks_state,
-        failed_checks=[UIFailedCheck(name=name, url=url) for name, url in failed],
+        failed_checks=[UIFailedCheck(name=name, url=url, job_id=actions_job_id(url)) for name, url in failed],
         has_conflicts=(rest_pr.mergeable == "CONFLICTING"),
+        url=rest_pr.url,
     )
 
 
@@ -254,6 +256,7 @@ def from_graphql_merge_queue(graphql_queue: GraphQLMergeQueue) -> UIMergeQueue:
                 eta_seconds=entry.estimatedTimeToMerge,
                 eta_label=format_merge_eta(entry.estimatedTimeToMerge),
                 is_mine=viewer is not None and entry.authorLogin == viewer,
+                url=entry.pullRequestUrl,
             )
             for entry in graphql_queue.entries
         ],

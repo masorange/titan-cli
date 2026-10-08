@@ -109,6 +109,16 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
 }
 '''
 
+COUNT_OPEN_PRS = '''
+query($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(states: OPEN) {
+      totalCount
+    }
+  }
+}
+'''
+
 GET_MERGE_QUEUE = '''
 query($owner: String!, $repo: String!, $first: Int!) {
   viewer {
@@ -131,6 +141,7 @@ query($owner: String!, $repo: String!, $first: Int!) {
           pullRequest {
             number
             title
+            url
             author {
               login
             }

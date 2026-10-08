@@ -71,7 +71,7 @@ class PRService:
                 "changedFiles", "mergeable", "isDraft", "createdAt",
                 "updatedAt", "mergedAt", "reviews", "labels",
                 "statusCheckRollup", "reviewDecision", "reviewRequests",
-                "isCrossRepository", "headRepositoryOwner", "headRepository",
+                "isCrossRepository", "headRepositoryOwner", "headRepository", "url",
             ]
 
             # Fetch from network
@@ -130,7 +130,7 @@ class PRService:
                 "--search", f"review-requested:{current_user}",
                 "--state", "open",
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,reviewRequests,statusCheckRollup,reviewDecision,mergeable",
+                "--json", "number,title,author,updatedAt,labels,isDraft,reviewRequests,statusCheckRollup,reviewDecision,mergeable,url",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
@@ -187,7 +187,7 @@ class PRService:
                 "pr", "list",
                 "--state", state,
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,statusCheckRollup,reviewDecision,mergeable",
+                "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,statusCheckRollup,reviewDecision,mergeable,url",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
@@ -236,7 +236,7 @@ class PRService:
                 "pr", "list",
                 "--state", state,
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,reviewRequests,headRefName,baseRefName,statusCheckRollup,reviewDecision",
+                "--json", "number,title,author,updatedAt,labels,isDraft,state,reviewRequests,headRefName,baseRefName,statusCheckRollup,reviewDecision,url",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)
@@ -919,6 +919,40 @@ class PRService:
                 error_code="INVALID_RESPONSE",
                 log_level="warning",
             )
+
+    @log_client_operation()
+    def count_open_prs(self) -> ClientResult[int]:
+        """
+        Count the repository's open pull requests (one GraphQL call, no cap).
+
+        Returns:
+            ClientResult[int]
+        """
+        if not self.graphql:
+            return ClientError(
+                error_message="GraphQL network is not available for counting PRs",
+                error_code="GRAPHQL_UNAVAILABLE",
+                log_level="warning",
+            )
+        owner, _, repo = self.gh.get_repo_string().partition("/")
+        if not owner or not repo:
+            return ClientError(
+                error_message=f"Cannot parse repository string: {self.gh.get_repo_string()!r}",
+                error_code="INVALID_REPO_STRING",
+                log_level="warning",
+            )
+        try:
+            response = self.graphql.run_query(graphql_queries.COUNT_OPEN_PRS, {"owner": owner, "repo": repo})
+            count = (((response.get("data") or {}).get("repository") or {}).get("pullRequests") or {}).get("totalCount")
+            if count is None:
+                return ClientError(
+                    error_message="Malformed GraphQL response: no pullRequests.totalCount",
+                    error_code="INVALID_RESPONSE",
+                    log_level="warning",
+                )
+            return ClientSuccess(data=int(count), message=f"{count} open PRs")
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
     def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:

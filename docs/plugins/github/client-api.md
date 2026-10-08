@@ -120,8 +120,10 @@ A `UIPullRequest` object with the following fields:
 - `review_status_summary`: "approved", "changes requested", "review required" or "draft"
 - `checks_state`: One state for all checks: `"failing"`, `"running"`, `"passing"` or `"none"`
   (check runs and external commit statuses alike)
-- `failed_checks`: `UIFailedCheck(name, url)` for each failed check, `url` being the
-  Actions job page or the external CI's link
+- `failed_checks`: `UIFailedCheck(name, url, job_id)` for each failed check, `url` being the
+  Actions job page or the external CI's link, `job_id` the Actions job id to pass to
+  `get_actions_job_log` (`None` for external CI)
+- `url`: The PR's web page
 - `has_conflicts`: True when GitHub reports the PR as conflicting. Filled by
   `list_pending_review_prs` and `list_my_prs`; `list_all_prs` does not fetch it.
 
@@ -169,6 +171,31 @@ client.list_all_prs(state="open", max_results=50)
 
 - `state`: Optional. PR state such as `open`, `closed`, or `merged`.
 - `max_results`: Optional. Maximum number of PRs to return.
+
+### Count open pull requests
+
+Returns how many pull requests are open in the repository, in one GraphQL call,
+without listing them (no cap, unlike `len(list_all_prs(...))`).
+
+**Call:**
+
+```python
+client.count_open_prs()
+```
+
+**Parameters:** none. `GRAPHQL_UNAVAILABLE` when the client has no GraphQL network.
+
+### Get the repository name
+
+Returns the repository this client works on, as `"owner/name"`. No network call.
+
+**Call:**
+
+```python
+client.get_repo_full_name()  # "masorange/titan-cli"
+```
+
+**Parameters:** none.
 
 ### Read a pull request diff
 
@@ -353,9 +380,12 @@ client.get_merge_queue_state(pr_number=123)
 ### Get the log of a GitHub Actions job
 
 Returns the end of one Actions job's log, e.g. to explain a failed check. The job
-id is the last number of a failed check's URL (`UIFailedCheck.url`,
-`.../actions/runs/<run>/job/<job_id>`); checks reported by external CI have no
-Actions log.
+id comes with each failed check (`UIFailedCheck.job_id`); checks reported by
+external CI have none and no Actions log. To explain the failure with an AI, see
+`operations/ci_diagnosis_operations.py`: `extract_failure_excerpt(log)`,
+`build_job_diagnosis_prompt(job_name, excerpt)` → `(prompt, system)`,
+`parse_job_diagnosis(job_name, answer, excerpt)` → `UIJobDiagnosis` (cause, where,
+quote, `is_quote_in_log`) and `format_job_diagnoses(...)` for a plain-text report.
 
 **Call:**
 
@@ -391,8 +421,8 @@ client.get_merge_queue(max_entries=8)
 **Result:** `UIMergeQueue` with `is_configured`, `branch`, `merge_method`, `total`
 and `entries`. Each `UIMergeQueueEntry` carries `position`, `pr_number`, `title`,
 `author`, `state`, a readable `state_label` (`"running checks"`, `"ready to merge"`…),
-`eta_seconds`, a compact `eta_label` (`"~12m"`) and `is_mine` for the
-authenticated user's own pull requests.
+`eta_seconds`, a compact `eta_label` (`"~12m"`), `is_mine` for the
+authenticated user's own pull requests and the PR's `url`.
 
 ---
 

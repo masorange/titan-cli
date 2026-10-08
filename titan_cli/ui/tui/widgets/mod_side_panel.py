@@ -159,9 +159,25 @@ class _Pressable(_Line, can_focus=True):
 
 
 class _ModButton(TitanButton):
-    """A `Button` with a variant, drawn as Titan's own button; runs the mod's `on_press`."""
+    """
+    A `Button` with a variant, drawn as Titan's own button in its colours but one
+    row tall, so a pane can put one under every item; runs the mod's `on_press`.
+    """
 
     VARIANTS = ("primary", "default", "success", "warning", "error")
+
+    # Titan's button is three rows with tall borders per variant and on hover;
+    # `!important` beats those more specific rules.
+    DEFAULT_CSS = """
+    _ModButton {
+        width: auto;
+        min-width: 0;
+        height: 1 !important;
+        border: none !important;
+        padding: 0 1;
+        margin: 0 1 0 0;
+    }
+    """
 
     def __init__(self, button: Button):
         super().__init__(button.label, variant=self._variant(button))

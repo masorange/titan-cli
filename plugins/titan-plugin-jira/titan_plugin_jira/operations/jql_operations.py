@@ -6,7 +6,7 @@ These functions can be used by any step and are easily testable.
 """
 
 import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 
 def substitute_jql_variables(jql: str, context_data: Dict[str, any]) -> str:
@@ -161,3 +161,17 @@ __all__ = [
     "merge_query_collections",
     "build_query_not_found_message",
 ]
+
+
+def build_issue_jql(
+    status: str,
+    project: Optional[str] = None,
+    conditions: Sequence[str] = (),
+    order_by: str = "priority DESC, updated DESC",
+) -> str:
+    """JQL for the issues in `status`, in `project` when given, matching every one of `conditions`."""
+    where = [f'project = "{project}"'] if project else []
+    where.append(f'status = "{status}"')
+    where += [f"({condition})" for condition in conditions]
+    jql = " AND ".join(where)
+    return f"{jql} ORDER BY {order_by}" if order_by else jql

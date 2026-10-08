@@ -105,6 +105,14 @@ class GitHubClient:
         """List all PRs in the repository."""
         return self._pr_service.list_all_prs(state, max_results)
 
+    def count_open_prs(self) -> ClientResult[int]:
+        """Count the repository's open PRs, without listing them."""
+        return self._pr_service.count_open_prs()
+
+    def get_repo_full_name(self) -> str:
+        """The repository this client works on, as "owner/name"."""
+        return self._gh_network.get_repo_string()
+
     def get_pr_diff(self, pr_number: int, context_lines: int = 3) -> ClientResult[str]:
         """Get diff for a PR."""
         return self._pr_service.get_pr_diff(pr_number, context_lines)

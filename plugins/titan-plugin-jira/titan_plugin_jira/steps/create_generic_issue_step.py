@@ -74,7 +74,7 @@ def create_generic_issue(ctx: WorkflowContext) -> WorkflowResult:
         case ClientSuccess(data=issue):
             # Store created issue
             ctx.data["created_issue"] = issue
-            issue_url = f"{ctx.jira.base_url}/browse/{issue.key}"
+            issue_url = ctx.jira.issue_url(issue.key)
 
             ctx.textual.text("")
             ctx.textual.success_text(issue_url)

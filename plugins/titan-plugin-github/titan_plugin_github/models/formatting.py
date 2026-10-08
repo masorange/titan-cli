@@ -5,6 +5,7 @@ Formatting Utilities
 Shared formatting functions for converting network data to UI-friendly strings.
 All presentation/display logic should use these utilities for consistency.
 """
+import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -188,6 +189,15 @@ def summarize_status_check_rollup(status_check_rollup: list[dict[str, Any]]) -> 
         parts.append(f"{passing} passing")
 
     return ", ".join(parts) if parts else "No checks"
+
+
+_ACTIONS_JOB_URL = re.compile(r"/actions/runs/\d+/job/(\d+)")
+
+
+def actions_job_id(url: Optional[str]) -> Optional[int]:
+    """The GitHub Actions job id in a check's details URL; None for any other CI."""
+    match = _ACTIONS_JOB_URL.search(url or "")
+    return int(match.group(1)) if match else None
 
 
 _FAILED_OUTCOMES = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"}

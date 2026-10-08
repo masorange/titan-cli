@@ -7,6 +7,9 @@ These functions can be used by any step and are easily testable.
 
 from typing import List, Tuple, Optional
 
+from ..models import UIJiraIssue
+from ..models.mappers.issue_mapper import NO_DESCRIPTION
+
 
 def truncate_summary(summary: Optional[str], max_length: int = 60) -> str:
     """
@@ -178,3 +181,29 @@ __all__ = [
     "get_issue_table_headers",
     "build_issue_table_data",
 ]
+
+
+def format_person_name(name: Optional[str]) -> str:
+    """A person's name for display: names Jira holds in capitals are title-cased, others kept."""
+    if not name:
+        return ""
+    return name.title() if name.isupper() else name
+
+
+def issue_description_lines(issue: UIJiraIssue, max_lines: Optional[int] = None) -> List[str]:
+    """
+    The issue's description as display lines: none when it has no description,
+    runs of blank lines collapsed to one, and cut with "…" past `max_lines`.
+    """
+    text = (issue.description or "").strip()
+    if not text or text == NO_DESCRIPTION:
+        return []
+    lines: List[str] = []
+    for line in text.splitlines():
+        if line.strip():
+            lines.append(line.rstrip())
+        elif lines[-1] != "":
+            lines.append("")
+    if max_lines is not None and len(lines) > max_lines:
+        lines = lines[:max_lines] + ["…"]
+    return lines

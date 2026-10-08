@@ -57,6 +57,29 @@ def test_invalid_input_format_fails(mock_workflow_context, mock_jira_client_new)
     assert "invalid issue key format" in result.message.lower()
 
 
+def test_preset_issue_key_is_used_without_asking(mock_workflow_context, mock_jira_client_new):
+    """A run that already names the issue (e.g. launched by a mod) asks nothing"""
+    mock_workflow_context.jira = mock_jira_client_new
+    mock_workflow_context.data["jira_issue_key"] = "proj-7"
+
+    result = select_jira_issue_step(mock_workflow_context)
+
+    assert isinstance(result, Success)
+    assert result.metadata == {"jira_issue_key": "PROJ-7"}
+    mock_workflow_context.textual.ask_text.assert_not_called()
+
+
+def test_preset_issue_key_that_is_not_a_full_key_fails(mock_workflow_context, mock_jira_client_new):
+    """A preset must be a full key: there is nobody to ask for the project"""
+    mock_workflow_context.jira = mock_jira_client_new
+    mock_workflow_context.data["jira_issue_key"] = "7"
+
+    result = select_jira_issue_step(mock_workflow_context)
+
+    assert isinstance(result, Error)
+    mock_workflow_context.textual.ask_text.assert_not_called()
+
+
 def test_no_jira_client(mock_workflow_context):
     """No JIRA client available"""
     mock_workflow_context.jira = None

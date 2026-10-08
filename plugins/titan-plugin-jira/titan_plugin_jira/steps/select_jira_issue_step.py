@@ -23,10 +23,15 @@ def select_jira_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     JIRA client (ctx.jira.project_key) into a full key (e.g. "PROJ-123"). A full key
     (e.g. "OTHERPROJ-45") is used as-is, which also covers issues from other boards.
     Leaving the input empty lists the "Ready to Dev" issues in the default project,
-    letting the user pick from that list.
+    letting the user pick from that list. When the run already names an issue
+    (`jira_issue_key`, e.g. a workflow launched for one issue), that key is used
+    and nothing is asked.
 
     Requires:
         ctx.jira: An initialized JiraClient.
+
+    Inputs (from ctx.data):
+        jira_issue_key (str, optional): A full issue key to use without asking
 
     Outputs (saved to ctx.data):
         jira_issue_key (str): The resolved JIRA issue key
@@ -45,6 +50,18 @@ def select_jira_issue_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.error_text(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
         ctx.textual.end_step("error")
         return Error(msg.Plugin.CLIENT_NOT_AVAILABLE_IN_CONTEXT)
+
+    preset = (ctx.get("jira_issue_key") or "").strip()
+    if preset:
+        if not _FULL_KEY_RE.match(preset):
+            error_msg = f"Invalid issue key: '{preset}'. Expected a full key (e.g. PROJ-123)."
+            ctx.textual.error_text(error_msg)
+            ctx.textual.end_step("error")
+            return Error(error_msg)
+        issue_key = preset.upper()
+        ctx.textual.success_text(f"Using issue: {issue_key}")
+        ctx.textual.end_step("success")
+        return Success(f"Using issue: {issue_key}", metadata={"jira_issue_key": issue_key})
 
     ctx.textual.text("")
     raw_input_value = ctx.textual.ask_text(

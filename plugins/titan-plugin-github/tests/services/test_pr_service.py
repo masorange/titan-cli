@@ -639,3 +639,43 @@ def test_get_actions_job_log_not_found(pr_service, mock_gh_network):
 
     assert isinstance(result, ClientError)
     assert result.error_code == "JOB_NOT_FOUND"
+
+
+def test_get_merge_queue_entries_carry_the_pr_url(pr_service, mock_graphql_network):
+    """Each queued PR keeps its web page, so a link needs no hand-built URL"""
+    node = queue_node(1, 10, "someone")
+    node["pullRequest"]["url"] = "https://github.com/o/r/pull/10"
+    mock_graphql_network.run_query.return_value = merge_queue_list_response(nodes=[node], total=1)
+
+    result = pr_service.get_merge_queue()
+
+    assert result.data.entries[0].url == "https://github.com/o/r/pull/10"
+
+
+def test_get_pull_request_carries_url_and_actions_job_ids(pr_service, mock_gh_network, sample_pr_json):
+    """The PR's page and, for each failed Actions check, the job id its log is read by"""
+    sample_pr_json["url"] = "https://github.com/o/r/pull/123"
+    sample_pr_json["statusCheckRollup"] = [
+        {"name": "build", "conclusion": "FAILURE", "detailsUrl": "https://github.com/o/r/actions/runs/9/job/77"},
+        {"context": "ext-ci", "state": "FAILURE", "targetUrl": "https://ci.example.com/b/1"},
+    ]
+    mock_gh_network.run_command.return_value = json.dumps(sample_pr_json)
+
+    pr = pr_service.get_pull_request(123).data
+
+    assert pr.url == "https://github.com/o/r/pull/123"
+    assert [(c.name, c.job_id) for c in pr.failed_checks] == [("build", 77), ("ext-ci", None)]
+    assert "url" in mock_gh_network.run_command.call_args.args[0][4].split(",")
+
+
+def test_count_open_prs_reads_the_total_count(pr_service, mock_graphql_network):
+    mock_graphql_network.run_query.return_value = {"data": {"repository": {"pullRequests": {"totalCount": 742}}}}
+
+    result = pr_service.count_open_prs()
+
+    assert isinstance(result, ClientSuccess) and result.data == 742
+    assert mock_graphql_network.run_query.call_args.args[1] == {"owner": "test-owner", "repo": "test-repo"}
+
+
+def test_count_open_prs_requires_graphql(no_graphql_pr_service):
+    assert no_graphql_pr_service.count_open_prs().error_code == "GRAPHQL_UNAVAILABLE"

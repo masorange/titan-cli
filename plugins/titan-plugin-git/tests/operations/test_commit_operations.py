@@ -273,3 +273,19 @@ class TestProcessAICommitMessage:
         """Should handle non-conventional format."""
         result = process_ai_commit_message('"Add new feature"')
         assert result == "Add new feature"
+
+
+def test_split_squash_pr_suffix():
+    from titan_plugin_git.operations.commit_operations import split_squash_pr_suffix
+
+    assert split_squash_pr_suffix("feat: Add login (#1234)") == ("feat: Add login", 1234)
+    assert split_squash_pr_suffix("fix: (#12) in the middle") == ("fix: (#12) in the middle", None)
+
+
+def test_commit_mapper_fills_the_squash_pr_number():
+    from titan_plugin_git.models.mappers.commit_mapper import from_network_commit
+    from titan_plugin_git.models.network.commit import NetworkGitCommit
+
+    commit = from_network_commit(NetworkGitCommit(hash="a" * 40, message="feat: X (#7)\n\nbody", author="Me <m@x>", date="today"))
+
+    assert (commit.message_subject, commit.pr_number) == ("feat: X (#7)", 7)

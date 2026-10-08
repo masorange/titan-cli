@@ -16,6 +16,10 @@ from ..formatting import (
 )
 
 
+# What `UIJiraIssue.description` holds when the issue has none.
+NO_DESCRIPTION = "No description"
+
+
 def from_network_issue(issue: NetworkJiraIssue, raw: Optional[Dict[str, Any]] = None) -> UIJiraIssue:
     """
     Convert REST Jira issue to UI issue.
@@ -79,7 +83,7 @@ def from_network_issue(issue: NetworkJiraIssue, raw: Optional[Dict[str, Any]] = 
         key=issue.key,
         id=issue.id,
         summary=fields.summary,
-        description=description or "No description",
+        description=description or NO_DESCRIPTION,
         status=status_name,
         status_icon=get_status_icon(status_category_key),
         status_category=status_category_name,

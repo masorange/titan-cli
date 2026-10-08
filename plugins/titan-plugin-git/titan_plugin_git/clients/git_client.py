@@ -366,16 +366,17 @@ class GitClient:
         """
         return self.diff_service.get_branch_numstat(base_branch, head_branch, use_remote)
 
-    def get_uncommitted_numstat(self) -> ClientResult[List[UIFileChurn]]:
+    def get_uncommitted_numstat(self, include_untracked: bool = False) -> ClientResult[List[UIFileChurn]]:
         """
         Get per-file addition/deletion counters of uncommitted changes against HEAD.
 
-        Read-only and safe to poll; untracked files are not counted.
+        Read-only and safe to poll. Untracked files are left out unless
+        `include_untracked`, which counts each new file's lines as additions.
 
         Returns:
-            ClientResult[List[UIFileChurn]] with one entry per changed tracked file
+            ClientResult[List[UIFileChurn]] with one entry per changed file
         """
-        return self.diff_service.get_uncommitted_numstat()
+        return self.diff_service.get_uncommitted_numstat(include_untracked)
 
     def get_changed_files(self, base_ref: str, head_ref: str) -> ClientResult[List[str]]:
         """

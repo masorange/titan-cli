@@ -163,6 +163,12 @@ Resolve a JIRA issue key from user input: a plain number, a full key, or a board
 |------|------|-------------|
 | `ctx.jira` | - | An initialized JiraClient. |
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `jira_issue_key` | str, optional | A full issue key to use without asking |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |

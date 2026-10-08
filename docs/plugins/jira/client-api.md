@@ -80,6 +80,19 @@ client.search_issues(
 - `jql`: Required. JQL query string.
 - `max_results`: Optional. Maximum number of issues to return.
 - `fields`: Optional. Fields to request from Jira.
+  When omitted, `DEFAULT_SEARCH_FIELDS` from
+  `titan_plugin_jira.clients.services.issue_service` (summary, status, assignee, priority,
+  created, updated); add `"description"` to get `UIJiraIssue.description` filled.
+
+### Get an issue's web URL
+
+```python
+client.issue_url("APP-123")  # "https://acme.atlassian.net/browse/APP-123"
+```
+
+**Parameters:**
+
+- `issue_key`: Required. The issue key. No network call: it is built from the configured base URL.
 
 ### Create an issue
 

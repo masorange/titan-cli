@@ -97,6 +97,10 @@ class JiraClient:
         """
         return self._issue_service.get_issue(key, expand)
 
+    def issue_url(self, issue_key: str) -> str:
+        """The issue's page in the Jira web UI (e.g. https://acme.atlassian.net/browse/PROJ-123)."""
+        return f"{self.base_url}/browse/{issue_key}"
+
     def search_issues(
         self,
         jql: str,

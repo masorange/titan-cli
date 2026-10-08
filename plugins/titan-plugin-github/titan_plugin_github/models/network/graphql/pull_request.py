@@ -78,6 +78,7 @@ class GraphQLMergeQueueEntry:
         pullRequestNumber: Number of the queued pull request
         pullRequestTitle: Title of the queued pull request
         authorLogin: Login of the pull request's author, if visible
+        pullRequestUrl: The queued pull request's web page
     """
     position: int
     state: str
@@ -85,6 +86,7 @@ class GraphQLMergeQueueEntry:
     pullRequestTitle: str
     estimatedTimeToMerge: Optional[int] = None
     authorLogin: Optional[str] = None
+    pullRequestUrl: str = ""
 
     @classmethod
     def from_graphql(cls, data: Dict[str, Any]) -> 'GraphQLMergeQueueEntry':
@@ -104,6 +106,7 @@ class GraphQLMergeQueueEntry:
             pullRequestTitle=pr.get("title") or "",
             estimatedTimeToMerge=data.get("estimatedTimeToMerge"),
             authorLogin=(pr.get("author") or {}).get("login"),
+            pullRequestUrl=pr.get("url") or "",
         )
 
 

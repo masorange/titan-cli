@@ -3,6 +3,7 @@ import re
 from ..network.commit import NetworkGitCommit
 from ..view.commit import UIGitCommit
 
+from ...operations.commit_operations import split_squash_pr_suffix
 
 def from_network_commit(network_commit: NetworkGitCommit) -> UIGitCommit:
     """
@@ -48,4 +49,5 @@ def from_network_commit(network_commit: NetworkGitCommit) -> UIGitCommit:
         author_short=author_short,
         date=network_commit.date,
         formatted_date=formatted_date,
+        pr_number=split_squash_pr_suffix(message_subject)[1],
     )

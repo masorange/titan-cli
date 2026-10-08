@@ -567,17 +567,21 @@ client.get_branch_numstat(
 
 Returns one `UIFileChurn` per tracked file that differs from `HEAD` (working tree
 and index together), with `additions`, `deletions` and `is_binary`. It is
-read-only and safe to call repeatedly, e.g. from a timer; untracked files are
-not counted. Prefer it over `get_uncommitted_diff_stat()`, which marks
-untracked files with intent-to-add as a side effect.
+read-only and safe to call repeatedly, e.g. from a timer. Prefer it over
+`get_uncommitted_diff_stat()`, which marks untracked files with intent-to-add as
+a side effect.
 
 **Call:**
 
 ```python
-client.get_uncommitted_numstat()
+client.get_uncommitted_numstat(include_untracked=True)
 ```
 
-**Parameters:** none.
+**Parameters:**
+
+- `include_untracked`: Optional (default `False`). Also count new, untracked files
+  (honouring `.gitignore`): each one's lines as additions; binary or unreadable
+  files as `is_binary=True` with zero counters.
 
 ### List files changed between two refs
 
@@ -1062,6 +1066,11 @@ client.get_commits(worktree_path="../repo-search-worktree", limit=10)
 
 - `worktree_path`: Required. Worktree path.
 - `limit`: Optional. Maximum number of commits.
+
+Each `UIGitCommit` carries `pr_number`: the PR a squash merge landed, from the
+`(#1234)` GitHub appends to its subject (`None` otherwise).
+`operations.commit_operations.split_squash_pr_suffix(subject)` returns the subject
+without it and the number.
 
 ### Get the worktree diff stat
 

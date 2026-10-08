@@ -5,6 +5,7 @@ Diff Service
 Business logic for Git diff operations.
 Uses network layer to execute commands and returns diff outputs.
 """
+from pathlib import Path
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
@@ -14,6 +15,18 @@ from ..network import GitNetwork
 from ...exceptions import GitCommandError, GitError
 from ...models.view import UIFileChurn
 
+
+
+def _untracked_churn(root: Path, path: str) -> UIFileChurn:
+    """A new file's churn: all its lines are additions; binary or unreadable files count none."""
+    try:
+        content = (root / path).read_bytes()
+    except OSError:
+        return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
+    if b"\0" in content[:8000]:
+        return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
+    lines = content.count(b"\n") + (0 if not content or content.endswith(b"\n") else 1)
+    return UIFileChurn(path=path, additions=lines, deletions=0)
 
 class DiffService:
     """
@@ -254,17 +267,21 @@ class DiffService:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
     @log_client_operation()
-    def get_uncommitted_numstat(self) -> ClientResult[List[UIFileChurn]]:
+    def get_uncommitted_numstat(self, include_untracked: bool = False) -> ClientResult[List[UIFileChurn]]:
         """
         Get per-file addition/deletion counters of uncommitted changes
         (working tree and index against HEAD).
 
         Read-only: unlike get_uncommitted_diff_stat it does not mark untracked
-        files with intent-to-add, so it is safe to poll. Untracked files are
-        therefore not counted.
+        files with intent-to-add, so it is safe to poll. `git diff` leaves
+        untracked files out; with `include_untracked` each one (honouring
+        .gitignore) is added with its line count as additions.
+
+        Args:
+            include_untracked: Also count new, untracked files
 
         Returns:
-            ClientResult[List[UIFileChurn]] with one entry per changed tracked file.
+            ClientResult[List[UIFileChurn]] with one entry per changed file.
             Binary files are included with is_binary=True and zero counters.
         """
         try:
@@ -272,8 +289,16 @@ class DiffService:
                 ["git", "-c", "core.quotePath=false", "diff", "HEAD", "--numstat", "--no-renames"],
                 check=True,
             )
+            churns = _parse_numstat(output)
+            if include_untracked:
+                untracked = self.git.run_command(
+                    ["git", "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"],
+                    check=True,
+                )
+                root = Path(self.git.get_repo_path())
+                churns += [_untracked_churn(root, path) for path in untracked.splitlines() if path]
             return ClientSuccess(
-                data=_parse_numstat(output),
+                data=churns,
                 message="Uncommitted numstat retrieved",
             )
         except (GitError, ValueError) as e:
