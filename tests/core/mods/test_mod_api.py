@@ -264,3 +264,42 @@ def test_a_pane_takes_its_rail_icon_from_the_mod_manifest(tmp_path):
     bus.dispatch("app.start", AppStart(project_root="/repo"), lambda e: None)
 
     assert opened == [("jira", "p", "Jira", "🎫")]
+
+
+def test_a_link_is_underlined_and_a_click_opens_its_url():
+    from titan_cli.core.mods import Link
+
+    line = to_rich(Text(Link("#12", "https://github.com/o/r/pull/12"), " fix it"))
+
+    assert line.plain == "#12 fix it"
+    [span] = [span for span in line.spans if span.style.meta]
+    assert (span.start, span.end) == (0, 3)
+    assert span.style.underline
+    assert span.style.meta == {"@click": "open_link('https://github.com/o/r/pull/12')"}
+
+
+def test_only_web_links_open():
+    from types import SimpleNamespace
+
+    from titan_cli.ui.tui.widgets.mod_side_panel import _Line
+
+    opened = []
+    line = _Line("")
+    app = SimpleNamespace(open_url=opened.append)
+    type(line).app = property(lambda self: app)
+    try:
+        line.action_open_link("https://jira.example.com/browse/X-1")
+        line.action_open_link("file:///etc/passwd")
+    finally:
+        del type(line).app
+    assert opened == ["https://jira.example.com/browse/X-1"]
+
+
+def test_a_button_with_a_variant_is_drawn_as_titans_button():
+    from titan_cli.ui.tui.widgets.button import Button as TitanButton
+    from titan_cli.ui.tui.widgets.mod_side_panel import _ModButton, _Pressable, kind
+
+    assert kind(Button("▸ fold", lambda: None)) is _Pressable
+    assert kind(Button("Review #5", lambda: None, variant="primary")) is _ModButton
+    assert issubclass(_ModButton, TitanButton)
+    assert _ModButton._variant(Button("x", lambda: None, variant="loud")) == "default"

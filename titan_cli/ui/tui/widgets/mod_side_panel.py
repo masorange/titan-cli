@@ -21,8 +21,9 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods.elements import Box, Button, Text
+from titan_cli.core.mods.elements import Box, Button, Link, Text
 from titan_cli.ui.tui import colors
+from titan_cli.ui.tui.widgets.button import Button as TitanButton
 
 logger = get_logger(__name__)
 
@@ -62,9 +63,19 @@ def to_rich(text: Text, inherited: Style = Style()) -> RichText:
     for part in text.parts:
         if isinstance(part, Text):
             out.append_text(to_rich(part, style))
+        elif isinstance(part, Link):
+            out.append_text(link_text(part, style))
         else:
             out.append(str(part), style)
     return out
+
+
+def link_text(link: Link, inherited: Style = Style()) -> RichText:
+    """A link's label, underlined; a click runs the `open_link` action of the line holding it."""
+    style = inherited + Style(color=_color("info"), underline=True) + Style.from_meta(
+        {"@click": f"open_link({link.url!r})"}
+    )
+    return RichText(link.label, style=style)
 
 
 class _Group(Vertical):
@@ -104,6 +115,13 @@ class _Line(Static):
     }
     """
 
+    def action_open_link(self, url: str) -> None:
+        # A mod's URL: only the web, never file:// or a custom scheme handler.
+        if not url.startswith(("https://", "http://")):
+            logger.warning("mod_link_refused", url=url)
+            return
+        self.app.open_url(url)
+
 
 class _Pressable(_Line, can_focus=True):
     """A line that runs a mod's `on_press` on click or Enter."""
@@ -114,22 +132,11 @@ class _Pressable(_Line, can_focus=True):
     _Pressable:hover, _Pressable:focus {
         background: $boost;
     }
-    _Pressable.-action {
-        width: auto;
-        padding: 0 1;
-        background: $primary;
-        color: $text;
-        text-style: bold;
-    }
-    _Pressable.-action:hover, _Pressable.-action:focus {
-        background: $primary-lighten-2;
-    }
     """
 
     def __init__(self, button: Button):
         super().__init__(self._label(button))
         self._button = button
-        self.set_class(button.action, "-action")
 
     @staticmethod
     def _label(button: Button) -> RichText:
@@ -139,13 +146,38 @@ class _Pressable(_Line, can_focus=True):
     def set_button(self, button: Button) -> None:
         """Take a redrawn button's label and handler, keeping this widget (and its focus)."""
         self._button = button
-        self.set_class(button.action, "-action")
         self.update(self._label(button))
 
     def on_click(self) -> None:
         self.action_press()
 
     def action_press(self) -> None:
+        try:
+            self._button.on_press()
+        except Exception:
+            logger.exception("mod_button_failed", label=self._button.label)
+
+
+class _ModButton(TitanButton):
+    """A `Button` with a variant, drawn as Titan's own button; runs the mod's `on_press`."""
+
+    VARIANTS = ("primary", "default", "success", "warning", "error")
+
+    def __init__(self, button: Button):
+        super().__init__(button.label, variant=self._variant(button))
+        self._button = button
+
+    @classmethod
+    def _variant(cls, button: Button) -> str:
+        return button.variant if button.variant in cls.VARIANTS else "default"
+
+    def set_button(self, button: Button) -> None:
+        self._button = button
+        self.label = button.label
+        self.variant = self._variant(button)
+
+    def on_button_pressed(self, event: TitanButton.Pressed) -> None:
+        event.stop()
         try:
             self._button.on_press()
         except Exception:
@@ -165,7 +197,7 @@ def _spread(texts: List[Text], width: int) -> RichText:
 def kind(element: Any) -> type:
     """The widget class `build` makes for an element: a widget of that class can be patched to it."""
     if isinstance(element, Button):
-        return _Pressable
+        return _ModButton if element.variant else _Pressable
     if isinstance(element, Box):
         if _is_spread(element):
             return _Line
@@ -180,6 +212,8 @@ def _is_spread(box: Box) -> bool:
 def _line_text(element: Any, width: int) -> RichText:
     if isinstance(element, Text):
         return to_rich(element)
+    if isinstance(element, Link):
+        return link_text(element)
     if isinstance(element, Box):
         return _spread(list(element.children), width)
     return RichText(str(element), no_wrap=True, overflow="ellipsis")
@@ -214,8 +248,8 @@ def _style_box(widget: Widget, box: Box, children: List[Widget]) -> None:
 def build(element: Any, width: int) -> Widget:
     """Turn one element of a mod's tree into a widget `width` columns wide."""
     cls = kind(element)
-    if cls is _Pressable:
-        return _Pressable(element)
+    if cls in (_Pressable, _ModButton):
+        return cls(element)
     if cls is _Line:
         return _Line(_line_text(element, width))
     children = [build(child, _inner_width(element, width)) for child in element.children]
@@ -237,7 +271,7 @@ def patch(widget: Widget, element: Any, width: int) -> bool:
     cls = kind(element)
     if type(widget) is not cls:
         return False
-    if cls is _Pressable:
+    if cls in (_Pressable, _ModButton):
         widget.set_button(element)
     elif cls is _Line:
         widget.update(_line_text(element, width))

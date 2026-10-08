@@ -16,7 +16,7 @@ flattened, so conditionals and comprehensions read naturally:
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple, Union
 
-Child = Union["Text", "Box", "Button", str, None, bool]
+Child = Union["Text", "Box", "Button", "Link", str, None, bool]
 
 
 def _children(children) -> tuple:
@@ -31,10 +31,22 @@ def _children(children) -> tuple:
 
 
 @dataclass(frozen=True)
-class Text:
-    """A line of text. Parts are strings or nested `Text` spans with their own style."""
+class Link:
+    """
+    `label` that opens `url` in the browser when clicked. A part of a `Text`
+    (`Text(Link("#12", url), " title")`) or a line of its own. Only http(s)
+    URLs open.
+    """
 
-    parts: Tuple[Union[str, "Text"], ...]
+    label: str
+    url: str
+
+
+@dataclass(frozen=True)
+class Text:
+    """A line of text. Parts are strings, `Link`s or nested `Text` spans with their own style."""
+
+    parts: Tuple[Union[str, "Text", Link], ...]
     color: Optional[str] = None
     bold: bool = False
     dim: bool = False
@@ -74,12 +86,13 @@ class Button:
     """
     A pressable line. `on_press` runs on the UI thread: keep it to a state update.
 
-    `action` draws it as a button (a filled chip as wide as its label) for
-    something that does work, such as running a workflow; a plain one reads as
-    a line of the pane, right for a fold or a picker.
+    With a `variant` (`primary`, `default`, `success`, `warning`, `error`) it is
+    drawn as Titan's own button, for something that does work such as running a
+    workflow; without one it reads as a line of the pane, right for a fold or a
+    picker.
     """
 
     label: str
     on_press: Callable[[], None]
     dim: bool = False
-    action: bool = False
+    variant: Optional[str] = None
