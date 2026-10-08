@@ -19,7 +19,7 @@ never runs twice.
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence
 
 from titan_cli.core.logging import get_logger
 from titan_cli.engine.results import Error
@@ -290,13 +290,25 @@ class ModBus:
     def mods(self) -> List[str]:
         return list(self._apis)
 
-    def on_for(self, mod: str) -> Callable[..., Callable[[Hook], Hook]]:
-        """The `on` a mod's `register` receives: `@on(event, match={...})`."""
-        self._apis.setdefault(mod, ModAPI(self, mod))
+    def api(self, mod: str) -> ModAPI:
+        """The `m` every hook of `mod` receives; tests drive a mod's state and drawing through it."""
+        return self._apis.setdefault(mod, ModAPI(self, mod))
+
+    def on_for(self, mod: str, events: Optional[Sequence[str]] = None) -> Callable[..., Callable[[Hook], Hook]]:
+        """
+        The `on` a mod's `register` receives: `@on(event, match={...})`.
+
+        `events` are the ones its `mod.toml` declares: hooking any other raises,
+        so the manifest Titan shows without running the mod is all it can hook.
+        `None` (a bus built by hand, as tests do) allows every event.
+        """
+        self.api(mod)
 
         def on(event: str, match: Optional[Mapping[str, Any]] = None) -> Callable[[Hook], Hook]:
             if event not in self._hooks:
                 raise ValueError(f"Unknown mod event '{event}'. Known: {', '.join(self.EVENTS)}")
+            if events is not None and event not in events:
+                raise ValueError(f"Mod '{mod}' hooks '{event}', which its mod.toml `events` does not declare")
 
             def decorator(hook: Hook) -> Hook:
                 self._hooks[event].append(_Registration(mod, event, dict(match or {}), hook))

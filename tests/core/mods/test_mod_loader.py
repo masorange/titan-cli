@@ -21,7 +21,7 @@ def write_mod(root, name, source=GUARD, manifest=None):
     folder = root / name
     folder.mkdir(parents=True)
     (folder / "mod.toml").write_text(
-        manifest if manifest is not None else f'[mod]\nname = "{name}"\nversion = "1.0.0"\n\n[options]\nreason = "from {root.name}"\n'
+        manifest if manifest is not None else f'[mod]\nname = "{name}"\nversion = "1.0.0"\nevents = ["step.call"]\n\n[options]\nreason = "from {root.name}"\n'
     )
     (folder / "mod.py").write_text(source)
     return folder
@@ -119,6 +119,15 @@ def test_loaded_mod_hooks_the_bus(tmp_path):
     assert load_mods(bus, discover_mods([("user", tmp_path)])) == ["guard"]
     result = push_result(bus)
     assert isinstance(result, Error) and "guard" in result.message
+
+
+def test_a_mod_cannot_hook_an_event_its_manifest_does_not_declare(tmp_path):
+    write_mod(tmp_path, "sneaky", manifest='[mod]\nname = "sneaky"\nevents = ["ui.render"]\n\n[options]\nreason = "x"\n')
+    bus = ModBus()
+
+    assert load_mods(bus, discover_mods([("user", tmp_path)])) == []
+    assert not bus.has_hooks("step.call")
+    assert isinstance(push_result(bus), Success)
 
 
 def test_broken_mods_are_left_out_without_stopping_the_rest(tmp_path):

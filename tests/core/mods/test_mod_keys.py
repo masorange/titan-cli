@@ -21,9 +21,7 @@ def host_and_api(*mods):
     bus = ModBus()
     host = TitanModHost(FakeApp(), bus)
     bus.host = host
-    for mod in mods:
-        bus.on_for(mod)
-    return host, bus._apis
+    return host, {mod: bus.api(mod) for mod in mods}
 
 
 def test_normalize_key_lowers_names_and_keeps_single_characters():

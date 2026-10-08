@@ -35,6 +35,9 @@ A mod is enabled by being there; `[mods.<name>] enabled = false` in
 `~/.titan/config.toml` turns any mod off, and `[mods.<name>.options]`
 overrides the manifest's option defaults. `dirs` is therefore not a mod name.
 
+A mod hooks only the events its manifest lists: hooking another fails its
+register, so what Titan shows before running a mod is all it can hook.
+
 Mods are trusted, in-process code: nothing here sandboxes them. A mod that
 fails to parse, import or register is logged and left out whole (no hook it
 registered before failing stays); it never stops Titan from starting.
@@ -271,7 +274,7 @@ def load_mods(
             register = getattr(module, "register", None)
             if not callable(register):
                 raise AttributeError(f"{manifest.entrypoint} defines no register(on, options)")
-            register(bus.on_for(name), options)
+            register(bus.on_for(name, manifest.events), options)
         except Exception:
             # All or nothing: hooks a register() added before failing would run
             # for a mod that is reported as not loaded, and its modules would linger.

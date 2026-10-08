@@ -54,14 +54,12 @@ def test_app_start_and_ui_render_drive_a_pane():
 def test_state_changes_repaint_only_their_mod():
     bus = ModBus()
     bus.host = host = RecordingHost()
-    bus.on_for("a")
-    bus.on_for("b")
-    a = bus._apis["a"]
+    a = bus.api("a")
 
     a.state.set("count", 1)
     assert a.state.update("count", lambda n: n + 1) == 2
     assert a.state.get("count") == 2
-    assert bus._apis["b"].state.get("count", "unset") == "unset"
+    assert bus.api("b").state.get("count", "unset") == "unset"
     assert host.calls == [("repaint", "a"), ("repaint", "a")]
 
 
@@ -116,8 +114,7 @@ def test_mod_ai_routes_under_its_own_task():
     host = TitanModHost(SimpleNamespace(config=SimpleNamespace(config=SimpleNamespace(ai=ai_config))), bus)
     host._executor = FakeExecutor()
     bus.host = host
-    bus.on_for("dev")
-    m = bus._apis["dev"]
+    m = bus.api("dev")
 
     answer = m.ai.complete("hello", system="be brief", model="opus")
     failed = m.ai.complete("fail")
@@ -251,7 +248,7 @@ def test_a_pane_takes_its_rail_icon_from_the_mod_manifest(tmp_path):
 
     folder = tmp_path / "jira"
     folder.mkdir()
-    (folder / "mod.toml").write_text('[mod]\nname = "jira"\nicon = "🎫"\n')
+    (folder / "mod.toml").write_text('[mod]\nname = "jira"\nicon = "🎫"\nevents = ["app.start"]\n')
     (folder / "mod.py").write_text(
         'def register(on, options):\n'
         '    @on("app.start")\n'
