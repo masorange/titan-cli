@@ -4,7 +4,7 @@ from .bus import AIAnswer, ModAPI, ModBus, ModHost
 from .elements import Box, Button, Text
 from .events import AppStart, StepCall, UIRender, WorkflowRun
 from .state import ModState
-from .loader import ModManifest, build_mod_bus, discover_mods, load_mods, mod_sources, read_manifest
+from .loader import ModManifest, build_mod_bus, discover_mods, import_mod, load_mods, mod_sources, read_manifest
 
 __all__ = [
     "AIAnswer",
@@ -22,6 +22,7 @@ __all__ = [
     "ModManifest",
     "build_mod_bus",
     "discover_mods",
+    "import_mod",
     "load_mods",
     "mod_sources",
     "read_manifest",

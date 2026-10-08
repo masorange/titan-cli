@@ -6,6 +6,11 @@ and slots it uses, its option defaults) and `mod.py` (`register(on, options)`).
 Titan reads the manifest without executing anything, so a mod can be listed,
 explained and switched off before its code ever runs.
 
+The folder is imported as the package `titan_mod_<name>`, `mod.py` being its
+`__init__`: a big mod splits into its own modules and imports them relatively
+(`from .sections import prs`). The folder is never put on `sys.path`, so two
+mods may each have a `sections` without one shadowing the other.
+
 Sources, from the widest to the most personal; a later one overrides an
 earlier one of the same name:
 
@@ -37,9 +42,12 @@ registered before failing stays); it never stops Titan from starting.
 
 import importlib.util
 import os
+import re
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from titan_cli.core.logging import get_logger
@@ -57,6 +65,9 @@ USER_CONFIG = Path.home() / ".titan" / "config.toml"
 MOD_DIRS_ENV = "TITAN_MOD_DIRS"
 DIRS_KEY = "dirs"  # `[mods] dirs`: the extra mod folders, not a mod
 DEV = "dev"
+# Also a package name segment: a `.` would split it, so not allowed.
+VALID_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
+PACKAGE_PREFIX = "titan_mod_"
 
 
 @dataclass(frozen=True)
@@ -91,6 +102,8 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
 
     mod = data.get("mod", {})
     name = mod.get("name") or folder.name
+    if not VALID_NAME.fullmatch(name):
+        raise ValueError(f"{path}: name '{name}' must be letters, digits, '_' or '-', up to 64")
     if name == DIRS_KEY:
         raise ValueError(f"{path}: '{DIRS_KEY}' is reserved in [mods] and cannot name a mod")
     # Under a mods root the folder is the name; a dev folder is a checkout named freely.
@@ -208,6 +221,37 @@ def mod_dirs(
     return folders
 
 
+def _forget_modules(package: str) -> None:
+    for module in [m for m in sys.modules if m == package or m.startswith(package + ".")]:
+        del sys.modules[module]
+
+
+def import_mod(folder: Path, name: Optional[str] = None) -> ModuleType:
+    """
+    Import a mod's folder as the package `titan_mod_<name>`, `mod.py` being its `__init__`.
+
+    `name` defaults to the folder's. Whatever the mod imported before, under that package, is
+    dropped first; when the import fails nothing of it stays in `sys.modules`. A mod's own
+    tests use this to import it exactly as Titan does.
+    """
+    package = PACKAGE_PREFIX + (name or folder.name)
+    _forget_modules(package)
+    spec = importlib.util.spec_from_file_location(
+        package, folder / ENTRYPOINT, submodule_search_locations=[str(folder)]
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot import {folder / ENTRYPOINT}")
+    module = importlib.util.module_from_spec(spec)
+    # Registered before running, as the import system does: relative imports look it up.
+    sys.modules[package] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        _forget_modules(package)
+        raise
+    return module
+
+
 def load_mods(
     bus: ModBus,
     mods: Dict[str, ModManifest],
@@ -223,20 +267,16 @@ def load_mods(
             continue
         options = {**manifest.options, **config.get("options", {})}
         try:
-            spec = importlib.util.spec_from_file_location(f"titan_mod_{name}", manifest.entrypoint)
-            if spec is None or spec.loader is None:
-                raise ImportError(f"cannot import {manifest.entrypoint}")
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
+            module = import_mod(manifest.folder, name)
             register = getattr(module, "register", None)
             if not callable(register):
                 raise AttributeError(f"{manifest.entrypoint} defines no register(on, options)")
             register(bus.on_for(name), options)
         except Exception:
             # All or nothing: hooks a register() added before failing would run
-            # for a mod that is reported as not loaded.
+            # for a mod that is reported as not loaded, and its modules would linger.
             bus.forget(name)
+            _forget_modules(PACKAGE_PREFIX + name)
             logger.exception("mod_load_failed", mod=name, path=str(manifest.folder))
             continue
         loaded.append(name)

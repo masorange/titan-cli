@@ -1,7 +1,11 @@
 import os
 from pathlib import Path
 
-from titan_cli.core.mods import ModBus, StepCall, discover_mods, load_mods, mod_sources
+import sys
+
+import pytest
+
+from titan_cli.core.mods import ModBus, StepCall, discover_mods, import_mod, load_mods, mod_sources
 from titan_cli.core.mods.loader import mod_dirs, read_mods_config
 from titan_cli.engine.results import Error, Success
 
@@ -198,3 +202,60 @@ def test_invalid_mod_dirs_config_is_ignored(tmp_path):
     config.write_text('[mods]\ndirs = "/not-a-list"\n')
 
     assert mod_dirs(config_path=config, environ={}) == []
+
+
+MULTI_FILE = """
+from .rules import reason
+
+def register(on, options):
+    @on("step.call", match={"step": "push"})
+    def guard(m, e, next):
+        return m.deny(reason())
+"""
+
+
+def write_multi_file_mod(root, name, said):
+    folder = write_mod(root, name, source=MULTI_FILE)
+    (folder / "rules").mkdir()
+    (folder / "rules" / "__init__.py").write_text("from ..wording import said\n\ndef reason():\n    return said\n")
+    (folder / "wording.py").write_text(f"said = {said!r}\n")
+    return folder
+
+
+def test_a_mod_imports_its_own_modules_relatively(tmp_path):
+    write_multi_file_mod(tmp_path, "guard", "split across files")
+    bus = ModBus()
+
+    assert load_mods(bus, discover_mods([("user", tmp_path)])) == ["guard"]
+    assert push_result(bus).message.endswith("split across files")
+
+
+def test_two_mods_with_a_module_of_the_same_name_do_not_shadow_each_other(tmp_path):
+    first = write_multi_file_mod(tmp_path, "first", "from first")
+    second = write_multi_file_mod(tmp_path, "second", "from second")
+
+    assert import_mod(first).rules.reason() == "from first"
+    assert import_mod(second).rules.reason() == "from second"
+
+
+def test_a_mod_that_fails_to_register_leaves_none_of_its_modules_behind(tmp_path):
+    folder = write_multi_file_mod(tmp_path, "broken", "x")
+    (folder / "mod.py").write_text("from . import wording\n\ndef register(on, options):\n    raise RuntimeError('no')\n")
+
+    assert load_mods(ModBus(), discover_mods([("user", tmp_path)])) == []
+    assert not [m for m in sys.modules if m.startswith("titan_mod_broken")]
+
+
+def test_a_mod_that_fails_to_import_leaves_none_of_its_modules_behind(tmp_path):
+    folder = write_multi_file_mod(tmp_path, "typo", "x")
+    (folder / "mod.py").write_text("from . import wording\nfrom . import missing\n")
+
+    with pytest.raises(ImportError):
+        import_mod(folder)
+    assert not [m for m in sys.modules if m.startswith("titan_mod_typo")]
+
+
+def test_a_mod_name_must_be_usable_as_a_package_name(tmp_path):
+    checkout = write_mod(tmp_path, "checkout", manifest='[mod]\nname = "has.dot"\n')
+
+    assert discover_mods([("dev", checkout)]) == {}
