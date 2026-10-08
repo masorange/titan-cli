@@ -48,7 +48,7 @@ class ModHost(Protocol):
 
     def copy(self, mod: str, text: str, what: str) -> None: ...
 
-    def open_pane(self, mod: str, pane: str, title: str) -> None: ...
+    def open_pane(self, mod: str, pane: str, title: str, icon: Optional[str]) -> None: ...
 
     def repaint(self, mod: str) -> None: ...
 
@@ -93,7 +93,7 @@ class _HeadlessHost:
     def copy(self, mod: str, text: str, what: str) -> None:
         logger.debug("mod_copy_ignored", mod=mod, what=what)
 
-    def open_pane(self, mod: str, pane: str, title: str) -> None:
+    def open_pane(self, mod: str, pane: str, title: str, icon: Optional[str]) -> None:
         logger.debug("mod_pane_opened", mod=mod, pane=pane)
 
     def repaint(self, mod: str) -> None:
@@ -142,8 +142,14 @@ class _ModUI:
         self._bus.host.copy(self._mod, text, what)
 
     def open(self, pane: str, title: str) -> None:
-        """Give this mod a pane in the side panel, drawn by its `ui.render` hook for `pane`."""
-        self._bus.host.open_pane(self._mod, pane, title)
+        """
+        Give this mod a pane in the side panel, drawn by its `ui.render` hook for `pane`.
+
+        The panel's rail shows the `icon` of the mod's `mod.toml` for it (the
+        title's initial when it has none), and clicking it shows this pane.
+        """
+        manifest = self._bus.manifests.get(self._mod)
+        self._bus.host.open_pane(self._mod, pane, title, manifest.icon if manifest else None)
 
 
 class _ModClock:

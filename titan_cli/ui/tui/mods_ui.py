@@ -28,8 +28,10 @@ class TitanModHost:
         self._bus = bus
         self._registry = registry
         self._statuses: Dict[str, str] = {}
-        # pane id -> (mod that opened it, title), in the order they were opened
-        self.panes: Dict[str, Tuple[str, str]] = {}
+        # pane id -> (mod that opened it, title, rail icon), in the order they were opened
+        self.panes: Dict[str, Tuple[str, str, str]] = {}
+        # The one pane shown; the rest wait behind their rail icon.
+        self.active: Optional[str] = None
         self.collapsed = False
         # Shared by every screen's panel, so a resize on one holds on all; for this session only.
         self.width = PANEL_WIDTH
@@ -75,12 +77,24 @@ class TitanModHost:
 
     # -- the side panel ---------------------------------------------------
 
-    def open_pane(self, mod: str, pane: str, title: str) -> None:
-        self.panes[pane] = (mod, title)
+    def open_pane(self, mod: str, pane: str, title: str, icon: Optional[str] = None) -> None:
+        self.panes[pane] = (mod, title, icon or title[:1].upper() or "?")
+        if self.active is None:
+            self.active = pane
         self.repaint(mod)
 
     def toggle_collapsed(self) -> None:
         self.collapsed = not self.collapsed
+        self.repaint("")
+
+    def select(self, pane: str) -> None:
+        """A click on a rail icon: show that pane, or fold the panel when it is already showing."""
+        if pane not in self.panes:
+            return
+        if pane == self.active and not self.collapsed:
+            self.collapsed = True
+        else:
+            self.active, self.collapsed = pane, False
         self.repaint("")
 
     def render(self, pane: str, width: int) -> Any:

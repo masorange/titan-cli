@@ -73,6 +73,8 @@ class ModManifest:
     # The label of the routing task `mods.<name>` its `m.ai` calls run under, when it
     # uses AI: the AI screen lists the task with it, so it can be pinned there too.
     ai_task: Optional[str] = None
+    # What the side panel's rail shows for the mod's pane: one character or emoji.
+    icon: Optional[str] = None
 
     @property
     def entrypoint(self) -> Path:
@@ -105,6 +107,7 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         slots=tuple(mod.get("slots", [])),
         options=dict(data.get("options", {})),
         ai_task=mod.get("ai_task") or None,
+        icon=mod.get("icon") or None,
     )
 
 

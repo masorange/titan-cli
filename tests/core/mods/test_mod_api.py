@@ -14,7 +14,7 @@ class RecordingHost:
     def toast(self, mod, text, severity):
         self.calls.append(("toast", mod, text))
 
-    def open_pane(self, mod, pane, title):
+    def open_pane(self, mod, pane, title, icon):
         self.calls.append(("open", mod, pane, title))
 
     def repaint(self, mod):
@@ -216,3 +216,54 @@ def test_a_dragged_panel_stays_between_its_minimum_and_the_room_the_screen_needs
     assert clamp_panel_width(5, 200) == MIN_PANEL_WIDTH
     assert clamp_panel_width(190, 200) == 200 - MIN_MAIN_WIDTH
     assert clamp_panel_width(60, 50) == MIN_PANEL_WIDTH  # a tiny terminal still gets a usable panel
+
+
+def _host_with_panes(*panes):
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    host = TitanModHost(app=None, bus=ModBus())
+    host.repaint = lambda mod: None
+    for pane in panes:
+        host.open_pane("m", pane, pane.title(), None)
+    return host
+
+
+def test_the_first_pane_opened_is_the_one_shown_and_gets_its_initial_as_icon():
+    host = _host_with_panes("jira", "git")
+
+    assert host.active == "jira"
+    assert host.panes["git"] == ("m", "Git", "G")
+
+
+def test_clicking_the_shown_pane_folds_the_panel_and_another_switches_to_it():
+    host = _host_with_panes("jira", "git")
+
+    host.select("jira")
+    assert (host.active, host.collapsed) == ("jira", True)
+    host.select("git")
+    assert (host.active, host.collapsed) == ("git", False)
+    host.select("unknown")
+    assert (host.active, host.collapsed) == ("git", False)
+
+
+def test_a_pane_takes_its_rail_icon_from_the_mod_manifest(tmp_path):
+    from titan_cli.core.mods import discover_mods, load_mods
+
+    folder = tmp_path / "jira"
+    folder.mkdir()
+    (folder / "mod.toml").write_text('[mod]\nname = "jira"\nicon = "🎫"\n')
+    (folder / "mod.py").write_text(
+        'def register(on, options):\n'
+        '    @on("app.start")\n'
+        '    def start(m, e, next):\n'
+        '        m.ui.open("p", "Jira")\n'
+        '        return next(e)\n'
+    )
+    bus = ModBus()
+    opened = []
+    bus.host = type("H", (RecordingHost,), {"open_pane": lambda self, *a: opened.append(a)})()
+    load_mods(bus, discover_mods([("user", tmp_path)]))
+
+    bus.dispatch("app.start", AppStart(project_root="/repo"), lambda e: None)
+
+    assert opened == [("jira", "p", "Jira", "🎫")]

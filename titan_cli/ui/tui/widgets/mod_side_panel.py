@@ -5,8 +5,11 @@ Docked on the right of every BaseScreen; shows the panes mods open with
 `m.ui.open(...)`, each drawn from the element tree its `ui.render` hook
 answers. The panel only translates that tree into widgets: what is in it,
 and when it changes, is the mods' business (their `m.state`). Collapsing it
-(F4, or a click on its header) leaves a one-column strip; dragging its left
+(F4, or a click on its header) leaves only the rail; dragging its left
 border resizes it, on every screen at once.
+
+Panes do not stack: a rail on the right edge holds one icon per pane, and
+the panel shows the one picked there (clicking the shown one folds it).
 """
 from typing import Any, List
 
@@ -26,7 +29,8 @@ logger = get_logger(__name__)
 PANEL_WIDTH = 56
 MIN_PANEL_WIDTH = 24
 MIN_MAIN_WIDTH = 40  # what a drag must leave to the screen's own content
-COLLAPSED_WIDTH = 3
+RAIL_WIDTH = 4  # an emoji is two cells wide, plus a margin on each side
+COLLAPSED_WIDTH = RAIL_WIDTH + 1  # the rail and the panel's left border
 
 _COLORS = {
     "primary": colors.PRIMARY,
@@ -252,7 +256,39 @@ def reconcile(container: Widget, elements: List[Any], width: int) -> None:
         old.remove()
 
 
-class ModSidePanel(Vertical):
+class _RailIcon(Static, can_focus=True):
+    """A pane's icon on the rail: click or Enter shows that pane (or folds it when shown)."""
+
+    BINDINGS = [("enter", "select", "Show")]
+
+    DEFAULT_CSS = """
+    _RailIcon {
+        width: 1fr;
+        height: 3;  /* odd, so the icon has a middle row */
+        content-align: center middle;
+    }
+    _RailIcon:hover, _RailIcon:focus {
+        background: $boost;
+    }
+    _RailIcon.-active {
+        background: $primary 40%;
+    }
+    """
+
+    def __init__(self, pane: str, title: str, icon: str):
+        super().__init__(RichText(icon, no_wrap=True, overflow="crop"))
+        self.pane = pane
+        self.tooltip = title
+
+    def on_click(self, event) -> None:
+        event.stop()
+        self.action_select()
+
+    def action_select(self) -> None:
+        self.app.mods_host.select(self.pane)
+
+
+class ModSidePanel(Horizontal):
     DEFAULT_CSS = f"""
     ModSidePanel {{
         dock: right;
@@ -263,6 +299,18 @@ class ModSidePanel(Vertical):
     }}
     ModSidePanel.-resizing {{
         border-left: tall $primary;
+    }}
+    ModSidePanel #mod-panel-content {{
+        width: 1fr;
+        height: 1fr;
+    }}
+    ModSidePanel.-collapsed #mod-panel-content {{
+        display: none;
+    }}
+    ModSidePanel #mod-panel-rail {{
+        width: {RAIL_WIDTH};
+        height: 1fr;
+        background: $surface-darken-1;
     }}
     ModSidePanel #mod-panel-header {{
         height: 1;
@@ -277,18 +325,19 @@ class ModSidePanel(Vertical):
         height: 1fr;
         padding: 0 1;
     }}
-    ModSidePanel.-collapsed #mod-panel-body {{
-        display: none;
-    }}
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._resizing = False
+        self._rail_panes: List[str] = []
+        self._shown: Any = None
 
     def compose(self) -> ComposeResult:
-        yield Static(id="mod-panel-header")
-        yield VerticalScroll(id="mod-panel-body")
+        with Vertical(id="mod-panel-content"):
+            yield Static(id="mod-panel-header")
+            yield VerticalScroll(id="mod-panel-body")
+        yield Vertical(id="mod-panel-rail")
 
     # Column 0 is the left border: pressing there starts a resize, and the mouse
     # stays captured until it is released, wherever the pointer goes meanwhile.
@@ -326,6 +375,16 @@ class ModSidePanel(Vertical):
         if getattr(event.widget, "id", None) == "mod-panel-header":
             self.app.mods_host.toggle_collapsed()
 
+    def _refresh_rail(self, host) -> None:
+        rail = self.query_one("#mod-panel-rail", Vertical)
+        panes = list(host.panes)
+        if panes != self._rail_panes:
+            rail.remove_children()
+            rail.mount_all(_RailIcon(pane, title, icon) for pane, (_, title, icon) in host.panes.items())
+            self._rail_panes = panes
+        for icon in rail.query(_RailIcon):
+            icon.set_class(icon.pane == host.active and not host.collapsed, "-active")
+
     def refresh_panes(self) -> None:
         host = getattr(self.app, "mods_host", None)
         if host is None or not host.panes:
@@ -334,25 +393,26 @@ class ModSidePanel(Vertical):
         self.display = True
         self.set_class(host.collapsed, "-collapsed")
         self.styles.width = COLLAPSED_WIDTH if host.collapsed else host.width
-
-        header = self.query_one("#mod-panel-header", Static)
+        self._refresh_rail(host)
         if host.collapsed:
-            header.update("◂")
             return
-        titles = " · ".join(title for _, title in host.panes.values())
-        header.update(RichText(f"▸ {titles}  (F4)", no_wrap=True, overflow="ellipsis"))
+
+        pane = host.active if host.active in host.panes else next(iter(host.panes))
+        _, title, _ = host.panes[pane]
+        header = self.query_one("#mod-panel-header", Static)
+        header.update(RichText(f"▸ {title}  (F4)", no_wrap=True, overflow="ellipsis"))
 
         body = self.query_one("#mod-panel-body", VerticalScroll)
-        width = max(10, host.width - 3)
-        trees: List[Any] = []
-        for pane in host.panes:
-            try:
-                tree = host.render(pane, width)
-            except Exception:
-                logger.exception("mod_pane_render_failed", pane=pane)
-                tree = Text(f"{pane}: render failed (see log)", color="error")
-            if tree is not None:
-                trees.append(tree)
+        width = max(10, host.width - RAIL_WIDTH - 3)
+        try:
+            tree = host.render(pane, width)
+        except Exception:
+            logger.exception("mod_pane_render_failed", pane=pane)
+            tree = Text(f"{pane}: render failed (see log)", color="error")
 
         with self.app.batch_update():
-            reconcile(body, trees, width)
+            reconcile(body, [tree] if tree is not None else [], width)
+        # Another pane starts at its top, not where the previous one was scrolled to.
+        if pane != self._shown:
+            self._shown = pane
+            body.scroll_home(animate=False)
