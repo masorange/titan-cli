@@ -93,9 +93,8 @@ class ClaudeHeadlessAdapter:
             cmd += ["--json-schema", json.dumps(json_schema)]
         if disallowed_tools:
             # --disallowedTools is a variadic flag with no natural terminator: passed as
-            # separate argv tokens, it keeps consuming words until the next recognized flag,
-            # swallowing the trailing prompt argument as if it were another tool name. A
-            # single comma-joined token avoids that ambiguity.
+            # separate argv tokens, it keeps consuming words until the next recognized flag.
+            # A single comma-joined token keeps where the list ends unambiguous.
             cmd += [f"--disallowedTools={','.join(disallowed_tools)}"]
         if allowed_tools:
             # Comma-joined into one token for the same reason as --disallowedTools.
