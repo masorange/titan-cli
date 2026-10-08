@@ -223,15 +223,25 @@ def _clean_section_lines(lines: list[str]) -> list[str]:
     return cleaned
 
 
+_CONTRACT_NAMES = re.compile(r"^\w+(?:\s*,\s*\w+)*$")
+
+
 def _parse_contract_line(line: str) -> tuple[str, str, str]:
     """Parse a docstring contract line into name, type, and description columns."""
-    match = re.match(r"^(?P<name>[^:(]+?)\s*(?:\((?P<type>[^)]+)\))?:\s*(?P<desc>.+)$", line)
-    if not match:
+    # The description is optional: `name (type)` alone is a complete contract line.
+    match = re.match(
+        r"^(?P<name>[^:(]+?)\s*(?:\((?P<type>[^)]+)\))?(?::\s*(?P<desc>.+))?$", line
+    )
+    if not match or not (match.group("type") or match.group("desc")):
+        return line, "", ""
+    # Without a description only identifiers count as names, so a wrapped prose line
+    # ending in a parenthesis ("hooks on the merge commit (default: True)") stays prose.
+    if not match.group("desc") and not _CONTRACT_NAMES.match(match.group("name").strip()):
         return line, "", ""
 
     name = match.group("name").strip()
     item_type = (match.group("type") or "").strip()
-    description = match.group("desc").strip()
+    description = (match.group("desc") or "").strip()
     return name, item_type, description
 
 
@@ -242,6 +252,11 @@ def _parse_return_line(line: str) -> tuple[str, str]:
         return line, ""
 
     return match.group("result").strip(), match.group("desc").strip()
+
+
+def _escape_cell(text: str) -> str:
+    """Escape pipes so a value cannot split a Markdown table row."""
+    return text.replace("\\|", "|").replace("|", "\\|")
 
 
 def _append_contract_table(lines: list[str], title: str, section_lines: list[str]) -> None:
@@ -259,7 +274,7 @@ def _append_contract_table(lines: list[str], title: str, section_lines: list[str
             result, description = _parse_return_line(line)
             if not description:
                 description = "-"
-            lines.append(f"| `{result}` | - | {description} |")
+            lines.append(f"| `{result}` | - | {_escape_cell(description)} |")
         lines.append("")
         return
 
@@ -267,8 +282,10 @@ def _append_contract_table(lines: list[str], title: str, section_lines: list[str
     lines.append("|------|------|-------------|")
     for line in section_lines:
         name, item_type, description = _parse_contract_line(line)
-        display_name = f"`{name}`" if description else name
-        lines.append(f"| {display_name} | {item_type or '-'} | {description or '-'} |")
+        display_name = f"`{name}`" if description or item_type else name
+        lines.append(
+            f"| {display_name} | {_escape_cell(item_type or '-')} | {_escape_cell(description or '-')} |"
+        )
     lines.append("")
 
 
@@ -294,7 +311,7 @@ def _append_returns_table_with_outputs(lines: list[str], section_lines: list[str
         saved = "-"
         if result in {"Success", "Skip"} and output_names:
             saved = ", ".join(f"`{name}`" for name in output_names)
-        lines.append(f"| `{result}` | {saved} | {description or '-'} |")
+        lines.append(f"| `{result}` | {saved} | {_escape_cell(description or '-')} |")
 
     lines.append("")
 

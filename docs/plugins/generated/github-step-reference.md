@@ -274,14 +274,14 @@ Verify the outcome of a merge that may have gone through a merge queue.
 | Name | Type | Description |
 |------|------|-------------|
 | `pr_number` | int | Pull request number to inspect. |
-| `merge_queued` | bool, optional | Set by `merge_pull_request` when the PR was added to the merge queue. |
+| `merge_queued` | bool | Set by `merge_pull_request`; True when the PR was added to the merge queue. Required - a missing value is treated as a workflow configuration error. |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `verified_pr_info` | - | The pull request object; saved only on the regular merge path (`merge_queued` falsy). |
-| `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (`merge_queued` truthy). |
+| `verified_pr_info` | - | The pull request object; saved only on the regular merge path (merge_queued falsy). |
+| `merge_queue_state` | - | The merge queue state; saved only on the queued merge path (merge_queued truthy). |
 
 **Returns**
 
@@ -453,7 +453,7 @@ Ask whether the pull request should be created as a draft.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `draft` | bool | None, optional | Draft mode from workflow params. Use True/False to skip the prompt, or None to ask interactively. |
+| `draft` | bool \| None, optional | Draft mode from workflow params. Use True/False to skip the prompt, or None to ask interactively. |
 
 **Outputs (saved to ctx.data)**
 
@@ -1035,7 +1035,9 @@ List all open PRs and ask user to select one.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success, Exit (no PRs or cancelled), or Error` | - | - |
+| `Success` | `review_pr_number`, `review_pr_title`, `review_pr_head`, `review_pr_base` | A PR was selected. |
+| `Exit` | - | No PRs, or the user cancelled. |
+| `Error` | - | If listing PRs fails. |
 
 ### `fetch_pr_review_bundle`
 
@@ -1058,6 +1060,12 @@ Fetch all data needed for a full PR review cycle.
 
 **Available to later steps:** `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `review_pr_number` | int | PR number |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
@@ -1069,13 +1077,15 @@ Fetch all data needed for a full PR review cycle.
 | `review_commit_sha` | str | Head commit SHA |
 | `review_threads` | List[UICommentThread] | Inline review threads (unresolved) |
 | `review_general_comments` | List[UICommentThread] | General PR-level comments |
-| `pr_template` | str | None | PR template content if available |
+| `pr_template` | str \| None | PR template content if available |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success, Skip (empty diff), or Error` | - | - |
+| `Success` | `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template` | The step completed. |
+| `Skip` | `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template` | Nothing to do (empty diff). |
+| `Error` | - | The step failed. |
 
 ### `build_change_manifest`
 
@@ -1098,6 +1108,13 @@ Build a structured manifest of the PR changes (no AI involved).
 
 **Available to later steps:** `change_manifest`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `review_pr` | UIPullRequest | Pull request details |
+| `review_changed_files_with_stats` | List[UIFileChange] | Files with add/del stats |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
@@ -1108,7 +1125,8 @@ Build a structured manifest of the PR changes (no AI involved).
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success or Error` | - | - |
+| `Success` | `change_manifest` | The step completed. |
+| `Error` | - | The step failed. |
 
 ### `build_existing_comments_index`
 
@@ -1129,72 +1147,30 @@ Build a compact index of existing PR comments for deduplication.
 
 **Used by built-in workflows:** `review-pr`
 
-**Available to later steps:** `existing_comments_index (List[ExistingCommentIndexEntry])`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| existing_comments_index (List[ExistingCommentIndexEntry]) | - | - |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | - |
-
-### `classify_pr`
-
-Classify PR size and composition before planning.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: classify_pr
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `pr_classification`, `review_profile`
-
-**Requires**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `ctx.textual` | - | Textual UI context. |
+**Available to later steps:** `existing_comments_index`
 
 **Inputs (from ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `change_manifest` | ChangeManifest | Structured PR change summary. |
-| `existing_comments_index` | List[ExistingCommentIndexEntry], optional | Existing comments used to estimate review activity. |
-| `review_threads` | List[UICommentThread], optional | Current review threads. |
+| `review_threads` | List[UICommentThread] | Inline review threads |
+| `review_general_comments` | List[UICommentThread] | General PR-level comments |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `pr_classification` | PRClassification | Deterministic PR classification. |
-| `review_profile` | ReviewProfile | Resolved review profile used during classification. |
+| `existing_comments_index` | List[ExistingCommentIndexEntry] | - |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `pr_classification`, `review_profile` | When PR classification is computed successfully. |
-| `Error` | - | When required context is missing or the step cannot run. |
+| `Success` | `existing_comments_index` | The step completed. |
 
-### `score_review_candidates`
+### `write_review_material`
 
-Rank changed files and precompute excluded files.
+Put what the review would otherwise fetch into the PR worktree, as files.
 
 **How to read this contract**
 
@@ -1206,222 +1182,38 @@ Rank changed files and precompute excluded files.
 
 ```yaml
 - plugin: github
-  step: score_review_candidates
+  step: write_review_material
 ```
 
 **Used by built-in workflows:** `review-pr`
 
-**Available to later steps:** `review_profile`, `review_candidates`, `excluded_review_files`
-
-**Requires**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `ctx.textual` | - | Textual UI context. |
+**Available to later steps:** `review_material`
 
 **Inputs (from ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `change_manifest` | ChangeManifest | Structured PR change summary. |
+| `change_manifest` | ChangeManifest | - |
+| `review_diff_manager` | DiffContextManager | - |
+| `review_threads, review_general_comments` | List[UICommentThread] | - |
+| `worktree_path` | str | - |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `review_profile` | ReviewProfile | Resolved review profile used during scoring. |
-| `review_candidates` | List[ScoredReviewCandidate] | Ranked review candidates. |
-| `excluded_review_files` | List[ExcludedFileEntry] | Files excluded from deep review. |
+| `review_material` | dict[str, bool] | each changed path -> whether it has a base version |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `review_profile`, `review_candidates`, `excluded_review_files` | When review candidates are scored successfully. |
-| `Exit` | - | When no reviewable candidates remain after exclusions. |
-| `Error` | - | When required context is missing or the step cannot run. |
-
-### `build_review_checklist`
-
-Assemble the review checklist for this PR.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: build_review_checklist
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `review_checklist (List[ReviewChecklistItem])`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| review_checklist (List[ReviewChecklistItem]) | - | - |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success` | `review_checklist (List[ReviewChecklistItem])` | - |
-
-### `select_review_strategy`
-
-Choose review strategy based on deterministic PR classification.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: select_review_strategy
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `review_strategy`
-
-**Requires**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `ctx.textual` | - | Textual UI context. |
-
-**Inputs (from ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `pr_classification` | PRClassification | Deterministic PR classification. |
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `review_strategy` | ReviewStrategy | Execution strategy for planning and findings. |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success` | `review_strategy` | When a review strategy is selected successfully. |
-| `Error` | - | When required context is missing or the step cannot run. |
-
-### `ai_review_plan`
-
-First AI call: decide which files to read and which checklist items apply.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: ai_review_plan
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `review_plan (ReviewPlan)`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| review_plan (ReviewPlan) | - | - |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success or Error` | - | - |
-
-### `validate_review_plan`
-
-Validate the AI-generated ReviewPlan against local semantic rules.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: validate_review_plan
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `validated_review_plan`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `validated_review_plan` | ReviewPlan | Same plan if valid |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success or Error (halts workflow on validation failure)` | - | - |
-
-### `resolve_review_context`
-
-Fetch the exact code context according to the validated review plan.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: resolve_review_context
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `review_context_package (ReviewContextPackage)`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| review_context_package (ReviewContextPackage) | - | - |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success or Error` | - | - |
+| `Success` | `review_material` | The step completed. |
+| `Error` | - | The step failed. |
 
 ### `ai_review_findings`
 
-Second AI call: find actionable problems in the exact code context.
+Run the review session, and report its cost even if it is abandoned.
 
 **How to read this contract**
 
@@ -1438,19 +1230,28 @@ Second AI call: find actionable problems in the exact code context.
 
 **Used by built-in workflows:** `review-pr`
 
-**Available to later steps:** `raw_findings`
+**Available to later steps:** `raw_findings`, `ai_findings_failed`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `change_manifest` | ChangeManifest | - |
+| `worktree_path` | str | with the material `write_review_material` left in it |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `raw_findings` | list | str | Raw AI output before normalization |
+| `raw_findings` | list | the session's findings, mapped onto `Finding`'s fields |
+| `ai_findings_failed` | bool | True when no review happened |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success or Error` | - | - |
+| `Success` | `raw_findings`, `ai_findings_failed` | With the raw findings, or with none when AI is off for the task. |
+| `Error` | - | If the session could not run or produced nothing readable. |
 
 ### `normalize_findings`
 
@@ -1473,6 +1274,12 @@ Parse and validate raw AI output into Finding models.
 
 **Available to later steps:** `normalized_findings`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `raw_findings` | list \| str | Raw AI output from ai_review_findings |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
@@ -1483,7 +1290,8 @@ Parse and validate raw AI output into Finding models.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success or Error` | - | - |
+| `Success` | `normalized_findings` | The step completed. |
+| `Error` | - | The step failed. |
 
 ### `dedupe_findings`
 
@@ -1506,6 +1314,13 @@ Remove findings that duplicate existing PR comments.
 
 **Available to later steps:** `deduped_findings`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `normalized_findings` | List[Finding] | - |
+| `existing_comments_index` | List[ExistingCommentIndexEntry] | - |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
@@ -1516,41 +1331,8 @@ Remove findings that duplicate existing PR comments.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success or Error` | - | - |
-
-### `verify_findings`
-
-Adversarial verification pass: try to REFUTE each finding before the human gate.
-
-**How to read this contract**
-
-- `Inputs (from ctx.data)` shows what the step expects before it runs.
-- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
-- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
-
-**Workflow usage**
-
-```yaml
-- plugin: github
-  step: verify_findings
-```
-
-**Used by built-in workflows:** `review-pr`
-
-**Available to later steps:** `deduped_findings`, `refuted_findings`
-
-**Outputs (saved to ctx.data)**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `deduped_findings` | List[Finding] | verified set, refuted findings removed |
-| `refuted_findings` | List[Finding] | findings dropped by this pass |
-
-**Returns**
-
-| Result | Saved for later steps | Description |
-|--------|-----------------------|-------------|
-| `Success or Skip` | - | - |
+| `Success` | `deduped_findings` | The step completed. |
+| `Error` | - | The step failed. |
 
 ### `build_new_comment_actions`
 
@@ -1571,19 +1353,26 @@ Convert deduplicated findings into ReviewActionProposal objects.
 
 **Used by built-in workflows:** `review-pr`
 
-**Available to later steps:** `review_action_proposals (List[ReviewActionProposal])`
+**Available to later steps:** `review_action_proposals`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `deduped_findings` | List[Finding] | - |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| review_action_proposals (List[ReviewActionProposal]) | - | - |
+| `review_action_proposals` | List[ReviewActionProposal] | - |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success or Skip (no findings)` | - | - |
+| `Success` | `review_action_proposals` | The step completed. |
+| `Skip` | `review_action_proposals` | Nothing to do (no findings). |
 
 ### `validate_review_actions`
 
@@ -1604,19 +1393,28 @@ Present each ReviewActionProposal to the user for approval, editing, or skipping
 
 **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
-**Available to later steps:** `approved_action_proposals (List[ReviewActionProposal])`
+**Available to later steps:** `approved_action_proposals`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `review_action_proposals` | List[ReviewActionProposal] | - |
+| `review_diff` | str | Full PR diff for extracting diff context per comment |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| approved_action_proposals (List[ReviewActionProposal]) | - | - |
+| `approved_action_proposals` | List[ReviewActionProposal] | - |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success, Skip (none approved), or Error` | - | - |
+| `Success` | `approved_action_proposals` | The step completed. |
+| `Skip` | `approved_action_proposals` | Nothing to do (none approved). |
+| `Error` | - | The step failed. |
 
 ### `submit_review_actions`
 
@@ -1637,11 +1435,22 @@ Submit approved ReviewActionProposal objects to GitHub.
 
 **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `approved_action_proposals` | List[ReviewActionProposal] | - |
+| `review_pr_number` | int | - |
+| `review_commit_sha` | str | Head commit SHA (fetched if missing) |
+| `review_diff` | str | Full PR diff for inline comment validation |
+
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success, Skip (no approved actions), or Error` | - | - |
+| `Success` | - | The step completed. |
+| `Skip` | - | Nothing to do (no approved actions). |
+| `Error` | - | The step failed. |
 
 ### `build_thread_review_candidates`
 
@@ -1662,19 +1471,29 @@ Select open inline threads worth AI analysis.
 
 **Used by built-in workflows:** `review-pr-thread-resolution`
 
-**Available to later steps:** `thread_review_candidates (List[ThreadReviewCandidate])`
+**Available to later steps:** `thread_review_candidates`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `review_threads` | List[UICommentThread] | Unresolved inline review threads |
+| `review_pr` | UIPullRequest | PR object with author info |
+| `review_current_user` | str | GitHub login running Titan |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| thread_review_candidates (List[ThreadReviewCandidate]) | - | - |
+| `thread_review_candidates` | List[ThreadReviewCandidate] | - |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success, Skip (no candidates), or Error` | - | - |
+| `Success` | `thread_review_candidates` | The step completed. |
+| `Skip` | `thread_review_candidates` | Nothing to do (no candidates). |
+| `Error` | - | The step failed. |
 
 ### `build_thread_review_contexts`
 
@@ -1695,7 +1514,7 @@ Enrich thread candidates with diff hunk context and full reply history.
 
 **Used by built-in workflows:** `review-pr-thread-resolution`
 
-**Available to later steps:** `thread_review_contexts (List[ThreadReviewContext])`
+**Available to later steps:** `thread_review_contexts`
 
 **Requires**
 
@@ -1703,17 +1522,27 @@ Enrich thread candidates with diff hunk context and full reply history.
 |------|------|-------------|
 | `ctx.github` | - | Optional GitHub client used to inspect referenced commits. |
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `thread_review_candidates` | List[ThreadReviewCandidate] | - |
+| `review_threads` | List[UICommentThread] | For extracting reply history |
+| `review_diff` | str | Full PR unified diff |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| thread_review_contexts (List[ThreadReviewContext]) | - | - |
+| `thread_review_contexts` | List[ThreadReviewContext] | - |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success, Skip (no candidates), or Error` | - | - |
+| `Success` | `thread_review_contexts` | The step completed. |
+| `Skip` | `thread_review_contexts` | Nothing to do (no candidates). |
+| `Error` | - | The step failed. |
 
 ### `ai_thread_resolution`
 
@@ -1736,6 +1565,12 @@ AI call: decide what to do with each open thread.
 
 **Available to later steps:** `raw_thread_decisions`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `thread_review_contexts` | List[ThreadReviewContext] | - |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
@@ -1746,7 +1581,8 @@ AI call: decide what to do with each open thread.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success or Error` | - | - |
+| `Success` | `raw_thread_decisions` | The step completed. |
+| `Error` | - | The step failed. |
 
 ### `normalize_thread_decisions`
 
@@ -1769,6 +1605,12 @@ Parse and validate raw AI output into ThreadDecision models.
 
 **Available to later steps:** `thread_decisions`
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `raw_thread_decisions` | list \| str | Raw AI output from ai_thread_resolution |
+
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
@@ -1779,7 +1621,8 @@ Parse and validate raw AI output into ThreadDecision models.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success or Error` | - | - |
+| `Success` | `thread_decisions` | The step completed. |
+| `Error` | - | The step failed. |
 
 ### `build_thread_actions`
 
@@ -1800,19 +1643,28 @@ Transform ThreadDecision objects into ReviewActionProposal objects.
 
 **Used by built-in workflows:** `review-pr-thread-resolution`
 
-**Available to later steps:** `review_action_proposals (List[ReviewActionProposal])`
+**Available to later steps:** `review_action_proposals`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `thread_decisions` | List[ThreadDecision] | - |
+| `thread_review_contexts` | List[ThreadReviewContext] | - |
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| review_action_proposals (List[ReviewActionProposal]) | - | - |
+| `review_action_proposals` | List[ReviewActionProposal] | - |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success, Skip (no actionable decisions), or Error` | - | - |
+| `Success` | `review_action_proposals` | The step completed. |
+| `Skip` | `review_action_proposals` | Nothing to do (no actionable decisions). |
+| `Error` | - | The step failed. |
 
 ## Worktree Support
 

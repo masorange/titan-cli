@@ -5,6 +5,7 @@ This module contains steps for reviewing pull requests authored by others using
 AI analysis combined with project-specific skill guidelines.
 """
 import os
+from pathlib import Path
 import re
 import threading
 import time
@@ -22,15 +23,17 @@ from titan_cli.external_cli.adapters import get_headless_adapter, list_available
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem, PromptChoice
 
 from ..managers.diff_context_manager import get_or_create_diff_manager
-from ..managers.prompt_budget_manager import get_prompt_budget_manager
-from ..models.review_enums import ReviewActionType, ReviewStrategyType, ThreadDecisionType
+from ..models.review_enums import ReviewActionType, ThreadDecisionType
 from ..models.review_models import (
-    PRClassification,
     ReferencedCommitContext,
     ReviewActionProposal,
 )
-from ..models.review_profile_models import ReviewProfile
 from ..models.view import UICommentThread, UIPullRequest
+from ..operations.ai_cost_operations import (
+    AICallRecord,
+    format_cost_summary,
+    summarize_ai_calls,
+)
 from ..operations.ai_response_parsing_operations import (
     REFORMAT_RETRY_TIMEOUT_SECONDS,
     build_json_reformat_prompt,
@@ -48,6 +51,7 @@ from ..operations.review_action_operations import (
     extract_file_excerpt_for_action,
     resolve_action_anchors,
 )
+from ..operations.worktree_operations import review_base_ref, review_head_ref
 from ..operations.thread_resolution_operations import (
     batch_thread_review_contexts,
     build_thread_review_candidates as build_thread_review_candidates_operation,
@@ -65,7 +69,6 @@ from ..operations.manifest_operations import (
 )
 
 from ..operations.manifest_operations import (
-        build_comment_review_context,
         build_existing_comments_index as build_existing_comments_index_operation,
     )
 
@@ -120,6 +123,24 @@ def _log_ai_prompt(step_name: str, cli_name: str, prompt: str, **extra) -> None:
         )
 
 
+def _log_session_activity(cli_name: str, activity: Optional[dict]) -> None:
+    """Record what the review session did, when its CLI reports it.
+
+    The commands go at debug: the counts say how much work happened, the commands say
+    which files it was spent on.
+    """
+    if not activity:
+        return
+    commands = activity.get("commands", [])
+    logger.info(
+        "review_session_activity",
+        cli=cli_name,
+        items=activity.get("items", {}),
+        commands=len(commands),
+    )
+    logger.debug("review_session_commands", cli=cli_name, commands=commands)
+
+
 def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, exit_code: int, **extra) -> None:
     """Log response metadata plus previews for review debugging."""
     stdout_first, stdout_last = _preview_edges(stdout, _RESPONSE_PREVIEW_CHARS)
@@ -161,12 +182,29 @@ def _cli_failure_reason(response, cli_name: str) -> str:
         return (
             f"'{cli_name}' has run out of usage quota — wait for it to reset or route "
             f"this task to another CLI in AI Configuration"
+            + _cli_own_words(response)
         )
     if response.exit_code == 124:
         return f"'{cli_name}' timed out"
     if response.exit_code == 127:
         return f"'{cli_name}' is not installed"
-    return f"'{cli_name}' exited with code {response.exit_code}"
+    # The CLI's own message, when it fits on a line. A pattern list can only recognise
+    # the failures it has seen, and the one it misses is the one worth reading: measured
+    # 2026-09-22, "You've hit your session limit · resets 6:30pm" reached the user as
+    # "exited with code 1" because the phrase was not in the list.
+    return f"'{cli_name}' exited with code {response.exit_code}" + _cli_own_words(response)
+
+
+_CLI_MESSAGE_MAX_CHARS = 200
+
+
+def _cli_own_words(response) -> str:
+    """The CLI's own one-line explanation, or nothing when it only produced noise."""
+    for channel in (response.stderr, response.stdout):
+        message = " ".join((channel or "").split())
+        if message and len(message) <= _CLI_MESSAGE_MAX_CHARS:
+            return f" — {message}"
+    return ""
 
 
 def _extract_referenced_commit_shas(reply_bodies: list[str]) -> list[str]:
@@ -252,40 +290,6 @@ def _load_referenced_commit_contexts(
             contexts_by_thread[thread.thread_id] = referenced_contexts
 
     return contexts_by_thread
-
-
-def _show_review_plan_summary(ctx: WorkflowContext, plan) -> None:
-    """Render a concise review plan summary in the UI."""
-    if getattr(plan, "focus_files", None):
-        ctx.textual.dim_text("focus files:")
-        ctx.textual.text(" ")
-        for file_plan in plan.focus_files:
-            ctx.textual.dim_text(
-                f"{file_plan.path} · {file_plan.priority.value} · {file_plan.read_mode.value}"
-            )
-
-    ctx.textual.text(" ")
-    if getattr(plan, "review_axes", None):
-        ctx.textual.dim_text("review axes:")
-        ctx.textual.text(" ")
-        for axis in plan.review_axes:
-            ctx.textual.dim_text(str(axis))
-
-    if getattr(plan, "extra_context_requests", None):
-        ctx.textual.dim_text("extra context:")
-        ctx.textual.text(" ")
-        for request in plan.extra_context_requests:
-            ctx.textual.dim_text(f"{request.type} -> {request.for_path}")
-
-
-def _show_review_plan_validation_summary(ctx: WorkflowContext, plan) -> None:
-    """Render a compact validation summary without repeating the full plan."""
-    focus_count = len(getattr(plan, "focus_files", []) or [])
-    axes_count = len(getattr(plan, "review_axes", []) or [])
-    extra_count = len(getattr(plan, "extra_context_requests", []) or [])
-    ctx.textual.dim_text(
-        f"Validated plan: {focus_count} focus file(s) · {axes_count} axes · {extra_count} extra context request(s)"
-    )
 
 
 def _filter_invalid_inline_comments(ctx: WorkflowContext, pr_number: int, payload: dict) -> tuple[dict, list[dict]]:
@@ -579,7 +583,9 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
         review_pr_base (str): Base branch
 
     Returns:
-        Success, Exit (no PRs or cancelled), or Error
+        Success: A PR was selected.
+        Exit: No PRs, or the user cancelled.
+        Error: If listing PRs fails.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -699,7 +705,7 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
     Builds a complete review bundle: PR metadata, diff, file stats,
     inline review threads (separate from general comments), and commit SHA.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_pr_number (int): PR number
 
     Outputs (saved to ctx.data):
@@ -713,7 +719,9 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
         pr_template (str | None): PR template content if available
 
     Returns:
-        Success, Skip (empty diff), or Error
+        Success: The step completed.
+        Skip: Nothing to do (empty diff).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -984,8 +992,11 @@ def _get_review_diff(
             return ctx.github.get_pr_diff(pr_number), True
 
 
+REVIEW_AI_CALLS_KEY = "review_ai_calls"
+
+
 class _PinnedModelCli:
-    """A headless adapter that always runs with the model the user pinned for it.
+    """A headless adapter that pins the user's model and records what each call cost.
 
     These steps drive the adapter directly rather than through `generate_text`, so the
     model the user chose in AI Configuration would otherwise never reach the CLI - it
@@ -995,11 +1006,19 @@ class _PinnedModelCli:
     possible, because no call site passes it.
 
     An explicit `model=` from a caller still wins, matching the executor's own rule.
+
+    The same argument applies to cost telemetry, which is why it lives here too rather
+    than at the five `adapter.execute(...)` call sites: a phase added later is measured
+    without anyone remembering to measure it. Records go on `ctx.data` (never on step
+    metadata, which is scanned for secrets) and appending to a list is safe from the
+    findings phase's worker threads.
     """
 
-    def __init__(self, adapter, model: Optional[str]):
+    def __init__(self, adapter, model: Optional[str], ctx=None, phase: Optional[str] = None):
         self._adapter = adapter
         self._model = model
+        self._ctx = ctx
+        self._phase = phase or "unknown"
 
     @property
     def pinned_model(self) -> Optional[str]:
@@ -1016,7 +1035,114 @@ class _PinnedModelCli:
         # mean "no opinion" here too, rather than suppressing the user's pin entirely.
         if kwargs.get("model") is None:
             kwargs["model"] = self._model
-        return self._adapter.execute(prompt, **kwargs)
+        started_at = time.monotonic()
+        try:
+            response = self._adapter.execute(prompt, **kwargs)
+        except BaseException:
+            # A cancelled or crashed call consumed real tokens the CLI never got to
+            # report. Recording a priced zero here would be a lie, so nothing is
+            # recorded and the raise stands - WorkflowAborted must not be swallowed.
+            raise
+        self._record(prompt, kwargs, response, time.monotonic() - started_at)
+        return response
+
+    def _record(self, prompt, kwargs, response, duration_seconds: float) -> None:
+        """Append one call record and log it. Never allowed to break the review."""
+        try:
+            usage = getattr(response, "usage", None)
+            record = AICallRecord(
+                phase=self._phase,
+                cli=self._adapter.cli_name.value,
+                prompt_chars=len(prompt or ""),
+                duration_seconds=round(duration_seconds, 3),
+                succeeded=bool(getattr(response, "succeeded", False)),
+                model_requested=kwargs.get("model"),
+                model_reported=getattr(usage, "model_reported", None),
+                input_tokens=getattr(usage, "input_tokens", None),
+                output_tokens=getattr(usage, "output_tokens", None),
+                cache_read_tokens=getattr(usage, "cache_read_tokens", None),
+                cache_write_tokens=getattr(usage, "cache_write_tokens", None),
+                reasoning_tokens=getattr(usage, "reasoning_tokens", None),
+                total_tokens=getattr(usage, "total_tokens", None),
+                cost_usd=getattr(usage, "cost_usd", None),
+                usage_source=getattr(usage, "source", None),
+            )
+            logger.debug(
+                "ai_call_cost",
+                phase=record.phase,
+                cli=record.cli,
+                model_requested=record.model_requested,
+                model_reported=record.model_reported,
+                model_substituted=record.model_substituted,
+                effort=kwargs.get("effort"),
+                prompt_chars=record.prompt_chars,
+                duration_seconds=record.duration_seconds,
+                succeeded=record.succeeded,
+                input_tokens=record.input_tokens,
+                output_tokens=record.output_tokens,
+                # Anthropic counts cached input OUTSIDE input_tokens, so on claude a
+                # 90k-char prompt reads input_tokens=107: the prompt is in these two.
+                cache_read_tokens=record.cache_read_tokens,
+                cache_write_tokens=record.cache_write_tokens,
+                reasoning_tokens=record.reasoning_tokens,
+                total_tokens=record.total_tokens,
+                # Absent rather than zero when the CLI reports no price: codex and agy
+                # never do, and gemini reports nothing at all.
+                cost_usd=record.cost_usd,
+                # Present only when the session used more than one model (subagents).
+                model_costs=getattr(usage, "model_costs", None),
+                usage_source=record.usage_source,
+            )
+            if self._ctx is not None:
+                self._ctx.data.setdefault(REVIEW_AI_CALLS_KEY, []).append(record)
+        except Exception as exc:  # pragma: no cover - telemetry must never break a review
+            logger.debug("ai_call_cost_record_failed", phase=self._phase, error=str(exc))
+
+
+
+def log_review_ai_cost(ctx, scope: str) -> None:
+    """Emit the running cost summary for this review, at DEBUG.
+
+    DEBUG on purpose: the file handler runs at DEBUG in development and INFO in
+    production, so this is a development instrument by construction and never grows an
+    end user's log. Called at more than one point because a review can end at an
+    interactive gate without reaching its last step - `scope` says which point spoke.
+    """
+    records = (ctx.data or {}).get(REVIEW_AI_CALLS_KEY) or []
+    if not records:
+        return
+    summary = summarize_ai_calls(list(records))
+    logger.debug(
+        "review_ai_cost_summary",
+        scope=scope,
+        calls=summary.calls,
+        failed_calls=summary.failed_calls,
+        duration_seconds=summary.duration_seconds,
+        prompt_chars=summary.prompt_chars,
+        total_tokens=summary.total_tokens,
+        cost_usd=summary.cost_usd,
+        cost_is_complete=summary.cost_is_complete,
+        cost_per_call_usd=summary.cost_per_call_usd,
+        calls_missing_cost=summary.calls_missing_cost,
+        calls_missing_tokens=summary.calls_missing_tokens,
+        substituted_model_calls=summary.substituted_model_calls,
+        clis=summary.clis,
+        models_reported=summary.models_reported,
+        phases=[
+            {
+                "phase": p.phase,
+                "calls": p.calls,
+                "failed_calls": p.failed_calls,
+                "duration_seconds": p.duration_seconds,
+                "prompt_chars": p.prompt_chars,
+                "total_tokens": p.total_tokens,
+                "cost_usd": p.cost_usd,
+                "calls_missing_cost": p.calls_missing_cost,
+            }
+            for p in summary.phases
+        ],
+        summary=format_cost_summary(summary),
+    )
 
 
 def _resolve_headless_adapter(cli_preference: str):
@@ -1088,7 +1214,22 @@ def _resolve_review_adapter(
         cli=resolution.cli,
         model=model,
     )
-    return _PinnedModelCli(adapter, model), None, False
+    return (
+        _PinnedModelCli(adapter, model, ctx=ctx, phase=_step_phase(step)),
+        None,
+        False,
+    )
+
+
+def _step_phase(step) -> str:
+    """The routing task this step declared, which is also its cost phase.
+
+    Reusing the declared task rather than inventing a phase name keeps the cost
+    log joinable to the routing log and to the model the user pinned for it.
+    """
+    policy = getattr(step, "ai_policy", None)
+    task = getattr(policy, "task", None)
+    return str(task) if task else str(getattr(step, "__name__", "unknown"))
 
 
 def _route_failure_reason(route_note: Optional[str], ai_off: bool) -> str:
@@ -1168,7 +1309,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
     Converts UIFileChange objects into a typed ChangeManifest that serves
     as cheap context for both AI-directed workflows.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_pr (UIPullRequest): Pull request details
         review_changed_files_with_stats (List[UIFileChange]): Files with add/del stats
 
@@ -1176,7 +1317,8 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
         change_manifest (ChangeManifest): Structured PR context
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1195,7 +1337,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
 
     try:
         manifest = build_change_manifest_operation(
-            pr, files, _get_review_profile(ctx), churn_by_path=churn_by_path
+            pr, files, churn_by_path=churn_by_path
         )
     except Exception as e:
         ctx.textual.error_text(f"Failed to build change manifest: {e}")
@@ -1207,6 +1349,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
     config_count = sum(1 for f in manifest.files if f.is_config)
     generated_count = sum(1 for f in manifest.files if f.is_generated)
     lockfile_count = sum(1 for f in manifest.files if f.is_lockfile)
+    static_resource_count = sum(1 for f in manifest.files if f.is_static_resource)
     rename_only_count = sum(1 for f in manifest.files if f.is_rename_only)
     ctx.textual.success_text(
         f"✓ {len(manifest.files)} files analysed"
@@ -1220,6 +1363,7 @@ def build_change_manifest(ctx: WorkflowContext) -> WorkflowResult:
         config=config_count,
         generated=generated_count,
         lockfiles=lockfile_count,
+        static_resources=static_resource_count,
         rename_only=rename_only_count,
     )
     ctx.textual.end_step("success")
@@ -1234,7 +1378,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     list of ExistingCommentIndexEntry objects. The index is used later to
     avoid AI findings that duplicate comments already posted.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_threads (List[UICommentThread]): Inline review threads
         review_general_comments (List[UICommentThread]): General PR-level comments
 
@@ -1242,7 +1386,7 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
         existing_comments_index (List[ExistingCommentIndexEntry])
 
     Returns:
-        Success
+        Success: The step completed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -1251,19 +1395,9 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
 
     threads = ctx.get("review_threads", [])
     general = ctx.get("review_general_comments", [])
-    changed_files = ctx.get("review_changed_files_with_stats", [])
 
     try:
         index = build_existing_comments_index_operation(threads, general)
-        is_smallish_pr = len(changed_files) <= 8
-        comment_context = build_comment_review_context(
-            threads,
-            general,
-            max_entries=4 if is_smallish_pr else 8,
-            max_chars=900 if is_smallish_pr else 1800,
-            include_resolved=False,
-            bug_risk_only=True,
-        )
     except Exception as e:
         ctx.textual.error_text(f"Failed to build comments index: {e}")
         ctx.textual.end_step("error")
@@ -1278,789 +1412,35 @@ def build_existing_comments_index(ctx: WorkflowContext) -> WorkflowResult:
     logger.info(
         "existing_comments_index_built",
         existing_comments_total=len(index),
-        comments_for_prompt_count=len(comment_context),
-        dedupe_comment_count=len(index),
         resolved_comments_count=resolved_count,
         unresolved_comments_count=len(index) - resolved_count,
         adjudicated_threads_count=adjudicated_count,
-        filtered_out_comment_entries=max(0, len(index) - len(comment_context)),
     )
     ctx.textual.end_step("success")
-    return Success(
-        "Comments index built",
-        metadata={
-            "existing_comments_index": index,
-            "comment_review_context": comment_context,
-        },
-    )
+    return Success("Comments index built", metadata={"existing_comments_index": index})
 
 
-def classify_pr(ctx: WorkflowContext) -> WorkflowResult:
+def _split_display_path(path: str, keep_dirs: int = 2) -> tuple[str, str]:
+    """(file name, shortened directory) -- the name is what a reader scans for.
+
+    The directory keeps its first segment (the module: `app`, `network`) and its last
+    `keep_dirs`, which is where files differ; the shared middle (`src/main/kotlin/com/...`)
+    becomes `…`.
     """
-    Classify PR size and composition before planning.
-
-    Requires:
-        ctx.textual: Textual UI context.
-
-    Inputs (from ctx.data):
-        change_manifest (ChangeManifest): Structured PR change summary.
-        existing_comments_index (List[ExistingCommentIndexEntry], optional): Existing comments used to estimate review activity.
-        review_threads (List[UICommentThread], optional): Current review threads.
-
-    Outputs (saved to ctx.data):
-        pr_classification (PRClassification): Deterministic PR classification.
-        review_profile (ReviewProfile): Resolved review profile used during classification.
-
-    Returns:
-        Success: When PR classification is computed successfully.
-        Error: When required context is missing or the step cannot run.
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Classify PR")
-
-    manifest = ctx.get("change_manifest")
-    comments_index = ctx.get("existing_comments_index", [])
-    review_threads = ctx.get("review_threads", [])
-    review_profile = _get_review_profile(ctx)
-
-    if not manifest:
-        ctx.textual.error_text("No change manifest in context")
-        ctx.textual.end_step("error")
-        return Error("No change manifest in context")
-
-    from ..operations.review_strategy_operations import classify_pr as classify_pr_operation
-
-    classification = classify_pr_operation(
-        manifest,
-        comment_entries=len(comments_index),
-        comment_threads=len(review_threads),
-        review_profile=review_profile,
-    )
-    
-    logger.debug(
-        "pr_classified",
-        size_class=classification.size_class,
-        files_changed=classification.files_changed,
-        total_lines_changed=classification.total_lines_changed,
-        comment_entries=classification.comment_entries,
-    )
-    _render_pr_classification(ctx, classification)
-    ctx.textual.end_step("success")
-    return Success(
-        "PR classified",
-        metadata={
-            "pr_classification": classification,
-            "review_profile": review_profile,
-        },
-    )
-
-def score_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Rank changed files and precompute excluded files.
-
-    Requires:
-        ctx.textual: Textual UI context.
-
-    Inputs (from ctx.data):
-        change_manifest (ChangeManifest): Structured PR change summary.
-
-    Outputs (saved to ctx.data):
-        review_profile (ReviewProfile): Resolved review profile used during scoring.
-        review_candidates (List[ScoredReviewCandidate]): Ranked review candidates.
-        excluded_review_files (List[ExcludedFileEntry]): Files excluded from deep review.
-
-    Returns:
-        Success: When review candidates are scored successfully.
-        Exit: When no reviewable candidates remain after exclusions.
-        Error: When required context is missing or the step cannot run.
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Score Review Candidates")
-
-    manifest = ctx.get("change_manifest")
-    review_profile = _get_review_profile(ctx)
-    if not manifest:
-        ctx.textual.error_text("No change manifest in context")
-        ctx.textual.end_step("error")
-        return Error("No change manifest in context")
-
-    from ..operations.review_strategy_operations import (
-        score_review_candidates as score_review_candidates_operation,
-    )
-
-    candidates, excluded = score_review_candidates_operation(manifest, review_profile=review_profile)
-
-    logger.info(
-        "review_candidates_scored",
-        candidates=len(candidates),
-        excluded=len(excluded),
-    )
-    logger.debug(
-        "review_candidates_detail",
-        # Full lists, not a top-5 sample: "6 files, 0 excluded" is only
-        # actionable once you can see WHICH files, and an exclusion is only
-        # reviewable alongside the reason it was excluded. Debug level, since
-        # these are paths — content, not structure.
-        candidate_paths=[candidate.path for candidate in candidates],
-        excluded_files=[
-            f"{entry.path} ({entry.reason}{': ' + entry.detail if entry.detail else ''})"
-            for entry in excluded
-        ],
-    )
-    if not candidates:
-        ctx.textual.dim_text("No reviewable candidates remain after exclusions.")
-        ctx.textual.end_step("skip")
-        return Exit(
-            "No reviewable candidates after exclusions",
-            metadata={
-                "review_profile": review_profile,
-                "review_candidates": candidates,
-                "excluded_review_files": excluded,
-            },
-        )
-    ctx.textual.success_text(f"✓ {len(candidates)} candidate file(s), {len(excluded)} excluded")
-    for candidate in candidates[:5]:
-        ctx.textual.dim_text(
-            f"{candidate.path} · {candidate.priority.value} · score {candidate.score}"
-        )
-    ctx.textual.end_step("success")
-    return Success(
-        "Review candidates scored",
-        metadata={
-            "review_profile": review_profile,
-            "review_candidates": candidates,
-            "excluded_review_files": excluded,
-        },
-    )
-
-
-def build_review_checklist(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Assemble the review checklist for this PR.
-
-    Delegates checklist resolution to ChecklistManager so project-specific
-    checklist loading can evolve without changing workflow orchestration.
-
-    Outputs (saved to ctx.data):
-        review_checklist (List[ReviewChecklistItem])
-
-    Returns:
-        Success
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Build Review Checklist")
-
-    if not ctx.github_managers:
-        ctx.textual.error_text("GitHub managers are not available in workflow context.")
-        ctx.textual.end_step("error")
-        return Error("GitHub managers are not available in workflow context.")
-
-    checklist = ctx.github_managers.checklist.get_effective_checklist()
-    applicable_preview_ids = _build_review_checklist_preview(ctx, checklist)
-    review_profile = _get_review_profile(ctx)
-    ctx.data["review_checklist"] = checklist
-    ctx.data["review_checklist_applicable_preview"] = applicable_preview_ids
-    ctx.data["review_profile"] = review_profile
-
-    manifest = ctx.get("change_manifest")
-    candidates = ctx.get("review_candidates", [])
-    profile_path = None
-    checklist_path = None
-    if ctx.github_managers:
-        profile_path = ctx.github_managers.review_profile._profile_path()
-        checklist_path = ctx.github_managers.checklist._checklist_path()
-    logger.info(
-        "review_config_applied_to_pr",
-        profile_source=("project" if profile_path and profile_path.exists() else "default"),
-        checklist_source=("project" if checklist_path and checklist_path.exists() else "default"),
-        manifest_files=len(manifest.files) if manifest else 0,
-        candidate_files=len(candidates),
-        offered_checklist_count=len(checklist),
-        applicable_checklist_count=len(applicable_preview_ids),
-    )
-    logger.debug(
-        "review_config_applied_detail",
-        project_root=str(ctx.data.get("project_root")) if ctx.data.get("project_root") else None,
-        profile_path=str(profile_path) if profile_path else None,
-        checklist_path=str(checklist_path) if checklist_path else None,
-        offered_checklist_ids=[str(item.id) for item in checklist],
-        applicable_checklist_preview=sorted(applicable_preview_ids),
-        top_candidate_paths=[candidate.path for candidate in candidates[:5]],
-    )
-
-    _render_review_checklist(ctx, checklist, applicable_preview_ids)
-    ctx.textual.end_step("success")
-    return Success(
-        "Review checklist built",
-        metadata={
-            "review_checklist": checklist,
-            "review_checklist_applicable_preview": applicable_preview_ids,
-        },
-    )
-
-
-def select_review_strategy(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Choose review strategy based on deterministic PR classification.
-
-    Requires:
-        ctx.textual: Textual UI context.
-
-    Inputs (from ctx.data):
-        pr_classification (PRClassification): Deterministic PR classification.
-
-    Outputs (saved to ctx.data):
-        review_strategy (ReviewStrategy): Execution strategy for planning and findings.
-
-    Returns:
-        Success: When a review strategy is selected successfully.
-        Error: When required context is missing or the step cannot run.
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Select Review Strategy")
-
-    classification = ctx.get("pr_classification")
-    if not classification:
-        ctx.textual.error_text("No pr_classification in context")
-        ctx.textual.end_step("error")
-        return Error("No pr_classification in context")
-
-    from ..operations.review_strategy_operations import (
-        select_review_strategy as select_review_strategy_operation,
-    )
-
-    strategy = select_review_strategy_operation(classification)
-
-    logger.info(
-        "review_strategy_selected",
-        strategy=strategy.strategy,
-        size_class=strategy.size_class,
-        max_focus_files=strategy.max_focus_files,
-        max_prompt_chars=strategy.max_prompt_chars,
-        max_comment_entries=strategy.max_comment_entries,
-    )
-    # Speak outcome, not mechanics: strategy enum names and prompt budgets in chars
-    # mean nothing to the reviewer — what matters is how the review will proceed and
-    # how many files it will focus on. Mechanics stay in the debug log above.
-    strategy_labels = {
-        "direct_findings": "direct review in one pass",
-        "light_plan": "lightweight plan, then focused review",
-        "batched_findings": "planned review in batches",
-    }
-    approach = strategy_labels.get(strategy.strategy.value, strategy.strategy.value)
-    ctx.textual.success_text(
-        f"✓ Review approach: {approach} · up to {strategy.max_focus_files} focus file(s)"
-    )
-    if strategy.reason:
-        ctx.textual.dim_text(strategy.reason)
-    ctx.textual.end_step("success")
-    return Success("Review strategy selected", metadata={"review_strategy": strategy})
-
-
-# ============================================================================
-# PHASE 3: DIRECTED AI ANALYSIS (first AI call)
-# ============================================================================
-
-
-@declare_ai_usage(
-    task=AITask.CODE_REVIEW_PLAN,
-    executes=[AIProviderType.CLI_HEADLESS],
-    enforces=True,
-)
-def ai_review_plan(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    First AI call: decide which files to read and which checklist items apply.
-
-    Sends a structured prompt to the selected headless CLI (Claude, Gemini, Codex).
-    The prompt includes the change manifest, existing comments index, and review
-    checklist. It also instructs the AI to use any project-specific skills or
-    guidelines available in its context (each CLI knows where its own skills live).
-
-    On parse failure, falls back to a local conservative heuristic plan.
-
-    Which CLI runs it comes from the `code_review_plan` task preference
-    (AI Configuration screen), not from the workflow.
-
-    Requires (from ctx.data):
-        change_manifest (ChangeManifest)
-        existing_comments_index (List[ExistingCommentIndexEntry])
-        review_checklist (List[ReviewChecklistItem])
-
-    Outputs (saved to ctx.data):
-        review_plan (ReviewPlan)
-
-    Returns:
-        Success or Error
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("AI Review Plan")
-
-    manifest = ctx.get("change_manifest")
-    comments_context = ctx.get("comment_review_context", [])
-    checklist = ctx.get("review_checklist", [])
-    candidates = ctx.get("review_candidates", [])
-    excluded_files = ctx.get("excluded_review_files", [])
-    strategy = ctx.get("review_strategy")
-    review_profile = _get_review_profile(ctx)
-    project_root = ctx.data.get("project_root")
-
-    if not manifest or not strategy:
-        ctx.textual.error_text("Missing change_manifest or review_strategy in context")
-        ctx.textual.end_step("error")
-        return Error("Missing change_manifest or review_strategy in context")
-
-    from ..operations.plan_prompt_operations import (
-        build_review_plan_prompt,
-        build_default_review_plan,
-    )
-    from ..models.review_models import ReviewPlan
-    from pydantic import ValidationError
-
-    if strategy.strategy == ReviewStrategyType.DIRECT_FINDINGS:
-        fallback = build_default_review_plan(
-            candidates,
-            excluded_files,
-            checklist,
-            strategy,
-            review_profile=review_profile,
-        )
-        ctx.data["review_plan"] = fallback
-        ctx.textual.success_text(
-            f"✓ Deterministic plan: {len(fallback.focus_files)} focus file(s) · "
-            f"{len(fallback.excluded_files)} excluded"
-        )
-        _show_review_plan_summary(ctx, fallback)
-        ctx.textual.end_step("success")
-        return Success("Deterministic review plan built", metadata={"review_plan": fallback})
-
-    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_plan)
-
-    if not adapter:
-        ctx.textual.warning_text(
-            f"{route_note or 'No headless CLI available'} — using default review plan"
-        )
-        fallback = build_default_review_plan(
-            candidates,
-            excluded_files,
-            checklist,
-            strategy,
-            review_profile=review_profile,
-        )
-        ctx.data["review_plan"] = fallback
-        ctx.textual.dim_text(f"Default plan: {len(fallback.focus_files)} focus files")
-        _show_review_plan_summary(ctx, fallback)
-        ctx.textual.end_step("success")
-        # The message carries the REAL reason. It used to say "no CLI available"
-        # whatever had happened, so "you turned this task off" and "your configured CLI
-        # is missing" read identically in the run summary - and only one of them is
-        # something to go and fix.
-        return Success(
-            f"Default review plan used ({_route_failure_reason(route_note, ai_off)})",
-            metadata={"review_plan": fallback},
-        )
-
-    _announce_review_adapter(ctx, adapter)
-
-    prompt = build_review_plan_prompt(
-        manifest,
-        comments_context,
-        checklist,
-        candidates,
-        strategy,
-        excluded_files,
-        review_profile,
-    )
-
-    cli_display = adapter.cli_name.value.capitalize()
-    _log_ai_prompt(
-        step_name="ai_review_plan",
-        cli_name=adapter.cli_name.value,
-        prompt=prompt,
-        manifest_files=len(manifest.files),
-        comment_entries=len(comments_context),
-        checklist_items=len(checklist),
-        candidate_files=len(candidates),
-        strategy=str(strategy.strategy),
-    )
-    with ctx.textual.loading(f"Asking {cli_display} to plan the review…"):
-        response = run_interruptible(
-            lambda: adapter.execute(prompt, cwd=project_root, timeout=240)
-        )
-    _log_ai_response(
-        step_name="ai_review_plan",
-        cli_name=adapter.cli_name.value,
-        stdout=response.stdout,
-        stderr=response.stderr,
-        exit_code=response.exit_code,
-        manifest_files=len(manifest.files),
-        comment_entries=len(comments_context),
-        checklist_items=len(checklist),
-        candidate_files=len(candidates),
-        strategy=str(strategy.strategy),
-    )
-
-    if not response.succeeded:
-        # Full stderr means nothing to the reviewer and stays in the log (already
-        # captured by _log_ai_response above), but the KIND of failure decides what
-        # the user does next, so the classified reason is shown alongside the fallback.
-        reason = _cli_failure_reason(response, adapter.cli_name.value)
-        ctx.textual.warning_text(
-            f"The AI couldn't produce a review plan ({reason}) — falling back to the "
-            "automatic plan (top-scored files)."
-        )
-        fallback = build_default_review_plan(
-            candidates,
-            excluded_files,
-            checklist,
-            strategy,
-            review_profile=review_profile,
-        )
-        ctx.data["review_plan"] = fallback
-        _show_review_plan_summary(ctx, fallback)
-        ctx.textual.end_step("success")
-        return Success(f"Default review plan used ({reason})", metadata={"review_plan": fallback})
-
-    # Parse JSON response
-    parse_error: Optional[str] = None
-    match extract_json_payload(response.stdout, kind="object"):
-        case ClientSuccess(data=payload):
-            try:
-                plan = ReviewPlan.model_validate(payload)
-            except ValidationError as e:
-                parse_error = str(e)
-        case ClientError(error_message=err):
-            parse_error = err
-
-    if parse_error is not None:
-        # Same as the CLI-failure path: no raw pydantic/JSON error dumps on screen.
-        logger.debug("review_plan_parse_failed", parse_error=parse_error)
-        ctx.textual.warning_text(
-            "The AI's review plan couldn't be read — falling back to the automatic plan "
-            "(top-scored files)."
-        )
-        fallback = build_default_review_plan(
-            candidates,
-            excluded_files,
-            checklist,
-            strategy,
-            review_profile=review_profile,
-        )
-        ctx.data["review_plan"] = fallback
-        _show_review_plan_summary(ctx, fallback)
-        ctx.textual.end_step("success")
-        return Success("Default review plan used (parse error)", metadata={"review_plan": fallback})
-
-    ctx.data["review_plan"] = plan
-    ctx.textual.success_text(
-        f"✓ Plan: {len(plan.focus_files)} focus file(s) · "
-        f"{len(plan.review_axes)} axes · "
-        f"{len(plan.extra_context_requests)} extra context request(s)"
-    )
-    ctx.textual.text(" ")
-    _show_review_plan_summary(ctx, plan)
-    ctx.textual.end_step("success")
-    return Success("Review plan built", metadata={"review_plan": plan})
-
-
-def validate_review_plan(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Validate the AI-generated ReviewPlan against local semantic rules.
-
-    Checks that all file paths exist in the manifest, read modes are valid,
-    extra context requests don't exceed the limit, and full_file mode is only
-    used for small or new files.
-
-    Requires (from ctx.data):
-        review_plan (ReviewPlan)
-        change_manifest (ChangeManifest)
-
-    Outputs (saved to ctx.data):
-        validated_review_plan (ReviewPlan): Same plan if valid
-
-    Returns:
-        Success or Error (halts workflow on validation failure)
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Validate Review Plan")
-
-    plan = ctx.get("review_plan")
-    manifest = ctx.get("change_manifest")
-    checklist = ctx.get("review_checklist", [])
-    review_profile = _get_review_profile(ctx)
-
-    if not plan or not manifest:
-        ctx.textual.error_text("Missing review_plan or change_manifest in context")
-        ctx.textual.end_step("error")
-        return Error("Missing review_plan or change_manifest in context")
-
-    from ..models.validators import ReviewPlanValidator
-    from ..operations.plan_prompt_operations import build_default_review_plan
-
-    offered_ids = frozenset(item.id for item in checklist)
-    validator = ReviewPlanValidator(manifest, offered_ids)
-
-    # Invalid entries are dropped one by one; the AI's remaining selection survives.
-    # Only a plan with no valid focus file left falls back to the deterministic plan.
-    plan, sanitize_warnings = validator.sanitize(plan)
-    if sanitize_warnings:
-        for warning in sanitize_warnings:
-            ctx.textual.warning_text(f"  ⚠ {warning}")
-        logger.warning(
-            "review_plan_entries_dropped",
-            dropped=len(sanitize_warnings),
-            warnings=sanitize_warnings,
-        )
-
-    is_valid, errors = validator.validate_semantically(plan)
-
-    if not is_valid:
-        for err in errors:
-            ctx.textual.warning_text(f"  ⚠ {err}")
-        logger.warning("review_plan_validation_failed", errors=errors)
-
-        candidates = ctx.get("review_candidates", [])
-        excluded_files = ctx.get("excluded_review_files", [])
-        strategy = ctx.get("review_strategy")
-        corrected = build_default_review_plan(
-            candidates,
-            excluded_files,
-            checklist,
-            strategy,
-            review_profile=review_profile,
-        )
-        ctx.data["validated_review_plan"] = corrected
-        ctx.textual.warning_text("Plan corrected: using conservative fallback")
-        _show_review_plan_summary(ctx, corrected)
-        ctx.textual.end_step("success")
-        return Success("Review plan corrected (validation issues)", metadata={"validated_review_plan": corrected})
-
-    ctx.data["validated_review_plan"] = plan
-    ctx.textual.success_text("✓ Plan validated")
-    _show_review_plan_validation_summary(ctx, plan)
-    ctx.textual.end_step("success")
-    return Success("Review plan validated", metadata={"validated_review_plan": plan})
-
-
-def _get_review_profile(ctx: WorkflowContext) -> ReviewProfile:
-    """Resolve review profile from workflow managers with cached fallback."""
-    review_profile = ctx.get("review_profile")
-    if review_profile:
-        return review_profile
-    if ctx.github_managers:
-        return ctx.github_managers.review_profile.get_effective_profile()
-    from ..review_profiles import DEFAULT_REVIEW_PROFILE
-
-    return DEFAULT_REVIEW_PROFILE.model_copy(deep=True)
-
-
-def _render_pr_classification(ctx: WorkflowContext, classification: PRClassification) -> None:
-    """Render the classification as one human-readable summary.
-
-    On screen: the size class, the two numbers that explain it, and the signals that
-    change how the review will behave. Scoring internals (complexity score, roles,
-    repeated call sites, machine-composed rationale) go to the debug log — they help
-    diagnose a misclassification, not decide anything during a review.
-    """
-    ctx.textual.success_text(f"✓ PR classified as {classification.size_class.value.upper()}")
-    ctx.textual.dim_text(
-        f"{classification.files_changed} file(s) · "
-        f"{classification.total_lines_changed} changed line(s)"
-    )
-    signals = []
-    if classification.high_signal_files:
-        signals.append(f"{classification.high_signal_files} critical file(s) touched")
-    if classification.is_repetitive_migration:
-        signals.append("repetitive change pattern (many similar call sites)")
-    if classification.active_review:
-        signals.append(f"review already in progress ({classification.comment_threads} thread(s))")
-    if signals:
-        ctx.textual.dim_text("Signals: " + " · ".join(signals))
-    logger.debug(
-        "pr_classification_detail",
-        size_class=classification.size_class.value,
-        complexity_score=classification.complexity_score,
-        roles=classification.roles,
-        repeated_callsite_files=classification.repeated_callsite_files,
-        comment_threads=classification.comment_threads,
-        comment_entries=classification.comment_entries,
-        rationale=classification.rationale,
-    )
-
-
-def _build_review_checklist_preview(ctx: WorkflowContext, checklist: list) -> set[str]:
-    """Build a deterministic preview of checklist categories that look relevant."""
-    candidates = ctx.get("review_candidates", [])
-    review_profile = _get_review_profile(ctx)
-
-    from ..operations.review_profile_operations import select_review_axes
-
-    applicable = select_review_axes(checklist, candidates, review_profile)
-    return {str(item_id) for item_id in applicable}
-
-
-def _render_review_checklist(
-    ctx: WorkflowContext,
-    checklist: list,
-    applicable_preview_ids: set[str],
-) -> None:
-    """Render the resolved checklist with applicable categories emphasized."""
-    applicable_count = sum(1 for item in checklist if str(item.id) in applicable_preview_ids)
-    ctx.textual.success_text(
-        f"✓ {applicable_count} of {len(checklist)} checklist categories look relevant for this PR"
-    )
-    ctx.textual.text(" ")
-    for item in checklist:
-        # Show the human-readable name, not the snake_case category id.
-        label = item.name or str(item.id)
-        if str(item.id) in applicable_preview_ids:
-            ctx.textual.bold_text(label)
-        else:
-            ctx.textual.dim_text(label)
-
-
-def _show_review_context_batches(ctx: WorkflowContext, batches: list) -> None:
-    """Render batch composition for resolved review context."""
-    for batch in batches:
-        file_paths = list(getattr(batch, "files_context", {}).keys())
-        related_count = len(getattr(batch, "related_files", {}) or {})
-        degraded = getattr(batch, "degraded_context", False)
-
-        ctx.textual.text(" ")
-        # Keep the raw batch_id as the label: the findings step references the same
-        # ids ("Reviewing batch_1…", "✓ batch_1 complete"), so the user can correlate.
-        ctx.textual.bold_text(f"{batch.batch_id} · {len(file_paths)} file(s)")
-        if related_count:
-            ctx.textual.dim_text(f"  +{related_count} related file(s) included for context")
-        if degraded:
-            ctx.textual.dim_text("  context reduced to fit the AI prompt size limit")
-        for path in file_paths:
-            ctx.textual.dim_text(f"  {path}")
-
-
-def _render_findings_batch_started(ctx: WorkflowContext, batch) -> None:
-    """Render the start of a findings batch review."""
-    file_paths = list(getattr(batch, "files_context", {}).keys())
-    ctx.textual.text(" ")
-    ctx.textual.bold_text(f"Reviewing {batch.batch_id} ({len(file_paths)} file(s))")
-    for path in file_paths:
-        ctx.textual.dim_text(f"  {path}")
-
-
-def _retry_findings_batch_reformat(
-    adapter, previous_stdout: str, cwd: Optional[str], batch_id: str, structured: bool, effort: Optional[str] = None
-):
-    """Ask the same CLI to reformat its own previous output as a JSON array, without
-    rerunning the full analysis, using a short timeout distinct from the main one."""
-    from ..operations.findings_operations import FINDINGS_DISALLOWED_TOOLS, findings_json_schema, parse_findings_response
-
-    reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
-    schema = findings_json_schema() if structured else None
-    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
-    _log_ai_prompt("ai_review_findings_reformat_retry", adapter.cli_name.value, reformat_prompt, batch_id=batch_id)
-    response = run_interruptible(
-        lambda: adapter.execute(
-            reformat_prompt,
-            cwd=cwd,
-            timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
-            json_schema=schema,
-            disallowed_tools=disallowed_tools,
-            effort=effort if adapter.supports_effort_control else None,
-        )
-    )
-    _log_ai_response(
-        step_name="ai_review_findings_reformat_retry",
-        cli_name=adapter.cli_name.value,
-        stdout=response.stdout,
-        stderr=response.stderr,
-        exit_code=response.exit_code,
-        batch_id=batch_id,
-    )
-    if not response.succeeded:
-        return ClientError(
-            error_message=f"Reformat retry CLI call failed: {_cli_failure_reason(response, adapter.cli_name.value)}",
-            error_code="REFORMAT_RETRY_FAILED",
-            log_level="warning",
-        )
-    return parse_findings_response(response.stdout, structured=structured)
-
-
-def _render_findings_batch_split(ctx: WorkflowContext, batch_id: str, produced_batches: list[str]) -> None:
-    """Render a batch split caused by prompt budget constraints."""
-    ctx.textual.dim_text(
-        f"{batch_id} was too large for one AI call — split into {', '.join(produced_batches)}"
-    )
-
-
-def _render_findings_batch_degraded(ctx: WorkflowContext, batch_id: str) -> None:
-    """Render an in-place context reduction (no new batches) caused by prompt budget constraints."""
-    ctx.textual.dim_text(f"{batch_id} was too large — file context reduced to fit the AI call")
-
-
-def _retry_timed_out_worktree_batch(ctx: WorkflowContext, batch, run, strategy) -> Optional[tuple]:
-    """Retry a timed-out worktree_reference batch once in bounded hunks_only mode.
-
-    Runs on the step thread (UI access is fine). Returns (fallback_batch, outcome)
-    when the retry was executed, or None when no bounded fallback was possible
-    (no hunks, or the fallback prompt itself exceeds the budget) — the caller then
-    keeps the original failed outcome.
-    """
-    from ..operations.findings_operations import (
-        build_findings_prompt_parts,
-        build_timeout_fallback_batch,
-    )
-
-    fallback = build_timeout_fallback_batch(
-        batch, ctx.get("review_diff", ""), diff_manager=ctx.get("review_diff_manager")
-    )
-    if not fallback:
-        return None
-    prompt = build_findings_prompt_parts(fallback)["prompt"]
-    if strategy and len(prompt) > strategy.max_prompt_chars:
-        return None
-
-    ctx.textual.dim_text(
-        f"{batch.batch_id} timed out exploring the worktree — retrying with inline diff hunks only"
-    )
-    logger.info(
-        "findings_batch_timeout_fallback",
-        batch_id=batch.batch_id,
-        fallback_batch_id=fallback.batch_id,
-        prompt_actual_chars=len(prompt),
-    )
-    with ctx.textual.loading(f"Retrying {batch.batch_id} with inline hunks…"):
-        outcome = run((fallback, prompt, None))
-    return fallback, outcome
-
-
-def _render_findings_batch_result(
-    ctx: WorkflowContext,
-    batch_id: str,
-    *,
-    status: str,
-    findings_count: int = 0,
-    detail: str = "",
-) -> None:
-    """Render the outcome of a findings batch review."""
-    if status == "success":
-        ctx.textual.success_text(f"✓ {batch_id} complete · {findings_count} raw finding(s)")
-        return
-
-    message = f"{batch_id} {status}"
-    if detail:
-        message += f" · {detail}"
-    ctx.textual.warning_text(message)
+    parts = path.split("/")
+    name, dirs = parts[-1], parts[:-1]
+    if len(dirs) > keep_dirs + 1:
+        dirs = [dirs[0], "…", *dirs[-keep_dirs:]]
+    return name, "/".join(dirs)
+
+
+def _display_file_label(path: str) -> str:
+    """`Name.kt  app/…/dir` as markup: the name bold, where it lives dimmed."""
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    name, directory = _split_display_path(path)
+    label = f"[bold]{escape_markup(name)}[/bold]"
+    return f"{label}  [dim]{escape_markup(directory)}[/dim]" if directory else label
 
 
 def _attach_content_provider(diff_manager, root: Optional[str]) -> None:
@@ -2073,276 +1453,266 @@ def _attach_content_provider(diff_manager, root: Optional[str]) -> None:
     if diff_manager is None or not root:
         return
 
-    from ..operations.context_resolution_operations import read_file_content
+    from ..operations.review_material_operations import read_file_content
 
     diff_manager.attach_content_provider(lambda path: read_file_content(path, root))
 
 
-def _resolve_file_read_access(ctx: WorkflowContext, worktree_path: Optional[str]):
+def _write_review_material(
+    ctx: WorkflowContext,
+    worktree_path: str,
+    manifest,
+    diff_manager,
+    threads: list,
+    general_comments: list,
+) -> Optional[dict]:
+    """Write the review's material into the worktree; map each changed path to whether its
+    base version exists. None when it could not be written.
+
+    The base is the merge base of the PR head and its base branch: the commit GitHub's diff
+    is computed against, so the base versions are exactly the "before" of that diff.
     """
-    Decide whether files on disk may be used as this PR's code.
-
-    Worktree creation is allowed to fail in the workflow, and the fallback root is the
-    user's own checkout — which is usually on a different branch. Query its HEAD and
-    dirty state so the decision is made on facts rather than assumed.
-    """
-    from ..operations.context_resolution_operations import resolve_file_read_access
-
-    if worktree_path:
-        return resolve_file_read_access(worktree_path)
-
-    head_sha = ctx.data.get("review_commit_sha")
-    checkout_sha = None
-    checkout_dirty = None
-
-    if ctx.git:
-        match ctx.git.get_current_commit():
-            case ClientSuccess(data=sha):
-                checkout_sha = (sha or "").strip()
-            case ClientError(error_message=err):
-                logger.debug("checkout_sha_unavailable", error=err)
-
-        match ctx.git.has_uncommitted_changes():
-            case ClientSuccess(data=dirty):
-                checkout_dirty = dirty
-            case ClientError(error_message=err):
-                logger.debug("checkout_dirty_state_unavailable", error=err)
-
-    access = resolve_file_read_access(
-        worktree_path=None,
-        head_sha=head_sha,
-        checkout_sha=checkout_sha,
-        checkout_dirty=checkout_dirty,
+    from ..operations.review_material_operations import (
+        PR_FILE,
+        WHOLE_DIFF_FILE,
+        base_file_path,
+        diff_file_path,
+        prepare_material_dir,
+        diff_unavailable,
+        render_file_diff,
+        render_pr_file,
+        safe_material_target,
     )
-    logger.debug(
-        "file_read_access_resolved",
-        allowed=access.allowed,
-        source=access.source,
-        reason=access.reason,
+
+    pr = manifest.pr
+    if not ctx.git or not pr or diff_manager is None:
+        return None
+    head_ref = review_head_ref(pr.number)
+    base_ref = review_base_ref(pr.number)
+    match ctx.git.fetch_refspec(ctx.git.default_remote, f"+refs/heads/{pr.base}:{base_ref}"):
+        case ClientError(error_message=err):
+            logger.warning("review_material_base_fetch_failed", base=pr.base, error=err)
+            return None
+        case _:
+            pass
+    match ctx.git.get_merge_base(head_ref, base_ref):
+        case ClientSuccess(data=merge_base):
+            pass
+        case ClientError(error_message=err):
+            logger.warning("review_material_merge_base_failed", error=err)
+            return None
+
+    root = Path(worktree_path)
+    has_base: dict[str, bool] = {}
+    whole_diff: list[str] = []
+    no_diff = 0
+    try:
+        prepare_material_dir(root)
+        for entry in manifest.files:
+            hunks = diff_manager.get_hunk_texts(entry.path)
+            unavailable = diff_unavailable(hunks, entry.additions, entry.deletions)
+            if unavailable:
+                no_diff += 1
+            rendered = render_file_diff(entry.path, hunks, unavailable=unavailable)
+            whole_diff.append(rendered)
+            target = safe_material_target(root, diff_file_path(entry.path))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(rendered)
+            match ctx.git.get_file_at_ref(merge_base, entry.previous_path or entry.path):
+                case ClientSuccess(data=str() as content):
+                    base_target = safe_material_target(root, base_file_path(entry.path))
+                    base_target.parent.mkdir(parents=True, exist_ok=True)
+                    base_target.write_text(content)
+                    has_base[entry.path] = True
+                case _:
+                    has_base[entry.path] = False
+        safe_material_target(root, WHOLE_DIFF_FILE).write_text("\n".join(whole_diff))
+        safe_material_target(root, PR_FILE).write_text(render_pr_file(pr, threads, general_comments, merge_base))
+    except OSError as exc:
+        logger.warning("review_material_not_written", error=str(exc))
+        return None
+
+    logger.info(
+        "review_material_written",
+        files=len(has_base),
+        base_versions=sum(has_base.values()),
+        diff_unavailable=no_diff,
+        threads=len(threads),
+        general_comments=len(general_comments),
+        merge_base=merge_base,
     )
-    return access
+    return has_base
 
 
-def resolve_review_context(ctx: WorkflowContext) -> WorkflowResult:
+def write_review_material(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Fetch the exact code context according to the validated review plan.
+    Put what the review would otherwise fetch into the PR worktree, as files.
 
-    For each file in the plan, extracts code using the chosen read_mode:
-    - hunks_only: diff hunks as-is (already has 20 lines of context)
-    - expanded_hunks: hunks + extra surrounding lines from the actual file
-    - full_file: reads the complete file from disk
+    `.titan-review/pr.md` (description and every review comment), `pr.diff` (the whole
+    diff), `diffs/<path>.diff` (each file's, lines labelled and numbered) and
+    `base/<path>` (each changed file before the PR). The session opens them as it needs
+    them; none of it goes in the prompt, which is re-read on every turn.
 
-    Also resolves any extra context requests (related_tests, related_context).
+    A worktree is required: the review reads the PR's code there.
 
-    Requires (from ctx.data):
-        validated_review_plan (ReviewPlan)
+    Inputs (from ctx.data):
         change_manifest (ChangeManifest)
-        review_diff (str)
-        existing_comments_index (List[ExistingCommentIndexEntry])
-        review_checklist (List[ReviewChecklistItem])
+        review_diff_manager (DiffContextManager)
+        review_threads, review_general_comments (List[UICommentThread])
+        worktree_path (str)
 
     Outputs (saved to ctx.data):
-        review_context_package (ReviewContextPackage)
+        review_material (dict[str, bool]): each changed path -> whether it has a base version
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("Resolve Review Context")
+    from ..operations.review_material_operations import diff_unavailable
 
-    plan = ctx.get("validated_review_plan")
+    ctx.textual.begin_step("Write Review Material")
+
     manifest = ctx.get("change_manifest")
-    diff = ctx.get("review_diff", "")
-    comment_context = ctx.get("comment_review_context", [])
-    checklist = ctx.get("review_checklist", [])
-    strategy = ctx.get("review_strategy")
     worktree_path = ctx.data.get("worktree_path")
-    project_root = worktree_path or ctx.data.get("project_root")
-
-    if not plan or not manifest or not strategy:
-        ctx.textual.error_text("Missing validated_review_plan, change_manifest or review_strategy in context")
+    if not manifest:
+        ctx.textual.error_text("No change manifest in context")
         ctx.textual.end_step("error")
-        return Error("Missing validated_review_plan, change_manifest or review_strategy in context")
-
-    if not diff:
-        ctx.textual.error_text("No diff in context (run fetch_pr_review_bundle first)")
-        ctx.textual.end_step("error")
-        return Error("No diff in context (run fetch_pr_review_bundle first)")
-
-    from ..operations.context_resolution_operations import build_review_context_package
-    diff_manager = ctx.get("review_diff_manager")
-
-    read_access = _resolve_file_read_access(ctx, worktree_path)
-    if read_access.allowed:
-        ctx.textual.dim_text(f"Reading files from {read_access.source} ({read_access.reason})")
-        # Same verified root powers the comment-rendering path, so a finding about
-        # pre-existing code can show that code instead of nothing.
-        _attach_content_provider(diff_manager, project_root)
-    else:
-        ctx.textual.warning_text(
-            f"Reviewing from the diff only — {read_access.reason}. "
-            "Full-file and expanded-hunk context are disabled to avoid mixing revisions."
+        return Error("No change manifest in context")
+    if not worktree_path:
+        message = (
+            "No review worktree: the review reads the PR checked out in one. "
+            "Check the Create Worktree step above."
         )
-
-    try:
-        with ctx.textual.loading("Extracting code context…"):
-            package = build_review_context_package(
-                plan=plan,
-                diff=diff,
-                manifest=manifest,
-                checklist=checklist,
-                comment_context=comment_context,
-                strategy=strategy,
-                cwd=project_root,
-                diff_manager=diff_manager,
-                allow_file_reads=read_access.allowed,
-            )
-    except Exception as e:
-        ctx.textual.error_text(f"Failed to resolve review context: {e}")
+        ctx.textual.error_text(message)
         ctx.textual.end_step("error")
-        return Error(f"Failed to resolve review context: {e}")
+        return Error(message)
 
-    ctx.data["review_context_package"] = package
-    ctx.data["review_context_batches"] = package.batches
-    ctx.data["review_file_reads_allowed"] = read_access.allowed
+    diff_manager = ctx.get("review_diff_manager")
+    # The same root powers the comment-rendering path, so a finding about pre-existing
+    # code can show that code instead of nothing.
+    _attach_content_provider(diff_manager, worktree_path)
 
-    batch_count = len(package.batches)
-    files_count = sum(len(batch.files_context) for batch in package.batches)
-    related_count = sum(len(batch.related_files) for batch in package.batches)
+    material = _write_review_material(
+        ctx,
+        worktree_path,
+        manifest,
+        diff_manager,
+        ctx.get("review_threads", []) or [],
+        ctx.get("review_general_comments", []) or [],
+    )
+    if material is None:
+        message = "The review material could not be written into the worktree (see the log)."
+        ctx.textual.error_text(message)
+        ctx.textual.end_step("error")
+        return Error(message)
 
     ctx.textual.success_text(
-        f"✓ Context: {files_count} focus file(s) in {batch_count} batch(es)"
-        + (f" · {related_count} related file(s)" if related_count else "")
+        f"✓ {len(material)} diffs, {sum(material.values())} base versions, "
+        f"the PR and its comments in .titan-review/"
     )
-    logger.info(
-        "review_context_summary",
-        comments_in_context=sum(len(batch.comment_context) for batch in package.batches),
+    missing = sum(
+        diff_unavailable(diff_manager.get_hunk_texts(e.path), e.additions, e.deletions)
+        for e in manifest.files
     )
-    _show_review_context_batches(ctx, package.batches)
+    if missing:
+        ctx.textual.warning_text(
+            f"{missing} file(s) have no diff available (marked 'read the file' for the session)"
+        )
     ctx.textual.end_step("success")
-    return Success(
-        "Review context resolved",
-        metadata={
-            "review_context_package": package,
-            "review_context_batches": package.batches,
-            "review_file_reads_allowed": read_access.allowed,
-        },
+    return Success("Review material written", metadata={"review_material": material})
+
+
+def _repo_file_checker(project_root: Optional[str]):
+    """A predicate for "this relative path is a real file in the reviewed tree", or None.
+
+    Resolved and required to stay under the root, so a model's `../../etc/passwd`
+    cannot be dressed up as a repository file.
+    """
+    if not project_root:
+        return None
+    root = Path(project_root).resolve()
+
+    def _is_repo_file(relative: str) -> bool:
+        if not relative or Path(relative).is_absolute():
+            return False
+        candidate = (root / relative).resolve()
+        return candidate.is_relative_to(root) and candidate.is_file()
+
+    return _is_repo_file
+
+
+def _highlight_inline_code(text: str) -> str:
+    """`code` spans from a model's prose -> bold, so identifiers stand out on screen."""
+    return re.sub(r"`([^`\n]+)`", r"[bold]\1[/bold]", text)
+
+
+def _review_tool_options(adapter) -> dict:
+    """The tool, effort and spending options this adapter can enforce on the session."""
+    from ..operations.findings_operations import (
+        REVIEW_ALLOWED_TOOLS,
+        REVIEW_DISALLOWED_TOOLS,
+        REVIEW_EFFORT,
+        REVIEW_MAX_BUDGET_USD,
     )
 
+    restrict = adapter.supports_tool_restriction
+    disallowed = list(REVIEW_DISALLOWED_TOOLS)
+    if not adapter.supports_subagents:
+        # The prompt does not offer subagents to this CLI, so the session must not spawn
+        # them unverified either (grok turns this into --no-subagents).
+        disallowed.append("Agent")
+    return {
+        "disallowed_tools": disallowed if restrict else None,
+        "allowed_tools": list(REVIEW_ALLOWED_TOOLS) if restrict else None,
+        "effort": REVIEW_EFFORT if adapter.supports_effort_control else None,
+        "max_budget_usd": REVIEW_MAX_BUDGET_USD,
+    }
 
-# ============================================================================
-# PHASE 4: TARGETED REVIEW (Second AI Call)
-# ============================================================================
 
+def _retry_review_reformat(adapter, previous_stdout: str, cwd: Optional[str], structured: bool):
+    """Ask the same CLI to reformat its own previous answer, without reviewing again."""
+    from ..operations.findings_operations import free_review_json_schema, parse_findings_response
 
-def _execute_findings_batch(
-    adapter,
-    batch,
-    prompt: str,
-    *,
-    project_root: Optional[str],
-    findings_schema: Optional[dict],
-    disallowed_tools: Optional[list],
-    effort: Optional[str],
-    use_structured_output: bool,
-    strategy_name: Optional[str],
-) -> dict:
-    """Run one findings batch end-to-end: CLI call, parse, reformat retry.
-
-    Runs inside a worker thread when batches execute concurrently, so it must not
-    touch `ctx`/the UI — it returns an outcome dict the step thread renders:
-    {"status": "success" | "failed", "raw": list | None, "detail": str}.
-    """
-    from ..operations.findings_operations import parse_findings_response
-
-    adapter_started_at = time.monotonic()
-    # run_interruptible here also covers the pooled path: on app exit each worker
-    # raises WorkflowAborted, its future completes, and the step thread's
-    # future.result() re-raises it instead of blocking on a live CLI call.
+    reformat_prompt = build_json_reformat_prompt(previous_stdout, kind="array")
+    _log_ai_prompt("ai_review_findings_reformat_retry", adapter.cli_name.value, reformat_prompt)
     response = run_interruptible(
         lambda: adapter.execute(
-            prompt,
-            cwd=project_root,
-            timeout=300,
-            json_schema=findings_schema,
-            disallowed_tools=disallowed_tools,
-            effort=effort,
+            reformat_prompt,
+            cwd=cwd,
+            timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
+            json_schema=free_review_json_schema() if structured else None,
+            **_review_tool_options(adapter),
         )
     )
-    adapter_duration_seconds = time.monotonic() - adapter_started_at
-    worktree_reference_count = sum(
-        1 for entry in batch.files_context.values() if entry.worktree_reference
-    )
-    logger.info(
-        "findings_batch_adapter_call",
-        batch_id=batch.batch_id,
-        cli=adapter.cli_name.value,
-        files_context=len(batch.files_context),
-        worktree_reference_count=worktree_reference_count,
-        prompt_actual_chars=len(prompt),
-        duration_seconds=round(adapter_duration_seconds, 3),
-        exit_code=response.exit_code,
-        timed_out=response.exit_code == 124,
-        quota_exhausted=response.quota_exhausted,
-        structured_output=use_structured_output,
-        effort=effort,
-    )
     _log_ai_response(
-        step_name="ai_review_findings",
+        step_name="ai_review_findings_reformat_retry",
         cli_name=adapter.cli_name.value,
         stdout=response.stdout,
         stderr=response.stderr,
         exit_code=response.exit_code,
-        batch_id=batch.batch_id,
-        files_context=len(batch.files_context),
-        related_files=len(batch.related_files),
-        checklist_items=len(batch.checklist_applicable),
-        comment_entries=len(batch.comment_context),
-        strategy=strategy_name,
     )
-
     if not response.succeeded:
-        reason = _cli_failure_reason(response, adapter.cli_name.value)
-        logger.debug(
-            "findings_batch_failed",
-            batch_id=batch.batch_id,
-            exit_code=response.exit_code,
-            quota_exhausted=response.quota_exhausted,
-            reason=reason,
+        return ClientError(
+            error_message=f"Reformat retry failed: {_cli_failure_reason(response, adapter.cli_name.value)}",
+            error_code="REFORMAT_RETRY_FAILED",
+            log_level="warning",
         )
-        return {
-            "status": "failed",
-            "raw": None,
-            "detail": reason,
-            "timed_out": response.exit_code == 124,
-        }
+    return parse_findings_response(response.stdout, structured=structured)
 
-    match parse_findings_response(response.stdout, structured=use_structured_output):
-        case ClientSuccess(data=raw) if isinstance(raw, list):
-            return {"status": "success", "raw": raw, "detail": ""}
-        case ClientSuccess(data=raw):
-            # A structured success whose payload isn't a findings list (e.g. a dict)
-            # must not vanish silently — treat it like any other parse failure.
-            parse_error = f"non-list findings payload ({type(raw).__name__})"
-        case ClientError(error_message=err):
-            parse_error = err
 
-    logger.debug("findings_batch_parse_failed", batch_id=batch.batch_id, error=parse_error)
-    match _retry_findings_batch_reformat(
-        adapter, response.stdout, project_root, batch.batch_id, use_structured_output, effort
-    ):
-        case ClientSuccess(data=raw) if isinstance(raw, list):
-            logger.debug(
-                "findings_batch_reformat_recovered",
-                batch_id=batch.batch_id,
-                findings_count=len(raw),
-            )
-            return {"status": "success", "raw": raw, "detail": ""}
-        case _:
-            logger.debug("findings_batch_reformat_failed", batch_id=batch.batch_id)
-            return {"status": "failed", "raw": None, "detail": "parse error"}
+def _render_rejected_paths(ctx: WorkflowContext, rejected: list[dict]) -> None:
+    """Name every finding dropped because its file does not exist in the reviewed tree."""
+    from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
+
+    ctx.textual.text(" ")
+    ctx.textual.warning_text(f"Discarded {len(rejected)} finding(s) about files that do not exist:")
+    for item in rejected:
+        ctx.textual.text(f"  {_display_file_label(item.get('path', ''))}")
+        if item.get("title"):
+            ctx.textual.text(f"  ↳ {_highlight_inline_code(escape_markup(item['title']))}")
 
 
 @declare_ai_usage(
@@ -2351,492 +1721,181 @@ def _execute_findings_batch(
     enforces=True,
 )
 def ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """Run the review session, and report its cost even if it is abandoned.
+
+    The wrapper exists for the `finally`: the session is where a review spends almost
+    everything, and an interrupted run is exactly when the user wants to know what it
+    cost. `WorkflowAborted` is a `BaseException`, so `finally` still runs on it.
+
+    Inputs (from ctx.data):
+        change_manifest (ChangeManifest)
+        worktree_path (str): with the material `write_review_material` left in it
+
+    Outputs (saved to ctx.data):
+        raw_findings (list): the session's findings, mapped onto `Finding`'s fields
+        ai_findings_failed (bool): True when no review happened
+
+    Returns:
+        Success: With the raw findings, or with none when AI is off for the task.
+        Error: If the session could not run or produced nothing readable.
     """
-    Second AI call: find actionable problems in the exact code context.
+    try:
+        return _ai_review_findings(ctx)
+    finally:
+        log_review_ai_cost(ctx, scope="findings_phase")
 
-    Sends the ReviewContextPackage (exact file content + applicable checklist +
-    existing comments) to the selected headless CLI. The AI reviews only the
-    code it was specifically directed to read in the planning phase.
 
-    On parse failure or CLI error a batch is retried (reformat) and then marked
-    failed. If every batch fails, the step returns Error — an empty result caused
-    by total AI failure must not look like a clean review — while still publishing
-    empty raw_findings so downstream steps run via the workflow's on_error: continue.
+def _fail_review(ctx: WorkflowContext, reason: str) -> WorkflowResult:
+    """No review happened: say so, and publish empty findings for the steps after."""
+    from ..operations.findings_operations import build_default_findings
 
-    When ReviewProfile.findings_synthesis_enabled is on and the PR touches more than
-    one focus file, one extra best-effort cross-file synthesis batch (all hunks
-    together, hunks_only) runs after the per-file batches; its findings are deduped
-    against theirs before aggregation.
+    ctx.data["raw_findings"] = build_default_findings()
+    ctx.data["ai_findings_failed"] = True
+    logger.error("review_session_failed", reason=reason)
+    ctx.textual.error_text(f"{reason} — no code was reviewed. Do not treat this as a clean review.")
+    ctx.textual.end_step("error")
+    return Error(f"Review failed: {reason}")
+
+
+def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    The review: one free-form session of the configured CLI in the PR worktree.
+
+    The CLI reviews the PR as it would if a user asked it to -- its own tools, subagents
+    for a large PR, read-only git -- with the material `write_review_material` left in
+    the worktree. Titan prescribes no procedure; it asks only for the answer's shape, and
+    everything after (dedupe, anchoring, approval, publishing) is Titan's.
 
     Which CLI runs it comes from the `code_review_findings` task preference
     (AI Configuration screen), not from the workflow.
 
-    Requires (from ctx.data):
-        review_context_package (ReviewContextPackage)
+    Inputs (from ctx.data):
+        change_manifest (ChangeManifest)
+        worktree_path (str)
 
     Outputs (saved to ctx.data):
-        raw_findings (list | str): Raw AI output before normalization
+        raw_findings (list): the session's findings, mapped onto `Finding`'s fields
+        ai_findings_failed (bool)
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
-    ctx.textual.begin_step("AI Review Findings")
-
-    batches = ctx.get("review_context_batches")
-    strategy = ctx.get("review_strategy")
-    project_root = ctx.data.get("worktree_path") or ctx.data.get("project_root")
-
-    if not batches:
-        ctx.textual.error_text("No review_context_batches in context (run resolve_review_context first)")
-        ctx.textual.end_step("error")
-        return Error("No review_context_batches in context (run resolve_review_context first)")
+    ctx.textual.begin_step("Review")
+    # Failed until the session's answer is in: an exception anywhere below must not leave
+    # the publishing step presenting an unreviewed PR as clean.
+    ctx.data["ai_findings_failed"] = True
 
     from ..operations.findings_operations import (
-        FINDINGS_DISALLOWED_TOOLS,
-        FINDINGS_WORKTREE_REFERENCE_EFFORT,
+        REVIEW_TIMEOUT_SECONDS,
         build_default_findings,
-        build_findings_prompt_parts,
-        findings_json_schema,
-        summarize_findings_prompt_parts,
+        build_free_review_prompt,
+        free_review_json_schema,
+        parse_findings_response,
+        partition_findings_by_path,
+        to_finding_payload,
     )
 
-    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_findings)
+    manifest = ctx.get("change_manifest")
+    worktree_path = ctx.data.get("worktree_path")
+    if not manifest or not manifest.pr or not worktree_path:
+        return _fail_review(ctx, "No change manifest or review worktree in context")
 
+    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_findings)
     if not adapter:
         reason = route_note or "No headless CLI available"
-        ctx.data["raw_findings"] = build_default_findings()
         if ai_off:
-            # The user turned AI off for this task: nothing failed — nothing was
-            # meant to run. Downstream reads ai_findings_failed, and it must be
-            # explicitly False here.
-            ctx.textual.warning_text(f"{reason} — skipping AI findings")
-            ctx.data["ai_findings_failed"] = False
+            # The user turned AI off for this task: nothing failed, nothing was meant to run.
+            ctx.textual.warning_text(f"{reason} — skipping the review")
             ctx.textual.end_step("success")
             return Success(
                 "No findings (AI is off for this task)",
-                metadata={"raw_findings": [], "ai_findings_failed": False},
+                metadata={"raw_findings": build_default_findings(), "ai_findings_failed": False},
             )
-        # Routing failure (no CLI configured, not installed, wrong provider): the AI
-        # never ran, so an empty result must not look like a clean review — same
-        # contract as the all-batches-failed exit below. Empty findings are still
-        # published so downstream steps run via on_error: continue.
-        ctx.data["ai_findings_failed"] = True
-        ctx.textual.error_text(
-            f"{reason} — AI findings could not run. No code was reviewed."
-        )
-        ctx.textual.end_step("error")
-        return Error(f"AI findings could not run: {reason}")
+        return _fail_review(ctx, f"{reason} — the review could not run")
 
     _announce_review_adapter(ctx, adapter)
 
-    # Structured output forces the CLI to return findings via a schema-validated tool
-    # call instead of relying on the model to follow a "respond only with JSON" prompt
-    # instruction, which models frequently ignore in favor of a prose summary.
-    use_structured_output = adapter.supports_structured_output
-    findings_schema = findings_json_schema() if use_structured_output else None
-    # Removes Bash (and other unneeded tools) from the CLI's own session so it can't explore
-    # far beyond the batch's worktree_reference files (D-011/O-003) — Read/Grep/Glob stay
-    # available for the legitimate cross-file lookups the worktree_reference hint permits.
-    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
-    cli_display = adapter.cli_name.value.capitalize()
-    aggregated_raw = []
-    findings_failed = False
-    batches_attempted = 0
-    batches_succeeded = 0
-    # Distinct reasons the batches gave, in first-seen order. Without these the
-    # step reports "0/N batches produced output" and the actual cause — a spent
-    # quota, a timeout, a missing binary — is only recoverable by correlating
-    # debug lines from the same second.
-    batch_failure_reasons: list[str] = []
-    # Paths whose batch actually produced output — a failed/skipped batch's files were
-    # NOT reviewed, and downstream passes (synthesis) must not claim they were.
-    reviewed_paths: set[str] = set()
-    batch_queue = list(batches)
-    ctx.textual.dim_text(f"Reviewing {len(batch_queue)} batch(es) with {cli_display}")
+    # A schema makes the CLI return its findings through a validated tool call instead of
+    # trusting a "respond only with JSON" instruction a model may ignore after a long session.
+    structured = adapter.supports_structured_output
+    options = _review_tool_options(adapter)
+    pr = manifest.pr
+    prompt = build_free_review_prompt(
+        pr.number,
+        pr.title,
+        pr.head,
+        pr.base,
+        worktree_path,
+        use_subagents=adapter.supports_subagents,
+    )
+    cli = adapter.cli_name.value
+    _log_ai_prompt("ai_review_findings", cli, prompt, files=len(manifest.files))
 
-    # Phase 1 — budget fitting stays sequential and deterministic: splits/degradations
-    # requeue, so the set of ready-to-execute batches isn't known until this loop
-    # reaches a fixpoint. No AI calls happen here.
-    ready: list[tuple] = []  # (batch, prompt, effort)
-    while batch_queue:
-        batch = batch_queue.pop(0)
-        prompt_parts = build_findings_prompt_parts(batch)
-        prompt = prompt_parts["prompt"]
-        fitted_batches, changed = get_prompt_budget_manager().fit_batch_to_budget(
-            batch,
-            prompt_parts,
-            strategy.max_prompt_chars,
-            allow_file_reads=ctx.data.get("review_file_reads_allowed", True),
-        )
-        if changed:
-            logger.debug(
-                "findings_batch_rebalanced",
-                original_batch_id=batch.batch_id,
-                produced_batches=[candidate.batch_id for candidate in fitted_batches],
-                prompt_actual_chars=len(prompt),
-                prompt_budget_target_chars=strategy.max_prompt_chars,
+    started_at = time.monotonic()
+    with ctx.textual.loading(f"{cli.capitalize()} is reviewing the PR…"):
+        response = run_interruptible(
+            lambda: adapter.execute(
+                prompt,
+                cwd=worktree_path,
+                timeout=REVIEW_TIMEOUT_SECONDS,
+                json_schema=free_review_json_schema() if structured else None,
+                **options,
             )
-            is_actual_split = len(fitted_batches) > 1 or fitted_batches[0].batch_id != batch.batch_id
-            if is_actual_split:
-                _render_findings_batch_split(
-                    ctx,
-                    batch.batch_id,
-                    [candidate.batch_id for candidate in fitted_batches],
-                )
-            else:
-                _render_findings_batch_degraded(ctx, batch.batch_id)
-            batch_queue = fitted_batches + batch_queue
-            continue
-
-        batch = fitted_batches[0]
-        batches_attempted += 1
-        prompt_parts = build_findings_prompt_parts(batch)
-        prompt = prompt_parts["prompt"]
-        prompt_breakdown = summarize_findings_prompt_parts(prompt_parts)
-        _log_ai_prompt(
-            step_name="ai_review_findings",
-            cli_name=adapter.cli_name.value,
-            prompt=prompt,
-            batch_id=batch.batch_id,
-            files_context=len(batch.files_context),
-            related_files=len(batch.related_files),
-            checklist_items=len(batch.checklist_applicable),
-            comment_entries=len(batch.comment_context),
-            strategy=str(strategy.strategy) if strategy else None,
-            prompt_budget_target_chars=strategy.max_prompt_chars,
-            prompt_actual_chars=len(prompt),
-            prompt_still_too_large=batch.prompt_still_too_large,
-            degraded_context=batch.degraded_context,
-            **prompt_breakdown,
         )
-        if len(prompt) > strategy.max_prompt_chars:
-            findings_failed = True
-            logger.error(
-                "findings_batch_over_budget",
-                batch_id=batch.batch_id,
-                prompt_budget_target_chars=strategy.max_prompt_chars,
-                prompt_actual_chars=len(prompt),
-            )
-            skipped_paths = ", ".join(sorted(batch.files_context)) or "unknown files"
-            ctx.textual.warning_text(
-                f"⚠ {batch.batch_id} skipped — too large even after reduction. "
-                f"NOT reviewed: {skipped_paths}"
-            )
-            continue
-        worktree_reference_count = sum(
-            1 for entry in batch.files_context.values() if entry.worktree_reference
-        )
-        # A worktree_reference batch is the one shape shown to reliably drive O-003's
-        # duration/timeout problem (D-011) — capping effort only here, not on every batch,
-        # leaves batches that already complete quickly untouched.
-        effort = (
-            FINDINGS_WORKTREE_REFERENCE_EFFORT
-            if worktree_reference_count and adapter.supports_effort_control
-            else None
-        )
-        _render_findings_batch_started(ctx, batch)
-        ready.append((batch, prompt, effort))
+    logger.info(
+        "review_session",
+        cli=cli,
+        files=len(manifest.files),
+        duration_seconds=round(time.monotonic() - started_at, 3),
+        timeout_seconds=REVIEW_TIMEOUT_SECONDS,
+        exit_code=response.exit_code,
+        timed_out=response.exit_code == 124,
+        structured_output=structured,
+        **{key: value for key, value in options.items() if value is not None},
+    )
+    _log_ai_response(
+        step_name="ai_review_findings",
+        cli_name=cli,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+    )
+    _log_session_activity(cli, response.activity)
+    if not response.succeeded:
+        return _fail_review(ctx, _cli_failure_reason(response, cli))
 
-    # Phase 2 — execute ready batches through a small worker pool. Adapter calls are
-    # independent subprocesses, so the only sequential cost was the loop itself
-    # (real baseline: 307s wall for 6 batches, PR #3596). Workers never touch the UI;
-    # results render here, on the step thread, as each batch completes.
-    def _run(entry: tuple) -> dict:
-        entry_batch, entry_prompt, entry_effort = entry
-        try:
-            return _execute_findings_batch(
-                adapter,
-                entry_batch,
-                entry_prompt,
-                project_root=project_root,
-                findings_schema=findings_schema,
-                disallowed_tools=disallowed_tools,
-                effort=entry_effort,
-                use_structured_output=use_structured_output,
-                strategy_name=str(strategy.strategy) if strategy else None,
-            )
-        except Exception as exc:
-            logger.error("findings_batch_crashed", batch_id=entry_batch.batch_id, error=str(exc))
-            return {"status": "failed", "raw": None, "detail": f"adapter error: {exc}"}
+    match parse_findings_response(response.stdout, structured=structured):
+        case ClientSuccess(data=list() as raw):
+            pass
+        case _:
+            match _retry_review_reformat(adapter, response.stdout, worktree_path, structured):
+                case ClientSuccess(data=list() as raw):
+                    pass
+                case _:
+                    return _fail_review(ctx, "the review's answer could not be read")
 
-    if ready:
-        pool_size = min(
-            max(1, _get_review_profile(ctx).findings_batch_concurrency), len(ready)
-        )
-        with ctx.textual.loading(
-            f"Asking {cli_display} to review {len(ready)} batch(es)"
-            + (f" ({pool_size} in parallel)…" if pool_size > 1 else "…")
-        ):
-            if pool_size == 1:
-                completed = ((entry[0], _run(entry)) for entry in ready)
-                outcomes = list(completed)
-            else:
-                from concurrent.futures import ThreadPoolExecutor, as_completed
+    # Kept whole in the debug log: the response log keeps only its edges, and a run has
+    # to be auditable from its own log.
+    logger.debug("review_findings_parsed", findings_count=len(raw), findings=raw)
+    kept, rejected = partition_findings_by_path(
+        raw, {entry.path for entry in manifest.files}, _repo_file_checker(worktree_path)
+    )
+    if rejected:
+        logger.warning("review_findings_unknown_path", dropped=len(rejected), rejected=rejected)
 
-                with ThreadPoolExecutor(max_workers=pool_size) as executor:
-                    future_to_batch = {executor.submit(_run, entry): entry[0] for entry in ready}
-                    outcomes = [
-                        (future_to_batch[future], future.result())
-                        for future in as_completed(future_to_batch)
-                    ]
-
-        for batch, outcome in outcomes:
-            if (
-                outcome["status"] == "failed"
-                and outcome.get("timed_out")
-                and any(entry.worktree_reference for entry in batch.files_context.values())
-            ):
-                # A timed-out worktree_reference batch means the CLI spent the whole
-                # budget exploring a (usually huge) file and reviewed NOTHING. One
-                # bounded retry with inline hunks trades depth for guaranteed
-                # coverage of the batch's files.
-                retried = _retry_timed_out_worktree_batch(ctx, batch, _run, strategy)
-                if retried:
-                    batch, outcome = retried
-            if outcome["status"] == "success":
-                batches_succeeded += 1
-                reviewed_paths.update(batch.files_context)
-                aggregated_raw.extend(outcome["raw"])
-                _render_findings_batch_result(
-                    ctx,
-                    batch.batch_id,
-                    status="success",
-                    findings_count=len(outcome["raw"]),
-                )
-            else:
-                findings_failed = True
-                reason = outcome.get("detail")
-                if reason and reason not in batch_failure_reasons:
-                    batch_failure_reasons.append(reason)
-                _render_findings_batch_result(
-                    ctx,
-                    batch.batch_id,
-                    status="failed",
-                    detail=outcome["detail"],
-                )
-
-    if batches_attempted and not batches_succeeded:
-        # Every batch failed or was skipped: an "empty" review here means the AI never
-        # ran, not that the code is clean. Publish empty findings so downstream steps
-        # (and the worktree cleanup) still run via on_error: continue, but fail the step
-        # visibly instead of masquerading as a clean review.
-        ctx.data["raw_findings"] = build_default_findings()
-        ctx.data["ai_findings_failed"] = True
-        why = "; ".join(batch_failure_reasons) if batch_failure_reasons else ""
-        logger.error(
-            "findings_all_batches_failed",
-            batches_attempted=batches_attempted,
-            reasons=batch_failure_reasons,
-            reason=why or None,
-        )
-        ctx.textual.error_text(
-            f"AI findings failed: 0 of {batches_attempted} batch(es) produced output"
-            + (f" — {why}. " if why else ". ")
-            + "No code was reviewed — do not treat this as a clean review."
-        )
-        ctx.textual.end_step("error")
-        return Error(
-            f"AI findings failed: 0/{batches_attempted} batches produced output"
-            + (f" — {why}" if why else "")
-        )
-
-    if not aggregated_raw and strategy and strategy.suspicious_empty_findings:
-        # Empty review on a PR the strategy flagged as suspicious-if-empty: instead of
-        # only noting that borderline files went unreviewed, run ONE rescue batch over
-        # up to 2 of them (hunks_only, budget-respecting). Rescue findings are the
-        # signal that the main candidate selection was too aggressive.
-        from ..operations.findings_operations import build_empty_findings_rescue_batch
-
-        candidates = ctx.get("review_candidates", [])
-        # "Already reviewed" means a batch actually PRODUCED output for the path — a
-        # failed/skipped batch's files are as unreviewed as any borderline candidate.
-        borderline_paths = [
-            candidate.path for candidate in candidates if candidate.path not in reviewed_paths
-        ]
-        rescue_batch = (
-            build_empty_findings_rescue_batch(
-                borderline_paths,
-                ctx.get("review_diff", ""),
-                ctx.get("review_checklist", []),
-                batches[0].pr_manifest if batches else None,
-                diff_manager=ctx.get("review_diff_manager"),
-                comment_context=ctx.get("comment_review_context", []),
-            )
-            if borderline_paths
-            else None
-        )
-        if rescue_batch:
-            rescue_prompt = build_findings_prompt_parts(rescue_batch)["prompt"]
-            if len(rescue_prompt) > strategy.max_prompt_chars:
-                logger.debug(
-                    "rescue_batch_over_budget",
-                    prompt_actual_chars=len(rescue_prompt),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
-                )
-                ctx.textual.dim_text(
-                    "No findings from main batches; borderline files remain unreviewed (rescue over budget)."
-                )
-            else:
-                ctx.textual.dim_text(
-                    f"No findings from main batches — reviewing {len(rescue_batch.files_context)} "
-                    "borderline file(s) as a rescue batch."
-                )
-                _log_ai_prompt(
-                    step_name="ai_review_findings",
-                    cli_name=adapter.cli_name.value,
-                    prompt=rescue_prompt,
-                    batch_id=rescue_batch.batch_id,
-                    files_context=len(rescue_batch.files_context),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
-                    prompt_actual_chars=len(rescue_prompt),
-                )
-                _render_findings_batch_started(ctx, rescue_batch)
-                with ctx.textual.loading(f"Asking {cli_display} to review the rescue batch…"):
-                    rescue_outcome = _run((rescue_batch, rescue_prompt, None))
-                if rescue_outcome["status"] == "success":
-                    reviewed_paths.update(rescue_batch.files_context)
-                    aggregated_raw.extend(rescue_outcome["raw"])
-                    _render_findings_batch_result(
-                        ctx,
-                        rescue_batch.batch_id,
-                        status="success",
-                        findings_count=len(rescue_outcome["raw"]),
-                    )
-                    if rescue_outcome["raw"]:
-                        # The rescue pass finding real issues means files the scorer
-                        # considered borderline held findings — candidate selection was
-                        # too aggressive for this PR shape.
-                        logger.info(
-                            "rescue_batch_found_findings",
-                            findings_count=len(rescue_outcome["raw"]),
-                            rescued_paths=sorted(rescue_batch.files_context),
-                        )
-                else:
-                    # The rescue pass is best-effort: its failure must not mark an
-                    # otherwise-clean review as failed.
-                    _render_findings_batch_result(
-                        ctx,
-                        rescue_batch.batch_id,
-                        status="failed",
-                        detail=rescue_outcome["detail"],
-                    )
-        elif borderline_paths:
-            ctx.textual.dim_text(
-                "No findings from main batches; borderline files remain unreviewed (no diff hunks)."
-            )
-
-    # Cross-file synthesis (off by default): per-file batches are structurally blind to
-    # interactions between the PR's own changes, so re-combine every reviewed path's
-    # hunks into one extra batch that looks ONLY for cross-file inconsistencies. Runs
-    # after the rescue block so the rescue's empty-findings gate is unaffected, and
-    # best-effort like it: failure never marks the review as failed, and it stays
-    # outside the attempted/succeeded counters.
-    if _get_review_profile(ctx).findings_synthesis_enabled and strategy:
-        from ..operations.findings_operations import (
-            FINDINGS_SYNTHESIS_EFFORT,
-            SYNTHESIS_INSTRUCTIONS,
-            build_cross_file_synthesis_batch,
-            dedupe_synthesis_findings,
-        )
-
-        # Only paths whose batch actually SUCCEEDED: the synthesis instructions tell
-        # the model "single-file issues in these files were already reviewed" — that
-        # claim must not cover files whose batch failed or was skipped over budget
-        # (their single-file issues would be silently suppressed with no one having
-        # looked at them).
-        focus_paths = sorted(reviewed_paths)
-        synthesis_batch = (
-            build_cross_file_synthesis_batch(
-                focus_paths,
-                ctx.get("review_diff", ""),
-                batches[0].pr_manifest if batches else None,
-                diff_manager=ctx.get("review_diff_manager"),
-                comment_context=ctx.get("comment_review_context", []),
-            )
-            if len(focus_paths) > 1
-            else None
-        )
-        if synthesis_batch:
-            synthesis_prompt = build_findings_prompt_parts(
-                synthesis_batch, instructions_override=SYNTHESIS_INSTRUCTIONS
-            )["prompt"]
-            if len(synthesis_prompt) > strategy.max_prompt_chars:
-                # No split/degrade machinery for this batch: the whole point is seeing
-                # every hunk together, so a partial synthesis is not worth the spend.
-                logger.debug(
-                    "synthesis_batch_over_budget",
-                    prompt_actual_chars=len(synthesis_prompt),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
-                )
-                ctx.textual.dim_text("Cross-file synthesis skipped (combined hunks over budget).")
-            else:
-                _log_ai_prompt(
-                    step_name="ai_review_findings",
-                    cli_name=adapter.cli_name.value,
-                    prompt=synthesis_prompt,
-                    batch_id=synthesis_batch.batch_id,
-                    files_context=len(synthesis_batch.files_context),
-                    prompt_budget_target_chars=strategy.max_prompt_chars,
-                    prompt_actual_chars=len(synthesis_prompt),
-                )
-                _render_findings_batch_started(ctx, synthesis_batch)
-                synthesis_effort = (
-                    FINDINGS_SYNTHESIS_EFFORT if adapter.supports_effort_control else None
-                )
-                with ctx.textual.loading(
-                    f"Asking {cli_display} to run the cross-file synthesis batch…"
-                ):
-                    synthesis_outcome = _run((synthesis_batch, synthesis_prompt, synthesis_effort))
-                if synthesis_outcome["status"] == "success":
-                    unique_findings = dedupe_synthesis_findings(
-                        synthesis_outcome["raw"], aggregated_raw
-                    )
-                    aggregated_raw.extend(unique_findings)
-                    logger.info(
-                        "synthesis_batch_result",
-                        findings_count_raw=len(synthesis_outcome["raw"]),
-                        findings_count_unique=len(unique_findings),
-                        focus_files=len(synthesis_batch.files_context),
-                    )
-                    _render_findings_batch_result(
-                        ctx,
-                        synthesis_batch.batch_id,
-                        status="success",
-                        findings_count=len(unique_findings),
-                    )
-                else:
-                    logger.debug("synthesis_batch_failed", detail=synthesis_outcome["detail"])
-                    _render_findings_batch_result(
-                        ctx,
-                        synthesis_batch.batch_id,
-                        status="failed",
-                        detail=synthesis_outcome["detail"],
-                    )
-        else:
-            # Nothing to synthesize: fewer than 2 reviewed paths, or the reviewed paths
-            # have no diff hunks (unavailable diff, binary, rename-only). Surfaced so a
-            # skipped synthesis never looks like one that ran clean.
-            logger.debug(
-                "synthesis_batch_skipped",
-                focus_paths_count=len(focus_paths),
-            )
-            ctx.textual.dim_text(
-                "Cross-file synthesis skipped (fewer than 2 reviewed files with diff hunks)."
-            )
-
-    ctx.data["raw_findings"] = aggregated_raw or build_default_findings()
-    ctx.data["ai_findings_failed"] = findings_failed
-    ctx.textual.success_text(f"✓ AI returned {len(ctx.data['raw_findings'])} raw finding(s)")
-    if findings_failed:
-        ctx.textual.warning_text("Some findings batches failed or were skipped due to budget limits.")
+    ctx.textual.success_text(f"✓ Review complete · {len(kept)} finding(s)")
+    if rejected:
+        _render_rejected_paths(ctx, rejected)
     ctx.textual.end_step("success")
     return Success(
         "AI findings retrieved",
         metadata={
-            "ai_findings_failed": findings_failed,
+            "raw_findings": [to_finding_payload(item) for item in kept],
+            "ai_findings_failed": False,
         },
     )
 
@@ -2849,14 +1908,15 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
     Each item is validated as a Finding model. Invalid items are skipped
     with a warning rather than failing the entire step.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         raw_findings (list | str): Raw AI output from ai_review_findings
 
     Outputs (saved to ctx.data):
         normalized_findings (List[Finding]): Validated Finding objects
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2899,14 +1959,12 @@ def normalize_findings(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.dim_text(f"⚠ Finding {i + 1} invalid, skipping: {e.error_count()} error(s)")
             logger.debug("finding_validation_failed", index=i + 1, error=str(e))
 
-    ctx.data["normalized_findings"] = findings
-
     summary = f"✓ {len(findings)} finding(s) normalized"
     if skipped:
         summary += f" ({skipped} skipped)"
     ctx.textual.success_text(summary)
     ctx.textual.end_step("success")
-    return Success("Findings normalized")
+    return Success("Findings normalized", metadata={"normalized_findings": findings})
 
 
 def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
@@ -2918,7 +1976,7 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     file, the same area (within 5 lines), and the same topic (same category
     or similar title).
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         normalized_findings (List[Finding])
         existing_comments_index (List[ExistingCommentIndexEntry])
 
@@ -2926,7 +1984,8 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
         deduped_findings (List[Finding]): Findings after duplicate removal
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -2971,8 +2030,6 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
     deduped, collapsed = _collapse_derived_findings(deduped)
     removed += collapsed
 
-    ctx.data["deduped_findings"] = deduped
-
     summary = f"✓ {len(deduped)} finding(s) ready"
     if removed:
         # Say WHY findings were dropped: "already commented on the PR" explains why a
@@ -3008,219 +2065,9 @@ def dedupe_findings(ctx: WorkflowContext) -> WorkflowResult:
         categories=categories,
     )
     ctx.textual.end_step("success")
-    return Success("Findings deduplicated", metadata={"deduped_findings_count": len(deduped)})
-
-
-@declare_ai_usage(
-    task=AITask.CODE_REVIEW_FINDINGS,
-    executes=[AIProviderType.CLI_HEADLESS],
-    enforces=True,
-)
-def verify_findings(ctx: WorkflowContext) -> WorkflowResult:
-    """
-    Adversarial verification pass: try to REFUTE each finding before the human gate.
-
-    One batched AI call (effort low, structured output, same adapter infra as
-    ai_review_findings) receives all non-nit findings plus the focused hunks they
-    refer to, and judges each as confirmed/refuted/uncertain. Findings refuted with
-    evidence are dropped (and shown, with the refutation reasoning); everything else
-    passes through. Fail-open: any CLI/parse/budget problem keeps all findings.
-
-    Generalizes the retired `_looks_like_contradicted_api_claim` heuristic.
-    Gated by ReviewProfile.findings_verification_enabled (default False).
-
-    Routes under the same `code_review_findings` task preference as
-    `ai_review_findings`: it is the same pass, so one setting governs both.
-
-    Requires (from ctx.data):
-        deduped_findings (List[Finding])
-        review_context_batches (List[FocusContextBatch])
-        review_strategy (ReviewStrategy)
-
-    Outputs (saved to ctx.data):
-        deduped_findings (List[Finding]): verified set, refuted findings removed
-        refuted_findings (List[Finding]): findings dropped by this pass
-
-    Returns:
-        Success or Skip
-    """
-    if not ctx.textual:
-        return Error("Textual UI context is not available for this step.")
-
-    ctx.textual.begin_step("Verify Findings")
-
-    findings = ctx.get("deduped_findings")
-    if findings is None:
-        ctx.textual.error_text("No deduped_findings in context (run dedupe_findings first)")
-        ctx.textual.end_step("error")
-        return Error("No deduped_findings in context (run dedupe_findings first)")
-
-    if not findings:
-        ctx.textual.dim_text("No findings to verify.")
-        ctx.textual.end_step("skip")
-        return Skip("No findings to verify")
-
-    profile = _get_review_profile(ctx)
-    if not profile.findings_verification_enabled:
-        ctx.textual.dim_text("Findings verification disabled by review profile.")
-        ctx.textual.end_step("skip")
-        return Skip("Verification disabled by review profile")
-
-    from ..operations.findings_operations import FINDINGS_DISALLOWED_TOOLS
-    from ..operations.verification_operations import (
-        VERIFICATION_EFFORT,
-        VERIFICATION_TIMEOUT_SECONDS,
-        apply_verification_verdicts,
-        build_verification_code_map,
-        build_verification_prompt_parts,
-        parse_verification_response,
-        select_findings_for_verification,
-        summarize_verification_prompt_parts,
-        verification_json_schema,
-    )
-
-    to_verify, exempt = select_findings_for_verification(findings)
-    if not to_verify:
-        ctx.textual.dim_text("Only nit-severity findings — skipping verification.")
-        ctx.textual.end_step("skip")
-        return Skip("No findings eligible for verification")
-
-    adapter, route_note, ai_off = _resolve_review_adapter(ctx, verify_findings)
-    if not adapter:
-        # Verification shares the code_review_findings preference, so a user who turned
-        # that task off would otherwise read "No CLI available" for a choice they made.
-        reason = _route_failure_reason(route_note, ai_off)
-        ctx.textual.dim_text(f"{reason} — findings pass unverified.")
-        ctx.textual.end_step("skip")
-        return Skip(f"Verification skipped ({reason})")
-
-    _announce_review_adapter(ctx, adapter)
-
-    strategy = ctx.get("review_strategy")
-    batches = ctx.get("review_context_batches", [])
-    project_root = ctx.data.get("worktree_path") or ctx.data.get("project_root")
-
-    code_map = build_verification_code_map(to_verify, batches)
-    prompt_parts = build_verification_prompt_parts(to_verify, code_map)
-    prompt = prompt_parts["prompt"]
-
-    max_prompt_chars = strategy.max_prompt_chars if strategy else None
-    if max_prompt_chars and len(prompt) > max_prompt_chars:
-        # Fail-open on budget too: verification is an optional quality filter, never
-        # worth degrading or splitting like the findings pass.
-        logger.warning(
-            "verification_prompt_over_budget",
-            prompt_actual_chars=len(prompt),
-            prompt_budget_target_chars=max_prompt_chars,
-        )
-        ctx.textual.dim_text(
-            f"Verification prompt too large ({len(prompt)} chars) — findings pass unverified."
-        )
-        ctx.textual.end_step("skip")
-        return Skip("Verification prompt over budget")
-
-    use_structured_output = adapter.supports_structured_output
-    disallowed_tools = list(FINDINGS_DISALLOWED_TOOLS) if adapter.supports_tool_restriction else None
-    effort = VERIFICATION_EFFORT if adapter.supports_effort_control else None
-    cli_display = adapter.cli_name.value.capitalize()
-
-    _log_ai_prompt(
-        step_name="verify_findings",
-        cli_name=adapter.cli_name.value,
-        prompt=prompt,
-        findings_to_verify=len(to_verify),
-        findings_exempt=len(exempt),
-        prompt_actual_chars=len(prompt),
-        effort=effort,
-        **summarize_verification_prompt_parts(prompt_parts),
-    )
-    adapter_started_at = time.monotonic()
-    with ctx.textual.loading(f"Asking {cli_display} to verify {len(to_verify)} finding(s)…"):
-        response = run_interruptible(
-            lambda: adapter.execute(
-                prompt,
-                cwd=project_root,
-                timeout=VERIFICATION_TIMEOUT_SECONDS,
-                json_schema=verification_json_schema() if use_structured_output else None,
-                disallowed_tools=disallowed_tools,
-                effort=effort,
-            )
-        )
-    adapter_duration_seconds = time.monotonic() - adapter_started_at
-    _log_ai_response(
-        step_name="verify_findings",
-        cli_name=adapter.cli_name.value,
-        stdout=response.stdout,
-        stderr=response.stderr,
-        exit_code=response.exit_code,
-        duration_seconds=round(adapter_duration_seconds, 3),
-        findings_to_verify=len(to_verify),
-    )
-
-    if not response.succeeded:
-        logger.warning(
-            "verification_call_failed",
-            exit_code=response.exit_code,
-            quota_exhausted=response.quota_exhausted,
-        )
-        ctx.textual.warning_text(
-            f"Verification call failed ({_cli_failure_reason(response, adapter.cli_name.value)}) "
-            "— findings pass unverified."
-        )
-        ctx.textual.end_step("skip")
-        return Skip("Verification call failed")
-
-    match parse_verification_response(response.stdout, structured=use_structured_output):
-        case ClientSuccess(data=raw_verdicts) if isinstance(raw_verdicts, list):
-            pass
-        case _:
-            logger.warning("verification_parse_failed")
-            ctx.textual.warning_text("Could not parse verification response — findings pass unverified.")
-            ctx.textual.end_step("skip")
-            return Skip("Verification response unparseable")
-
-    # Truthy contents only — the prompt builder treats an empty block as "no code
-    # available", so the refutation guard must agree with it.
-    outcome = apply_verification_verdicts(
-        findings,
-        to_verify,
-        raw_verdicts,
-        paths_with_code={path for path, content in code_map.items() if content},
-    )
-    ctx.data["deduped_findings"] = outcome.kept
-    ctx.data["refuted_findings"] = outcome.refuted
-
-    logger.info(
-        "findings_verification_applied",
-        findings_in=len(findings),
-        verified=len(to_verify),
-        exempt_nits=len(exempt),
-        refuted=len(outcome.refuted),
-        kept=len(outcome.kept),
-        invalid_verdicts=outcome.invalid_verdicts,
-        duration_seconds=round(adapter_duration_seconds, 3),
-    )
-    if outcome.invalid_verdicts and not outcome.refuted:
-        # Every verdict unusable looks exactly like "confirmed everything" otherwise:
-        # say it out loud so a broken prompt or schema is visible.
-        ctx.textual.warning_text(
-            f"⚠ {outcome.invalid_verdicts} unusable verdict(s) — verification may not have run correctly."
-        )
-    for finding, reason in zip(outcome.refuted, outcome.refuted_reasons):
-        ctx.textual.dim_text(
-            f"✗ Refuted: {finding.title} @ {finding.path}:{finding.line} — {reason[:200]}"
-        )
-    summary = f"✓ {len(outcome.kept)} finding(s) verified"
-    if outcome.refuted:
-        summary += f" ({len(outcome.refuted)} refuted and dropped)"
-    ctx.textual.success_text(summary)
-    ctx.textual.end_step("success")
     return Success(
-        "Findings verified",
-        metadata={
-            "deduped_findings": outcome.kept,
-            "refuted_findings": outcome.refuted,
-        },
+        "Findings deduplicated",
+        metadata={"deduped_findings": deduped, "deduped_findings_count": len(deduped)},
     )
 
 
@@ -3233,14 +2080,15 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
     """
     Convert deduplicated findings into ReviewActionProposal objects.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         deduped_findings (List[Finding])
 
     Outputs (saved to ctx.data):
         review_action_proposals (List[ReviewActionProposal])
 
     Returns:
-        Success or Skip (no findings)
+        Success: The step completed.
+        Skip: Nothing to do (no findings).
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -3249,7 +2097,6 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     findings = ctx.get("deduped_findings", [])
     manifest = ctx.get("change_manifest")
-    batches = ctx.get("review_context_batches", [])
 
     if not findings:
         ctx.textual.dim_text("No findings to convert into actions.")
@@ -3258,11 +2105,6 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     actions = build_new_comment_actions_operation(findings)
     manifest_files = {file.path: file for file in getattr(manifest, "files", [])}
-    read_modes = {
-        path: entry.read_mode.value if entry.read_mode else None
-        for batch in batches or []
-        for path, entry in batch.files_context.items()
-    }
     enriched_actions = []
     for action in actions:
         file_entry = manifest_files.get(action.path)
@@ -3271,16 +2113,14 @@ def build_new_comment_actions(ctx: WorkflowContext) -> WorkflowResult:
                 update={
                     "file_status": str(file_entry.status) if file_entry else None,
                     "is_test_file": bool(file_entry.is_test) if file_entry else False,
-                    "read_mode": read_modes.get(action.path),
                 }
             )
         )
     actions = enriched_actions
-    ctx.data["review_action_proposals"] = actions
 
     ctx.textual.success_text(f"✓ {len(actions)} action(s) ready for review")
     ctx.textual.end_step("success")
-    return Success("Actions built")
+    return Success("Actions built", metadata={"review_action_proposals": actions})
 
 
 def _release_review_worktree(ctx: WorkflowContext) -> None:
@@ -3294,8 +2134,12 @@ def _release_review_worktree(ctx: WorkflowContext) -> None:
     if not ctx.get("worktree_created") or not ctx.get("worktree_path") or not ctx.git:
         return
     from ..operations import cleanup_worktree as cleanup_worktree_operation
+    from ..operations import delete_review_refs
 
     if cleanup_worktree_operation(ctx.git, ctx.data["worktree_path"]):
+        pr_number = ctx.get("selected_pr_number") or ctx.get("review_pr_number")
+        if pr_number:
+            delete_review_refs(ctx.git, pr_number)
         ctx.textual.dim_text("Review worktree removed (no longer needed).")
         ctx.data["worktree_created"] = False
         ctx.data["worktree_path"] = None
@@ -3307,7 +2151,7 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     """
     Present each ReviewActionProposal to the user for approval, editing, or skipping.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_action_proposals (List[ReviewActionProposal])
 
     Optional (from ctx.data):
@@ -3317,7 +2161,9 @@ def validate_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         approved_action_proposals (List[ReviewActionProposal])
 
     Returns:
-        Success, Skip (none approved), or Error
+        Success: The step completed.
+        Skip: Nothing to do (none approved).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -3484,7 +2330,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
     Handles resolve_thread actions directly, then submits new_comment and
     reply_to_thread actions as a GitHub draft review.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         approved_action_proposals (List[ReviewActionProposal])
         review_pr_number (int)
 
@@ -3493,12 +2339,19 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         review_diff (str): Full PR diff for inline comment validation
 
     Returns:
-        Success, Skip (no approved actions), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no approved actions).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
 
     ctx.textual.begin_step("Submit Review")
+
+    # The whole review's AI spend, logged on the way IN rather than at one of this
+    # step's many exits: submitting makes no AI calls, so by now every call is
+    # accounted for, and one call site cannot drift out of sync with the others.
+    log_review_ai_cost(ctx, scope="review")
 
     approved: List[ReviewActionProposal] = ctx.get("approved_action_proposals", [])
     pr_number = ctx.get("review_pr_number")
@@ -3619,6 +2472,18 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
         # With findings - offer Comment or Request Changes
         event_options = [
             OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
+            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+        ]
+    elif ctx.get("ai_findings_failed", False):
+        # The AI review never produced findings, so "no findings" says nothing about the
+        # PR — don't present it as clean or offer to approve it. Keyed on the review step's
+        # own flag, not on `raw_findings`: Thread Resolution publishes through this step
+        # without running a review.
+        ctx.textual.warning_text("⚠ The AI review did not run — this PR has NOT been reviewed")
+        ctx.textual.text("")
+
+        event_options = [
+            OptionItem(value="COMMENT", title="💬 Comment", description="Post a general comment"),
             OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
         ]
     else:
@@ -3783,7 +2648,7 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
             logger.info(
                 "review_published",
                 pr_number=pr_number,
-                event=event,
+                review_event=event,
                 inline_comments=len(payload.get("comments") or []),
                 has_body=bool(payload.get("body")),
                 actions_offered=len(comment_actions),
@@ -3817,7 +2682,7 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
     Only includes threads where the last comment is from the PR author,
     indicating they have responded to the review.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         review_threads (List[UICommentThread]): Unresolved inline review threads
         review_pr (UIPullRequest): PR object with author info
         review_current_user (str): GitHub login running Titan
@@ -3826,7 +2691,9 @@ def build_thread_review_candidates(ctx: WorkflowContext) -> WorkflowResult:
         thread_review_candidates (List[ThreadReviewCandidate])
 
     Returns:
-        Success, Skip (no candidates), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no candidates).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -3879,7 +2746,7 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
     collects all replies from the full UICommentThread object, and attaches
     remote context for commit SHAs referenced in those replies.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         thread_review_candidates (List[ThreadReviewCandidate])
         review_threads (List[UICommentThread]): For extracting reply history
         review_diff (str): Full PR unified diff
@@ -3891,7 +2758,9 @@ def build_thread_review_contexts(ctx: WorkflowContext) -> WorkflowResult:
         thread_review_contexts (List[ThreadReviewContext])
 
     Returns:
-        Success, Skip (no candidates), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no candidates).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -3958,14 +2827,15 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
     Which CLI runs it comes from the `thread_resolution` task preference
     (AI Configuration screen), not from the workflow.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         thread_review_contexts (List[ThreadReviewContext])
 
     Outputs (saved to ctx.data):
         raw_thread_decisions (list): Raw AI output aggregated across batches, before normalization
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -4094,14 +2964,15 @@ def normalize_thread_decisions(ctx: WorkflowContext) -> WorkflowResult:
     Each item is validated as a ThreadDecision model. Invalid items are
     skipped with a warning rather than failing the entire step.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         raw_thread_decisions (list | str): Raw AI output from ai_thread_resolution
 
     Outputs (saved to ctx.data):
         thread_decisions (List[ThreadDecision]): Validated ThreadDecision objects
 
     Returns:
-        Success or Error
+        Success: The step completed.
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")
@@ -4201,7 +3072,7 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
     Saves results under the same key as new_findings workflow so that
     validate_review_actions and submit_review_actions can be reused directly.
 
-    Requires (from ctx.data):
+    Inputs (from ctx.data):
         thread_decisions (List[ThreadDecision])
         thread_review_contexts (List[ThreadReviewContext])
 
@@ -4209,7 +3080,9 @@ def build_thread_actions(ctx: WorkflowContext) -> WorkflowResult:
         review_action_proposals (List[ReviewActionProposal])
 
     Returns:
-        Success, Skip (no actionable decisions), or Error
+        Success: The step completed.
+        Skip: Nothing to do (no actionable decisions).
+        Error: The step failed.
     """
     if not ctx.textual:
         return Error("Textual UI context is not available for this step.")

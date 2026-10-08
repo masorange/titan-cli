@@ -225,13 +225,6 @@ class WorkflowExecutionScreen(BaseScreen):
                             # using this plugin will fail gracefully
                             pass
 
-                try:
-                    managers = plugin.get_workflow_managers(project_root=project_root)
-                    if managers is not None:
-                        ctx_builder.with_plugin_managers(plugin_name, managers)
-                except Exception:
-                    pass
-
             # Build context and create executor
             execution_context = ctx_builder.build()
             execution_context.data["project_root"] = str(project_root)
