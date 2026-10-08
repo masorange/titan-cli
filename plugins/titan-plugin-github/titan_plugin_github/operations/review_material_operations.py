@@ -31,6 +31,22 @@ WHOLE_DIFF_FILE = f"{MATERIAL_DIR}/pr.diff"
 logger = get_logger(__name__)
 
 
+def material_source_path(path: str) -> Optional[str]:
+    """The repository file a path under the review material stands for, or None.
+
+    `diffs/<p>.diff` and `base/<p>` are copies of `<p>`, so a finding citing them is
+    about `<p>`. Any other material path (`pr.md`, `pr.diff`) is no repository file.
+    Paths outside the material come back unchanged.
+    """
+    if path != MATERIAL_DIR and not path.startswith(f"{MATERIAL_DIR}/"):
+        return path
+    for prefix, suffix in ((f"{DIFFS_DIR}/", ".diff"), (f"{BASE_DIR}/", "")):
+        if path.startswith(prefix) and path.endswith(suffix):
+            source = path[len(prefix):len(path) - len(suffix)]
+            return source or None
+    return None
+
+
 def _is_inside(root: Path, target: Path) -> bool:
     """True when `target` resolves (symlinks followed) to a path under `root`."""
     try:

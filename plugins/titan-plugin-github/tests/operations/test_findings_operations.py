@@ -174,4 +174,17 @@ def test_partition_keeps_pathless_findings():
 
 
 def test_normalize_finding_path_only_strips_separators_and_dot_prefix():
+def test_partition_moves_findings_on_review_material_to_the_file_it_copies():
+    findings = [
+        {"path": ".titan-review/base/src/a.py", "title": "old code"},
+        {"path": ".titan-review/diffs/src/a.py.diff", "title": "diff"},
+        {"path": ".titan-review/pr.md", "title": "about the PR file"},
+    ]
+
+    kept, rejected = partition_findings_by_path(findings, {"src/a.py"}, lambda path: True)
+
+    assert kept == [{"path": "src/a.py", "title": "old code"}, {"path": "src/a.py", "title": "diff"}]
+    assert rejected == [{"path": ".titan-review/pr.md", "title": "about the PR file"}]
+
+
     assert normalize_finding_path(" ././Src\\A.py ") == "Src/A.py"

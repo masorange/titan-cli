@@ -7,6 +7,7 @@ from titan_cli.core.result import ClientError, ClientResult, ClientSuccess
 
 from ..models.review_models import Finding
 from .ai_response_parsing_operations import extract_json_payload
+from .review_material_operations import material_source_path
 
 
 def build_free_review_prompt(
@@ -232,7 +233,9 @@ def partition_findings_by_path(
     tree (`is_repo_file`): what a review finds there is the damage a PR does beyond its own
     diff -- on ragnarok PR #3688 the one blocking defect was in a file the PR never touched.
     It cannot anchor inline, so it publishes in the review body. A finding with no path is
-    kept: a general observation is not misattributed to anything.
+    kept: a general observation is not misattributed to anything. A finding citing Titan's
+    own review material (a copy under `.titan-review/`) is moved to the file it copies, or
+    rejected when it copies none.
 
     Returns `(kept, rejected)`, where each rejected entry is `{"path", "title"}`.
     """
@@ -244,8 +247,10 @@ def partition_findings_by_path(
         if not path:
             kept.append(finding)
             continue
-        normalized = normalize_finding_path(path)
-        if normalized in canonical:
+        normalized = material_source_path(normalize_finding_path(path))
+        if normalized is None:
+            rejected.append({"path": path, "title": _finding_title(finding)})
+        elif normalized in canonical:
             kept.append(_with_path(finding, canonical[normalized]))
         elif is_repo_file is not None and is_repo_file(normalized):
             kept.append(_with_path(finding, normalized))
