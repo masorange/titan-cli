@@ -75,9 +75,9 @@ observed failure.
 
 class GrokHeadlessAdapter:
     """
-    Runs Grok Build CLI in headless mode via `grok -p <prompt>`.
+    Runs Grok Build CLI in headless mode via `grok --prompt-file <file>`.
 
-    `-p` (`--single`) runs one prompt non-interactively and exits.
+    `--prompt-file` runs the prompt in that file non-interactively and exits.
     `--output-format streaming-messages-json` emits one JSON object per line
     and closes with a `result` line carrying the final answer alone — which
     `--output-format json` does not: its `text` field is every assistant turn

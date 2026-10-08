@@ -56,12 +56,12 @@ scratch sandbox) while unattended.
 
 class AntigravityHeadlessAdapter:
     """
-    Runs Antigravity CLI in headless mode via `agy [flags] --print <prompt>`.
+    Runs Antigravity CLI in headless mode via `agy --input-format stream-json
+    --output-format stream-json [flags]`, with the prompt as a `user` event on stdin.
 
-    `--print` runs a single prompt non-interactively and writes the response
-    to stdout. With `--output-format json --json-schema <schema>`, agy returns
-    a JSON envelope whose `structured_output` field is the schema-validated
-    answer.
+    agy answers with one JSON event per line; the closing `result` event carries the
+    envelope (response, status, usage), and with `--json-schema <schema>` its
+    `structured_output` field is the schema-validated answer.
     """
 
     @property
