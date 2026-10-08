@@ -71,8 +71,15 @@ class Box:
 
 @dataclass(frozen=True)
 class Button:
-    """A pressable line. `on_press` runs on the UI thread: keep it to a state update."""
+    """
+    A pressable line. `on_press` runs on the UI thread: keep it to a state update.
+
+    `action` draws it as a button (a filled chip as wide as its label) for
+    something that does work, such as running a workflow; a plain one reads as
+    a line of the pane, right for a fold or a picker.
+    """
 
     label: str
     on_press: Callable[[], None]
     dim: bool = False
+    action: bool = False

@@ -568,7 +568,9 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
     """
     List all open PRs and ask user to select one.
 
-    Assigned PRs (pending your review) appear first marked with ⭐.
+    Assigned PRs (pending your review) appear first marked with ⭐. When the run
+    already names a PR (`review_pr_number` in ctx.data, e.g. a workflow launched
+    for one PR), that PR is loaded instead and nothing is asked.
 
     Outputs (saved to ctx.data):
         review_pr_number (int): Selected PR number
@@ -588,6 +590,10 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.error_text("GitHub client not available")
         ctx.textual.end_step("error")
         return Error("GitHub client not available")
+
+    preset = ctx.get("review_pr_number")
+    if preset:
+        return _review_given_pr(ctx, int(preset))
 
     with ctx.textual.loading("Fetching open PRs..."):
         all_result = ctx.github.list_all_prs()
@@ -656,16 +662,32 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("error")
         return Error(f"PR #{selected} not found in list")
 
-    ctx.textual.success_text(f"Selected PR #{selected_pr.number}: {selected_pr.title}")
+    return _selected(ctx, selected_pr)
+
+
+def _review_given_pr(ctx: WorkflowContext, number: int) -> WorkflowResult:
+    with ctx.textual.loading(f"Fetching PR #{number}..."):
+        result = ctx.github.get_pull_request(number)
+    match result:
+        case ClientError(error_message=err):
+            ctx.textual.error_text(f"Failed to fetch PR #{number}: {err}")
+            ctx.textual.end_step("error")
+            return Error(f"Failed to fetch PR #{number}: {err}")
+        case ClientSuccess(data=pr):
+            return _selected(ctx, pr)
+
+
+def _selected(ctx: WorkflowContext, pr) -> WorkflowResult:
+    ctx.textual.success_text(f"Selected PR #{pr.number}: {pr.title}")
     ctx.textual.end_step("success")
 
     return Success(
-        f"Selected PR #{selected_pr.number}",
+        f"Selected PR #{pr.number}",
         metadata={
-            "review_pr_number": selected_pr.number,
-            "review_pr_title": selected_pr.title,
-            "review_pr_head": selected_pr.head_ref,
-            "review_pr_base": selected_pr.base_ref,
+            "review_pr_number": pr.number,
+            "review_pr_title": pr.title,
+            "review_pr_head": pr.head_ref,
+            "review_pr_base": pr.base_ref,
         },
     )
 

@@ -92,7 +92,7 @@ class WorkflowExecutionScreen(BaseScreen):
     }
     """
 
-    def __init__(self, config, workflow_name: str, **kwargs):
+    def __init__(self, config, workflow_name: str, params: Optional[Dict[str, Any]] = None, **kwargs):
         super().__init__(
             config,
             title=f"{Icons.WORKFLOW} Executing: {workflow_name}",
@@ -102,6 +102,8 @@ class WorkflowExecutionScreen(BaseScreen):
             **kwargs
         )
         self.workflow_name = workflow_name
+        # Laid over the workflow's own params, e.g. by a mod launching it for one PR.
+        self.params = dict(params or {})
         self.workflow: Optional[ParsedWorkflow] = None
         self._worker: Optional[Worker] = None
         self._executor = None
@@ -244,7 +246,7 @@ class WorkflowExecutionScreen(BaseScreen):
             self._executor = executor
 
             # Execute workflow (this is synchronous and may take time)
-            executor.execute(self.workflow, execution_context)
+            executor.execute(self.workflow, execution_context, params_override=self.params or None)
 
         except WorkflowAborted:
             # The app closed while a step was blocked in an AI call or prompt.

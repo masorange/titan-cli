@@ -114,11 +114,22 @@ class _Pressable(_Line, can_focus=True):
     _Pressable:hover, _Pressable:focus {
         background: $boost;
     }
+    _Pressable.-action {
+        width: auto;
+        padding: 0 1;
+        background: $primary;
+        color: $text;
+        text-style: bold;
+    }
+    _Pressable.-action:hover, _Pressable.-action:focus {
+        background: $primary-lighten-2;
+    }
     """
 
     def __init__(self, button: Button):
         super().__init__(self._label(button))
         self._button = button
+        self.set_class(button.action, "-action")
 
     @staticmethod
     def _label(button: Button) -> RichText:
@@ -128,6 +139,7 @@ class _Pressable(_Line, can_focus=True):
     def set_button(self, button: Button) -> None:
         """Take a redrawn button's label and handler, keeping this widget (and its focus)."""
         self._button = button
+        self.set_class(button.action, "-action")
         self.update(self._label(button))
 
     def on_click(self) -> None:

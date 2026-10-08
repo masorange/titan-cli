@@ -112,7 +112,7 @@ Use these steps for the contributor flow of responding to PR comments and restor
 
 These are advanced review-pipeline steps for structured AI-assisted code review. They are public and reusable, but many are intended to be composed together rather than used in isolation.
 
-- `select_pr_for_code_review`: choose a PR for the advanced code-review pipeline
+- `select_pr_for_code_review`: choose a PR for the advanced code-review pipeline; when the run already carries `review_pr_number` (a workflow param, e.g. a mod launching `review-pr` for one PR), it loads that PR and asks nothing
 - `fetch_pr_review_bundle`: collect PR, diff, file, and discussion context for review
 - `build_change_manifest`: build a structured manifest of changed files and targets
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings

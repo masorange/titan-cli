@@ -8,7 +8,7 @@ onto the app thread first.
 import importlib
 import pkgutil
 import threading
-from typing import Any, Callable, Dict, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Set, Tuple
 
 from rich.markup import escape
 from textual.app import App
@@ -143,6 +143,26 @@ class TitanModHost:
             self._on_app_thread(bind)
         else:
             bind()  # from a mod's register(), before the app runs: nothing else touches it yet
+        return None
+
+    # -- workflows ----------------------------------------------------------
+
+    def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]:
+        from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
+
+        config = getattr(self._app, "config", None)
+        refusal = None
+        if config is None:
+            refusal = "Titan has no configuration loaded"
+        elif any(isinstance(screen, WorkflowExecutionScreen) for screen in self._app.screen_stack):
+            refusal = "another workflow is running; finish it first"
+        elif config.workflows.get_workflow(name) is None:
+            refusal = f"there is no workflow '{name}'"
+        if refusal is not None:
+            self.toast(mod, f"Cannot run {name}: {refusal}", "warning")
+            return refusal
+        logger.info("mod_workflow_opened", mod=mod, workflow=name, params=sorted(params))
+        self._on_app_thread(lambda: self._app.push_screen(WorkflowExecutionScreen(config, name, params=params)))
         return None
 
     def press_key(self, key: str) -> None:

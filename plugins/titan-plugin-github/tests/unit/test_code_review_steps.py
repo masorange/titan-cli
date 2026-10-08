@@ -30,6 +30,7 @@ from titan_plugin_github.steps.code_review_steps import (
     build_thread_review_contexts,
     fetch_pr_review_bundle,
     score_review_candidates,
+    select_pr_for_code_review,
     verify_findings,
 )
 
@@ -130,6 +131,32 @@ def _make_context(sample_pr: UIPullRequest) -> WorkflowContext:
     ctx.github.get_current_user.return_value = ClientSuccess(data="reviewer", message="ok")
     ctx.github.get_pr_template.return_value = None
     return ctx
+
+
+def test_select_pr_for_code_review_loads_the_pr_the_run_names_without_asking():
+    pr = _make_pr(is_cross_repository=False)
+    ctx = _make_context(pr)
+
+    result = select_pr_for_code_review(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata == {
+        "review_pr_number": 223,
+        "review_pr_title": "Poeditor plugin implementation",
+        "review_pr_head": "poeditor-plugin",
+        "review_pr_base": "master",
+    }
+    ctx.github.get_pull_request.assert_called_once_with(223)
+    ctx.github.list_all_prs.assert_not_called()
+
+
+def test_select_pr_for_code_review_fails_when_the_named_pr_cannot_be_fetched():
+    ctx = _make_context(_make_pr(is_cross_repository=False))
+    ctx.github.get_pull_request.return_value = ClientError(error_message="not found")
+
+    result = select_pr_for_code_review(ctx)
+
+    assert isinstance(result, Error) and "#223" in result.message
 
 
 def test_fetch_pr_review_bundle_uses_github_diff_for_cross_repo_pr():

@@ -69,6 +69,8 @@ class ModHost(Protocol):
 
     def bind_key(self, mod: str, key: str, description: str, fn: Callable[[], None]) -> Optional[str]: ...
 
+    def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]: ...
+
 
 @dataclass(frozen=True)
 class AIAnswer:
@@ -122,6 +124,9 @@ class _HeadlessHost:
 
     def bind_key(self, mod: str, key: str, description: str, fn: Callable[[], None]) -> Optional[str]:
         return "there are no keys here"
+
+    def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]:
+        return "there is no screen to run it on"
 
 
 class _ModUI:
@@ -230,6 +235,26 @@ class _ModKeys:
         return True
 
 
+class _ModWorkflows:
+    def __init__(self, bus: "ModBus", mod: str):
+        self._bus = bus
+        self._mod = mod
+
+    def run(self, name: str, params: Optional[Mapping[str, Any]] = None) -> bool:
+        """
+        Open the workflow `name` on its execution screen, as if the person had
+        picked it, with `params` over its own params (so a step that reads them
+        skips asking, e.g. `review_pr_number` for `review-pr`). Refused, with a
+        toast, while another workflow runs: the return says whether it opened.
+        Call it from a button or a key.
+        """
+        refusal = self._bus.host.run_workflow(self._mod, name, dict(params or {}))
+        if refusal is not None:
+            logger.warning("mod_workflow_refused", mod=self._mod, workflow=name, reason=refusal)
+            return False
+        return True
+
+
 class ModAPI:
     """What a mod reaches Titan through."""
 
@@ -239,6 +264,7 @@ class ModAPI:
         self.clock = _ModClock(bus, name)
         self.ai = _ModAI(bus, name)
         self.keys = _ModKeys(bus, name)
+        self.workflows = _ModWorkflows(bus, name)
         self.state = ModState(on_change=lambda: bus.host.repaint(name))
         # Read through the module so tests can point every store elsewhere.
         self.store = ModStore(name, root=lambda: _store.STORE_DIR)
