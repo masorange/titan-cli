@@ -323,7 +323,10 @@ def _result_envelope(stdout: str) -> Optional[dict]:
     if isinstance(whole, dict):
         if whole.get("event") == "result" and isinstance(whole.get("result"), dict):
             return whole["result"]
-        return whole
+        if "event" not in whole:
+            return whole
+        # A lone non-result event (a crashed or truncated stream) is no envelope: it
+        # falls through so the caller's event-stream guard reports the failure.
 
     envelope = None
     for line in stdout.splitlines():

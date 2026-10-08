@@ -768,6 +768,22 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.usage.input_tokens, 10)
 
     @patch("subprocess.run")
+    def test_a_lone_non_result_event_is_a_failure_not_an_envelope(self, mock_run):
+        # One event line parses as a whole-stdout dict; it must not pass as a
+        # successful `--output-format json` envelope with an empty response.
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps({"event": "error", "error": {"message": "boom"}}),
+            stderr="",
+            returncode=0,
+        )
+
+        response = self.adapter.execute("prompt", json_schema={"type": "object"})
+
+        self.assertEqual(response.stdout, "")
+        self.assertNotEqual(response.exit_code, 0)
+        self.assertIn("without a result event", response.stderr)
+
+    @patch("subprocess.run")
     def test_execute_strips_ansi_codes(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout="\x1b[32mGreen text\x1b[0m\n",
