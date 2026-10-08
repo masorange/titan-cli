@@ -1,8 +1,9 @@
 """
 Headless adapter for Antigravity CLI (agy).
 
-Uses `agy --print <prompt>` for non-interactive execution, with
-`--output-format json --json-schema` when a structured response is required.
+Uses `agy --input-format stream-json --output-format stream-json` with the prompt on
+stdin for non-interactive execution, plus `--json-schema` when a structured response is
+required.
 """
 
 import json
@@ -12,7 +13,14 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
-from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
+from .base import (
+    CliModel,
+    CliUsage,
+    HeadlessResponse,
+    SupportedCLI,
+    as_int,
+    model_listing_lines,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -48,12 +56,12 @@ scratch sandbox) while unattended.
 
 class AntigravityHeadlessAdapter:
     """
-    Runs Antigravity CLI in headless mode via `agy [flags] --print <prompt>`.
+    Runs Antigravity CLI in headless mode via `agy --input-format stream-json
+    --output-format stream-json [flags]`, with the prompt as a `user` event on stdin.
 
-    `--print` runs a single prompt non-interactively and writes the response
-    to stdout. With `--output-format json --json-schema <schema>`, agy returns
-    a JSON envelope whose `structured_output` field is the schema-validated
-    answer.
+    agy answers with one JSON event per line; the closing `result` event carries the
+    envelope (response, status, usage), and with `--json-schema <schema>` its
+    `structured_output` field is the schema-validated answer.
     """
 
     @property
@@ -78,6 +86,11 @@ class AntigravityHeadlessAdapter:
     @property
     def supports_model_selection(self) -> bool:
         return True
+
+    @property
+    def supports_subagents(self) -> bool:
+        # Not verified in headless mode, so it is not relied on.
+        return False
 
     def is_available(self) -> bool:
         return shutil.which("agy") is not None
@@ -104,22 +117,31 @@ class AntigravityHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         self._ensure_read_permissions()
-        cmd = ["agy"]
+        # stream-json on both sides, on EVERY call. Input: agy's text mode only takes the
+        # prompt as the `--print` argument, and Linux caps one argv string at 131,072
+        # bytes (MAX_ARG_STRLEN) -- a deep-review prompt runs ~115k characters and fails
+        # with E2BIG once it carries non-ASCII text. stream-json reads it from stdin
+        # instead. Output: its final `result` event is the same envelope `--output-format
+        # json` prints (response, structured_output, status, usage), and the envelope is
+        # the only place agy reports `usage`. Verified live 2026-09-24.
+        cmd = ["agy", "--input-format", "stream-json", "--output-format", "stream-json"]
         if json_schema is not None:
-            cmd += ["--output-format", "json", "--json-schema", json.dumps(json_schema)]
+            cmd += ["--json-schema", json.dumps(json_schema)]
         if effort is not None:
             cmd += ["--effort", effort]
         if model is not None:
             cmd += ["--model", model]
-        # --print consumes the very next argv token as its prompt, so any flag
-        # placed after it would be swallowed as the prompt. It must come last,
-        # immediately followed by the real prompt.
-        cmd += ["--print", _HEADLESS_PREAMBLE + prompt]
+        stream_input = json.dumps(
+            {"event": "user", "message": {"content": _HEADLESS_PREAMBLE + prompt}}
+        )
         try:
             result = subprocess.run(
                 cmd,
+                input=stream_input + "\n",
                 capture_output=True,
                 text=True,
                 cwd=cwd,
@@ -138,13 +160,7 @@ class AntigravityHeadlessAdapter:
                 exit_code=127,
             )
 
-        if json_schema is None:
-            return HeadlessResponse(
-                stdout=self._sanitize(result.stdout),
-                stderr=result.stderr.strip(),
-                exit_code=result.returncode,
-            )
-        return self._parse_structured_result(result)
+        return self._parse_envelope(result, expect_structured=json_schema is not None)
 
     def _ensure_read_permissions(self) -> None:
         """Provision read-only allow-rules into agy's settings before each run.
@@ -185,22 +201,38 @@ class AntigravityHeadlessAdapter:
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return
 
-    def _parse_structured_result(self, result: subprocess.CompletedProcess) -> HeadlessResponse:
-        """Unwrap the `--output-format json` envelope for a structured-output call.
+    def _parse_envelope(
+        self, result: subprocess.CompletedProcess, *, expect_structured: bool
+    ) -> HeadlessResponse:
+        """Unwrap the result envelope, which every call now receives.
 
-        On success the schema-validated answer is under `structured_output`; this
-        becomes stdout as compact JSON so downstream parsing sees no surrounding
-        prose. Falls back to the envelope's `response` text if no structured
-        output was produced.
+        With a schema the validated answer is under `structured_output` and becomes
+        stdout as compact JSON so downstream parsing sees no surrounding prose; it falls
+        back to the envelope's `response` text when no structured output was produced.
+        Without a schema, `response` IS the answer.
+
+        The envelope is also the only place agy reports `usage`, so it is read even on
+        the error path - a failed turn still consumed tokens.
         """
         stderr = result.stderr.strip()
-        try:
-            envelope = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
+        envelope = _result_envelope(result.stdout)
 
         if not isinstance(envelope, dict):
-            return HeadlessResponse(stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode)
+            if _looks_like_event_stream(result.stdout):
+                # A crashed or truncated stream: stdout is NDJSON events, not the
+                # model's text, so passing it on would hand callers raw protocol lines.
+                return HeadlessResponse(
+                    stdout="",
+                    stderr=stderr or "Antigravity CLI ended without a result event",
+                    exit_code=result.returncode or 1,
+                )
+            # A failure that printed prose. Whatever reached stdout is still the
+            # answer; `usage=None` says honestly that nothing was reported.
+            return HeadlessResponse(
+                stdout=self._sanitize(result.stdout), stderr=stderr, exit_code=result.returncode
+            )
+
+        usage = self._usage_from_envelope(envelope)
 
         if envelope.get("status") not in (None, "SUCCESS"):
             # The envelope's `response` may be empty on hard failures (e.g. quota
@@ -217,13 +249,94 @@ class AntigravityHeadlessAdapter:
                 stdout="",
                 stderr=str(detail),
                 exit_code=result.returncode or 1,
+                usage=usage,
             )
 
-        structured_output = envelope.get("structured_output")
-        if structured_output is None:
-            return HeadlessResponse(stdout=str(envelope.get("response", "")), stderr=stderr, exit_code=result.returncode)
-        return HeadlessResponse(stdout=json.dumps(structured_output), stderr=stderr, exit_code=result.returncode)
+        if expect_structured:
+            structured_output = envelope.get("structured_output")
+            if structured_output is not None:
+                return HeadlessResponse(
+                    stdout=json.dumps(structured_output),
+                    stderr=stderr,
+                    exit_code=result.returncode,
+                    usage=usage,
+                )
+
+        return HeadlessResponse(
+            stdout=self._sanitize(str(envelope.get("response", ""))),
+            stderr=stderr,
+            exit_code=result.returncode,
+            usage=usage,
+        )
+
+    def _usage_from_envelope(self, envelope: dict) -> Optional[CliUsage]:
+        """Read the envelope's `usage` block.
+
+        agy reports counts but no price, so `cost_usd` stays None rather than being
+        derived from a token table that would go stale without anyone noticing. Its
+        `thinking_tokens` maps to `reasoning_tokens`, the name the other CLIs use for
+        the same thing.
+        """
+        usage = envelope.get("usage")
+        if not isinstance(usage, dict):
+            return None
+        return CliUsage(
+            input_tokens=as_int(usage.get("input_tokens")),
+            output_tokens=as_int(usage.get("output_tokens")),
+            cache_read_tokens=as_int(usage.get("cache_read_tokens")),
+            reasoning_tokens=as_int(usage.get("thinking_tokens")),
+            reported_total_tokens=as_int(usage.get("total_tokens")),
+            source="agy_envelope",
+        )
 
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
+
+
+def _looks_like_event_stream(stdout: str) -> bool:
+    """True when any stdout line is a JSON object carrying an `event` field."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and "event" in event:
+            return True
+    return False
+
+
+def _result_envelope(stdout: str) -> Optional[dict]:
+    """The envelope from agy's output: the `result` event of a stream, or a JSON object.
+
+    A stream is one event per line and the envelope is the payload of the LAST `result`
+    event. A whole-stdout JSON object is what `--output-format json` prints, accepted too
+    so a run captured in that format still parses.
+    """
+    try:
+        whole = json.loads(stdout)
+    except json.JSONDecodeError:
+        whole = None
+    if isinstance(whole, dict):
+        if whole.get("event") == "result" and isinstance(whole.get("result"), dict):
+            return whole["result"]
+        if "event" not in whole:
+            return whole
+        # A lone non-result event (a crashed or truncated stream) is no envelope: it
+        # falls through so the caller's event-stream guard reports the failure.
+
+    envelope = None
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("event") == "result" and isinstance(event.get("result"), dict):
+            envelope = event["result"]
+    return envelope

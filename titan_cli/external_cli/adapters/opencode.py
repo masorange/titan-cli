@@ -1,7 +1,7 @@
 """
 Headless adapter for OpenCode CLI (opencode).
 
-Uses `opencode run --format json <prompt>` for non-interactive execution.
+Uses `opencode run --format json` with the prompt on stdin for non-interactive execution.
 Parses JSONL event output to extract the agent's response.
 """
 
@@ -12,7 +12,15 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
-from .base import CliModel, HeadlessResponse, SupportedCLI, model_listing_lines
+from .base import (
+    CliModel,
+    CliUsage,
+    HeadlessResponse,
+    SupportedCLI,
+    as_float,
+    as_int,
+    model_listing_lines,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -86,6 +94,11 @@ class OpenCodeHeadlessAdapter:
     def supports_model_selection(self) -> bool:
         return True
 
+    @property
+    def supports_subagents(self) -> bool:
+        # Not verified in headless mode, so it is not relied on.
+        return False
+
     def is_available(self) -> bool:
         return shutil.which("opencode") is not None
 
@@ -106,15 +119,20 @@ class OpenCodeHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         cmd = ["opencode", "run", "--format", "json"]
         if model is not None:
             # OpenCode expects "provider/model" (e.g. "anthropic/claude-sonnet-4-5").
             cmd += ["-m", model]
-        cmd.append(_HEADLESS_PREAMBLE + prompt)
+        # The prompt goes on stdin: `opencode run` with no message reads it from there,
+        # and on argv a single string over Linux's 131,072-byte MAX_ARG_STRLEN fails the
+        # exec with E2BIG -- a deep-review prompt runs ~115k characters.
         try:
             result = subprocess.run(
                 cmd,
+                input=_HEADLESS_PREAMBLE + prompt,
                 capture_output=True,
                 text=True,
                 cwd=cwd,
@@ -123,14 +141,16 @@ class OpenCodeHeadlessAdapter:
                 # opencode draws a status bar by writing to /dev/tty directly,
                 # bypassing the captured pipes and corrupting Titan's own TUI.
                 # A new session has no controlling terminal, so that open fails
-                # and opencode runs truly headless.
-                stdin=subprocess.DEVNULL,
+                # and opencode runs truly headless. stdin is the prompt pipe, never
+                # the terminal.
                 start_new_session=True,
             )
+            text, usage = self._parse_json_output(result.stdout)
             return HeadlessResponse(
-                stdout=self._parse_json_output(result.stdout),
+                stdout=text,
                 stderr=result.stderr.strip(),
                 exit_code=result.returncode,
+                usage=usage,
             )
         except subprocess.TimeoutExpired:
             return HeadlessResponse(
@@ -149,7 +169,7 @@ class OpenCodeHeadlessAdapter:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
 
-    def _parse_json_output(self, jsonl_output: str) -> str:
+    def _parse_json_output(self, jsonl_output: str) -> tuple[str, Optional[CliUsage]]:
         """
         Parse JSONL output from `opencode run --format json`.
 
@@ -162,11 +182,12 @@ class OpenCodeHeadlessAdapter:
         work and the answer comes after the last tool.
         """
         if not jsonl_output or not jsonl_output.strip():
-            return ""
+            return "", None
 
         final_texts = []
         post_tool_texts = []
         all_texts = []
+        usage: Optional[CliUsage] = None
         for line in jsonl_output.strip().split("\n"):
             if not line:
                 continue
@@ -178,6 +199,15 @@ class OpenCodeHeadlessAdapter:
             event_type = event.get("type")
             if event_type == "tool_use":
                 post_tool_texts.clear()
+                continue
+            if event_type == "step_finish":
+                # The only event that reports consumption, and the only one that gives
+                # a price: opencode resolves cost itself per provider, so there is
+                # nothing to derive. Each step reports ITS OWN turn, so a multi-step run
+                # is the sum. Measured 2026-09-24 on a two-read call: step 1 input
+                # 26,664, step 2 input 29,154. Keeping only the last step, as this used
+                # to, reported a 306 s deep review (run a00923fa) as 89k in / 664 out.
+                usage = _add_usage(usage, self._usage_from_step(event))
                 continue
             if event_type != "text":
                 continue
@@ -198,4 +228,57 @@ class OpenCodeHeadlessAdapter:
         # not the answer, but it beats returning nothing: the caller's contract
         # check gets real content to reject and the user sees what the model was
         # doing when the run stopped.
-        return "\n".join(final_texts or post_tool_texts or all_texts[-1:]).strip()
+        return "\n".join(final_texts or post_tool_texts or all_texts[-1:]).strip(), usage
+
+    def _usage_from_step(self, event: dict) -> Optional[CliUsage]:
+        """Read `part.tokens` and `part.cost` off a `step_finish` event.
+
+        A reported cost of 0 is kept as 0, not discarded as missing: on a local or
+        free model that zero is the true price, and turning it into None would make
+        a free run indistinguishable from one whose CLI said nothing.
+        """
+        part = event.get("part")
+        if not isinstance(part, dict):
+            return None
+        tokens = part.get("tokens")
+        if not isinstance(tokens, dict):
+            tokens = {}
+        cache = tokens.get("cache")
+        if not isinstance(cache, dict):
+            cache = {}
+        usage = CliUsage(
+            input_tokens=as_int(tokens.get("input")),
+            output_tokens=as_int(tokens.get("output")),
+            reasoning_tokens=as_int(tokens.get("reasoning")),
+            cache_read_tokens=as_int(cache.get("read")),
+            cache_write_tokens=as_int(cache.get("write")),
+            reported_total_tokens=as_int(tokens.get("total")),
+            cost_usd=as_float(part.get("cost")),
+            source="opencode_step_finish",
+        )
+        return usage if usage.total_tokens is not None or usage.has_cost else None
+
+
+def _add_usage(total: Optional[CliUsage], step: Optional[CliUsage]) -> Optional[CliUsage]:
+    """Sum two usages field by field; a field neither reported stays None, never 0."""
+    if step is None:
+        return total
+    if total is None:
+        return step
+
+    def _sum(a, b):
+        if a is None and b is None:
+            return None
+        return (a or 0) + (b or 0)
+
+    return CliUsage(
+        input_tokens=_sum(total.input_tokens, step.input_tokens),
+        output_tokens=_sum(total.output_tokens, step.output_tokens),
+        reasoning_tokens=_sum(total.reasoning_tokens, step.reasoning_tokens),
+        cache_read_tokens=_sum(total.cache_read_tokens, step.cache_read_tokens),
+        cache_write_tokens=_sum(total.cache_write_tokens, step.cache_write_tokens),
+        reported_total_tokens=_sum(total.reported_total_tokens, step.reported_total_tokens),
+        cost_usd=_sum(total.cost_usd, step.cost_usd),
+        model_reported=step.model_reported or total.model_reported,
+        source=step.source or total.source,
+    )

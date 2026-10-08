@@ -111,6 +111,7 @@ def from_network_pr_file(network_file: NetworkPRFile) -> UIFileChange:
         deletions=network_file.deletions,
         status=status,
         status_icon=_STATUS_ICONS.get(status, "~"),
+        previous_path=network_file.previous_filename,
     )
 
 
