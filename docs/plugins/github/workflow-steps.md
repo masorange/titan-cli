@@ -1201,7 +1201,7 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `existing_comments_index (List[ExistingCommentIndexEntry])`
+    **Available to later steps:** `existing_comments_index`
 
     **Inputs (from ctx.data)**
 
@@ -1214,13 +1214,13 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | existing_comments_index (List[ExistingCommentIndexEntry]) | - | - |
+    | `existing_comments_index` | List[ExistingCommentIndexEntry] | - |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `existing_comments_index (List[ExistingCommentIndexEntry])` | The step completed. |
+    | `Success` | `existing_comments_index` | The step completed. |
 
 
 ??? info "`write_review_material`"
@@ -1241,10 +1241,10 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | change_manifest (ChangeManifest) | - | - |
-    | review_diff_manager (DiffContextManager) | - | - |
-    | review_threads, review_general_comments (List[UICommentThread]) | - | - |
-    | worktree_path (str) | - | - |
+    | `change_manifest` | ChangeManifest | - |
+    | `review_diff_manager` | DiffContextManager | - |
+    | `review_threads, review_general_comments` | List[UICommentThread] | - |
+    | `worktree_path` | str | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1278,7 +1278,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | change_manifest (ChangeManifest) | - | - |
+    | `change_manifest` | ChangeManifest | - |
     | `worktree_path` | str | with the material `write_review_material` left in it |
 
     **Outputs (saved to ctx.data)**
@@ -1348,8 +1348,8 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | normalized_findings (List[Finding]) | - | - |
-    | existing_comments_index (List[ExistingCommentIndexEntry]) | - | - |
+    | `normalized_findings` | List[Finding] | - |
+    | `existing_comments_index` | List[ExistingCommentIndexEntry] | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1377,26 +1377,26 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr`
 
-    **Available to later steps:** `review_action_proposals (List[ReviewActionProposal])`
+    **Available to later steps:** `review_action_proposals`
 
     **Inputs (from ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | deduped_findings (List[Finding]) | - | - |
+    | `deduped_findings` | List[Finding] | - |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | review_action_proposals (List[ReviewActionProposal]) | - | - |
+    | `review_action_proposals` | List[ReviewActionProposal] | - |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `review_action_proposals (List[ReviewActionProposal])` | The step completed. |
-    | `Skip` | `review_action_proposals (List[ReviewActionProposal])` | Nothing to do (no findings). |
+    | `Success` | `review_action_proposals` | The step completed. |
+    | `Skip` | `review_action_proposals` | Nothing to do (no findings). |
 
 
 ??? info "`validate_review_actions`"
@@ -1411,27 +1411,27 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
 
-    **Available to later steps:** `approved_action_proposals (List[ReviewActionProposal])`
+    **Available to later steps:** `approved_action_proposals`
 
     **Inputs (from ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | review_action_proposals (List[ReviewActionProposal]) | - | - |
+    | `review_action_proposals` | List[ReviewActionProposal] | - |
     | `review_diff` | str | Full PR diff for extracting diff context per comment |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | approved_action_proposals (List[ReviewActionProposal]) | - | - |
+    | `approved_action_proposals` | List[ReviewActionProposal] | - |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `approved_action_proposals (List[ReviewActionProposal])` | The step completed. |
-    | `Skip` | `approved_action_proposals (List[ReviewActionProposal])` | Nothing to do (none approved). |
+    | `Success` | `approved_action_proposals` | The step completed. |
+    | `Skip` | `approved_action_proposals` | Nothing to do (none approved). |
     | `Error` | - | The step failed. |
 
 
@@ -1451,8 +1451,8 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | approved_action_proposals (List[ReviewActionProposal]) | - | - |
-    | review_pr_number (int) | - | - |
+    | `approved_action_proposals` | List[ReviewActionProposal] | - |
+    | `review_pr_number` | int | - |
     | `review_commit_sha` | str | Head commit SHA (fetched if missing) |
     | `review_diff` | str | Full PR diff for inline comment validation |
 
@@ -1481,7 +1481,7 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr-thread-resolution`
 
-    **Available to later steps:** `thread_review_candidates (List[ThreadReviewCandidate])`
+    **Available to later steps:** `thread_review_candidates`
 
     **Inputs (from ctx.data)**
 
@@ -1495,14 +1495,14 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | thread_review_candidates (List[ThreadReviewCandidate]) | - | - |
+    | `thread_review_candidates` | List[ThreadReviewCandidate] | - |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `thread_review_candidates (List[ThreadReviewCandidate])` | The step completed. |
-    | `Skip` | `thread_review_candidates (List[ThreadReviewCandidate])` | Nothing to do (no candidates). |
+    | `Success` | `thread_review_candidates` | The step completed. |
+    | `Skip` | `thread_review_candidates` | Nothing to do (no candidates). |
     | `Error` | - | The step failed. |
 
 
@@ -1518,7 +1518,7 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr-thread-resolution`
 
-    **Available to later steps:** `thread_review_contexts (List[ThreadReviewContext])`
+    **Available to later steps:** `thread_review_contexts`
 
     **Requires**
 
@@ -1530,7 +1530,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | thread_review_candidates (List[ThreadReviewCandidate]) | - | - |
+    | `thread_review_candidates` | List[ThreadReviewCandidate] | - |
     | `review_threads` | List[UICommentThread] | For extracting reply history |
     | `review_diff` | str | Full PR unified diff |
 
@@ -1538,14 +1538,14 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | thread_review_contexts (List[ThreadReviewContext]) | - | - |
+    | `thread_review_contexts` | List[ThreadReviewContext] | - |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `thread_review_contexts (List[ThreadReviewContext])` | The step completed. |
-    | `Skip` | `thread_review_contexts (List[ThreadReviewContext])` | Nothing to do (no candidates). |
+    | `Success` | `thread_review_contexts` | The step completed. |
+    | `Skip` | `thread_review_contexts` | Nothing to do (no candidates). |
     | `Error` | - | The step failed. |
 
 
@@ -1567,7 +1567,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | thread_review_contexts (List[ThreadReviewContext]) | - | - |
+    | `thread_review_contexts` | List[ThreadReviewContext] | - |
 
     **Outputs (saved to ctx.data)**
 
@@ -1629,27 +1629,27 @@ How to read these contracts:
 
     **Used by built-in workflows:** `review-pr-thread-resolution`
 
-    **Available to later steps:** `review_action_proposals (List[ReviewActionProposal])`
+    **Available to later steps:** `review_action_proposals`
 
     **Inputs (from ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | thread_decisions (List[ThreadDecision]) | - | - |
-    | thread_review_contexts (List[ThreadReviewContext]) | - | - |
+    | `thread_decisions` | List[ThreadDecision] | - |
+    | `thread_review_contexts` | List[ThreadReviewContext] | - |
 
     **Outputs (saved to ctx.data)**
 
     | Name | Type | Description |
     |------|------|-------------|
-    | review_action_proposals (List[ReviewActionProposal]) | - | - |
+    | `review_action_proposals` | List[ReviewActionProposal] | - |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `review_action_proposals (List[ReviewActionProposal])` | The step completed. |
-    | `Skip` | `review_action_proposals (List[ReviewActionProposal])` | Nothing to do (no actionable decisions). |
+    | `Success` | `review_action_proposals` | The step completed. |
+    | `Skip` | `review_action_proposals` | Nothing to do (no actionable decisions). |
     | `Error` | - | The step failed. |
 
 

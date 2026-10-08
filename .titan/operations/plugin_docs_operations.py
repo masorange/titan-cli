@@ -223,15 +223,25 @@ def _clean_section_lines(lines: list[str]) -> list[str]:
     return cleaned
 
 
+_CONTRACT_NAMES = re.compile(r"^\w+(?:\s*,\s*\w+)*$")
+
+
 def _parse_contract_line(line: str) -> tuple[str, str, str]:
     """Parse a docstring contract line into name, type, and description columns."""
-    match = re.match(r"^(?P<name>[^:(]+?)\s*(?:\((?P<type>[^)]+)\))?:\s*(?P<desc>.+)$", line)
-    if not match:
+    # The description is optional: `name (type)` alone is a complete contract line.
+    match = re.match(
+        r"^(?P<name>[^:(]+?)\s*(?:\((?P<type>[^)]+)\))?(?::\s*(?P<desc>.+))?$", line
+    )
+    if not match or not (match.group("type") or match.group("desc")):
+        return line, "", ""
+    # Without a description only identifiers count as names, so a wrapped prose line
+    # ending in a parenthesis ("hooks on the merge commit (default: True)") stays prose.
+    if not match.group("desc") and not _CONTRACT_NAMES.match(match.group("name").strip()):
         return line, "", ""
 
     name = match.group("name").strip()
     item_type = (match.group("type") or "").strip()
-    description = match.group("desc").strip()
+    description = (match.group("desc") or "").strip()
     return name, item_type, description
 
 
@@ -272,7 +282,7 @@ def _append_contract_table(lines: list[str], title: str, section_lines: list[str
     lines.append("|------|------|-------------|")
     for line in section_lines:
         name, item_type, description = _parse_contract_line(line)
-        display_name = f"`{name}`" if description else name
+        display_name = f"`{name}`" if description or item_type else name
         lines.append(
             f"| {display_name} | {_escape_cell(item_type or '-')} | {_escape_cell(description or '-')} |"
         )
