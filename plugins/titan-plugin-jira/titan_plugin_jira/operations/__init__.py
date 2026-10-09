@@ -15,6 +15,9 @@ from .jql_operations import (
     merge_query_collections,
     build_query_not_found_message,
     build_issue_jql,
+    components_condition,
+    jql_string,
+    strip_order_by,
 )
 
 from .issue_formatting_operations import (
@@ -24,6 +27,7 @@ from .issue_formatting_operations import (
     get_issue_table_headers,
     build_issue_table_data,
     format_person_name,
+    display_lines,
     issue_description_lines,
 )
 
@@ -41,6 +45,7 @@ from .issue_management_operations import (
     issue_has_fix_version,
 )
 
+from .summary_prompt_operations import build_issue_summary_prompt
 from .plan_prompt_operations import (
     format_jira_issue_context,
     build_jira_plan_prompt,
@@ -53,6 +58,9 @@ __all__ = [
     "merge_query_collections",
     "build_query_not_found_message",
     "build_issue_jql",
+    "components_condition",
+    "jql_string",
+    "strip_order_by",
     # Issue formatting operations
     "truncate_summary",
     "format_issue_field",
@@ -60,6 +68,7 @@ __all__ = [
     "get_issue_table_headers",
     "build_issue_table_data",
     "format_person_name",
+    "display_lines",
     "issue_description_lines",
     # Issue operations
     "find_ready_to_dev_transition",
@@ -74,4 +83,5 @@ __all__ = [
     # Plan prompt operations
     "format_jira_issue_context",
     "build_jira_plan_prompt",
+    "build_issue_summary_prompt",
 ]

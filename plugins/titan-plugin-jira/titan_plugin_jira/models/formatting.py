@@ -8,7 +8,7 @@ All functions are pure - no side effects, easily testable.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, List, Optional
 
 
 def format_jira_date(iso_date: Optional[str]) -> str:
@@ -134,60 +134,103 @@ def get_priority_icon(priority: str) -> str:
     return icons.get(priority.lower(), "⚪")
 
 
-def extract_text_from_adf(adf: any) -> str:
+def extract_text_from_adf(adf: Any) -> str:
     """
-    Extract plain text from Atlassian Document Format (ADF).
+    Plain text from Atlassian Document Format (ADF), keeping its layout.
 
-    Recursively traverses the ADF tree and extracts all text nodes.
-
-    Args:
-        adf: ADF structure (dict) or plain string
-
-    Returns:
-        Plain text string
-
-    Examples:
-        >>> adf = {
-        ...     "type": "doc",
-        ...     "content": [{
-        ...         "type": "paragraph",
-        ...         "content": [{"type": "text", "text": "Hello"}]
-        ...     }]
-        ... }
-        >>> extract_text_from_adf(adf)
-        'Hello'
-        >>> extract_text_from_adf("Plain string")
-        'Plain string'
-        >>> extract_text_from_adf(None)
-        ''
+    Blocks (paragraphs, headings, lists, code, quotes, tables) become lines
+    separated by a blank line; list items get "•" or their number, nested ones
+    indented; code is indented. Inline nodes that carry no text node of their
+    own still read: a link card as its URL, a mention as "@name", an emoji,
+    a date, a status lozenge. A plain string (the old API format) is returned
+    as it is; anything else yields "".
     """
-    # Handle plain string (old API format)
     if isinstance(adf, str):
         return adf
-
-    # Handle None
-    if not adf:
+    if not isinstance(adf, dict) or not adf:
         return ""
+    return "\n".join(_adf_blocks(adf.get("content", []) if adf.get("type") == "doc" else [adf])).strip("\n")
 
-    # Handle ADF structure
-    if not isinstance(adf, dict):
-        return ""
 
-    text_parts = []
+def _adf_inline(nodes: list) -> str:
+    out = []
+    for node in nodes or []:
+        kind = node.get("type")
+        attrs = node.get("attrs", {}) or {}
+        if kind == "text":
+            text = node.get("text", "")
+            href = next((m.get("attrs", {}).get("href") for m in node.get("marks", []) if m.get("type") == "link"), None)
+            out.append(f"{text} ({href})" if href and href != text else text)
+        elif kind == "hardBreak":
+            out.append("\n")
+        elif kind == "mention":
+            name = attrs.get("text") or "someone"
+            out.append(name if name.startswith("@") else f"@{name}")
+        elif kind == "emoji":
+            out.append(attrs.get("text") or attrs.get("shortName", ""))
+        elif kind in ("inlineCard", "blockCard", "embedCard"):
+            out.append(attrs.get("url", ""))
+        elif kind == "date":
+            out.append(format_jira_date(attrs.get("timestamp")) if attrs.get("timestamp") else "")
+        elif kind == "status":
+            out.append(f"[{attrs.get('text', '')}]")
+        elif "content" in node:
+            out.append(_adf_inline(node["content"]))
+    return "".join(out)
 
-    def extract_recursive(node):
-        if isinstance(node, dict):
-            # Text node
-            if node.get("type") == "text":
-                text_parts.append(node.get("text", ""))
 
-            # Recurse into content
-            if "content" in node:
-                for child in node["content"]:
-                    extract_recursive(child)
+def _adf_blocks(nodes: list, indent: str = "") -> List[str]:
+    """Lines for a list of block nodes, a blank line between blocks."""
+    lines: List[str] = []
 
-    extract_recursive(adf)
-    return " ".join(text_parts)
+    def add(block: List[str]) -> None:
+        if not block:
+            return
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(block)
+
+    for node in nodes or []:
+        kind = node.get("type")
+        content = node.get("content", [])
+        if kind in ("paragraph", "heading"):
+            text = _adf_inline(content)
+            add([indent + line for line in text.split("\n")] if text.strip() else [])
+        elif kind in ("bulletList", "orderedList"):
+            start = (node.get("attrs", {}) or {}).get("order", 1)
+            items: List[str] = []
+            for n, item in enumerate(content):
+                marker = "•" if kind == "bulletList" else f"{start + n}."
+                body = [ln for ln in _adf_blocks(item.get("content", []), indent + " " * (len(marker) + 1)) if ln != ""]
+                if body:
+                    first = body[0][len(indent) + len(marker) + 1:]
+                    items.append(f"{indent}{marker} {first}")
+                    items.extend(body[1:])
+            add(items)
+        elif kind == "codeBlock":
+            code = "".join(t.get("text", "") for t in content)
+            add([f"{indent}    {line}" for line in code.split("\n")])
+        elif kind == "blockquote":
+            add([f"{indent}> {line[len(indent):]}" if line else line for line in _adf_blocks(content, indent)])
+        elif kind == "rule":
+            add([indent + "───"])
+        elif kind == "table":
+            rows = []
+            for row in content:
+                cells = [" ".join(ln.strip() for ln in _adf_blocks(cell.get("content", [])) if ln.strip())
+                         for cell in row.get("content", [])]
+                rows.append(indent + " | ".join(cells))
+            add(rows)
+        elif kind in ("mediaSingle", "mediaGroup", "media"):
+            add([indent + "[attachment]"])
+        elif kind == "expand":
+            title = (node.get("attrs", {}) or {}).get("title")
+            add(([indent + title] if title else []) + _adf_blocks(content, indent))
+        elif kind in ("inlineCard", "blockCard", "embedCard", "mention", "emoji", "text"):
+            add([indent + _adf_inline([node])])
+        elif content:
+            add(_adf_blocks(content, indent))
+    return lines
 
 
 def truncate_text(text: Optional[str], max_length: int = 60) -> str:

@@ -7,6 +7,9 @@ from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.operations import (
     assign_issue_to_current_user,
     build_issue_jql,
+    components_condition,
+    display_lines,
+    strip_order_by,
     format_person_name,
     issue_description_lines,
     take_issue,
@@ -96,3 +99,30 @@ def test_build_issue_jql_combines_project_status_and_conditions():
         "ORDER BY priority DESC, updated DESC"
     )
     assert build_issue_jql("Blocked", order_by="") == 'status = "Blocked"'
+
+
+def test_build_issue_jql_without_a_status_matches_any_status():
+    assert build_issue_jql(None, "ECAPP", order_by="") == 'project = "ECAPP"'
+    assert build_issue_jql(order_by="") == ""
+    assert build_issue_jql() == "ORDER BY priority DESC, updated DESC"
+
+
+def test_jql_strings_escape_quotes():
+    assert build_issue_jql('Say "hi"', order_by="") == 'status = "Say \\"hi\\""'
+
+
+def test_components_condition_matches_any_of_them():
+    assert components_condition(["Android", "iOS"]) == 'component in ("Android", "iOS")'
+    assert components_condition([]) == ""
+
+
+def test_strip_order_by_leaves_only_the_condition():
+    assert strip_order_by("project = X AND sprint in openSprints() order by Rank ASC") == "project = X AND sprint in openSprints()"
+    assert strip_order_by("ORDER BY created") == ""
+    assert strip_order_by("summary ~ border") == "summary ~ border"
+
+
+def test_display_lines_keep_indentation_and_trim_blank_ends():
+    assert display_lines("   \n    code\n\n\n- item  \n\n") == ["    code", "", "- item"]
+    assert display_lines(None) == []
+    assert display_lines("a\nb\nc", max_lines=2) == ["a", "b", "…"]

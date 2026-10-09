@@ -13,6 +13,7 @@ the panel shows the one picked there (clicking the shown one folds it). A mod
 can put a short badge under its pane's icon (`m.ui.badge`), which is what
 still tells something with the panel folded.
 """
+import re
 from typing import Any, List, Optional, Tuple
 
 from rich.style import Style
@@ -68,16 +69,39 @@ def to_rich(text: Text, inherited: Style = Style()) -> RichText:
         elif isinstance(part, Link):
             out.append_text(link_text(part, style))
         else:
-            out.append(str(part), style)
+            out.append_text(with_urls(str(part), style))
     return out
+
+
+def _link_style(url: str, inherited: Style) -> Style:
+    return inherited + Style(color=_color("info"), underline=True) + Style.from_meta({"@click": f"open_link({url!r})"})
 
 
 def link_text(link: Link, inherited: Style = Style()) -> RichText:
     """A link's label, underlined; a click runs the `open_link` action of the line holding it."""
-    style = inherited + Style(color=_color("info"), underline=True) + Style.from_meta(
-        {"@click": f"open_link({link.url!r})"}
-    )
-    return RichText(link.label, style=style)
+    return RichText(link.label, style=_link_style(link.url, inherited))
+
+
+_URL = re.compile(r"https?://[^\s<>\"'`]+")
+
+
+def with_urls(text: str, style: Style = Style()) -> RichText:
+    """
+    Plain text whose web addresses are links. Every piece of a wrapped address carries
+    the whole URL, so a click on any of its lines opens all of it - left to the terminal,
+    only the part on the clicked line would open.
+    """
+    out = RichText()
+    at = 0
+    for match in _URL.finditer(text):
+        url = match.group().rstrip(".,;:!?")
+        if url.endswith(")") and "(" not in url:
+            url = url[:-1]
+        out.append(text[at:match.start()], style)
+        out.append(url, _link_style(url, style))
+        at = match.start() + len(url)
+    out.append(text[at:], style)
+    return out
 
 
 class _Group(Vertical):

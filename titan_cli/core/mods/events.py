@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
+from titan_cli.engine.results import Error, Exit, Skip, Success
+
 
 def _frozen(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
     return MappingProxyType(dict(mapping))
@@ -16,11 +18,30 @@ def _frozen(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
 
 @dataclass(frozen=True)
 class WorkflowRun:
-    """`workflow.run`: wraps a whole workflow. Before `next` is the start, after it the end."""
+    """
+    `workflow.run`: wraps a whole workflow. Before `next` is the start, after it the end.
+
+    `next(e)` returns how the workflow ended; `outcome(result)` reads it as a word.
+    A workflow the user aborts (Ctrl+C) never returns: `next` raises, so a hook that
+    must act however the run ends puts that code in a `finally`. `nested` is true for
+    a workflow run as a step of another, which ends inside its parent's run.
+    """
 
     workflow: str
     source: str
     nested: bool
+
+
+def outcome(result: Any) -> str:
+    """
+    How a workflow or step ended, as `"success"`, `"error"`, `"skip"` or `"exit"`
+    (stopped early on purpose, not a failure), so a mod can tell without importing
+    the engine's result classes.
+    """
+    for kind, name in ((Success, "success"), (Error, "error"), (Skip, "skip"), (Exit, "exit")):
+        if isinstance(result, kind):
+            return name
+    raise TypeError(f"not a workflow result: {result!r}")
 
 
 @dataclass(frozen=True)

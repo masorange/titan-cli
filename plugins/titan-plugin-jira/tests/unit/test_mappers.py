@@ -342,7 +342,62 @@ def test_adf_to_plain_text():
     assert "First paragraph" in result_multi
     assert "Second paragraph" in result_multi
 
+    assert result_multi == "First paragraph\n\nSecond paragraph"
+
     # Invalid/empty ADF
     assert extract_text_from_adf(None) == ""
     assert extract_text_from_adf({}) == ""
     assert extract_text_from_adf("not a dict") == "not a dict"  # Returns as-is for strings
+
+
+def _p(*inline):
+    return {"type": "paragraph", "content": list(inline)}
+
+
+def _t(text, href=None):
+    node = {"type": "text", "text": text}
+    if href:
+        node["marks"] = [{"type": "link", "attrs": {"href": href}}]
+    return node
+
+
+def _item(*blocks):
+    return {"type": "listItem", "content": list(blocks)}
+
+
+def test_adf_keeps_lists_numbered_and_nested():
+    from titan_plugin_jira.models.formatting import extract_text_from_adf
+
+    adf = {"type": "doc", "content": [{"type": "orderedList", "content": [
+        _item(_p(_t("Login")), {"type": "bulletList", "content": [_item(_p(_t("with SSO")))]}),
+        _item(_p(_t("Wait"))),
+    ]}]}
+
+    assert extract_text_from_adf(adf) == "1. Login\n   • with SSO\n2. Wait"
+
+
+def test_adf_inline_nodes_without_text_still_read():
+    from titan_plugin_jira.models.formatting import extract_text_from_adf
+
+    adf = {"type": "doc", "content": [_p(
+        _t("see "), {"type": "inlineCard", "attrs": {"url": "https://conf/sso"}},
+        _t(" cc "), {"type": "mention", "attrs": {"text": "@Ana"}},
+        {"type": "hardBreak"}, _t("docs", href="https://x"), {"type": "emoji", "attrs": {"shortName": ":ok:", "text": "👌"}},
+    )]}
+
+    assert extract_text_from_adf(adf) == "see https://conf/sso cc @Ana\ndocs (https://x)👌"
+
+
+def test_adf_code_quotes_and_tables():
+    from titan_plugin_jira.models.formatting import extract_text_from_adf
+
+    def cell(kind, text):
+        return {"type": kind, "content": [_p(_t(text))]}
+
+    adf = {"type": "doc", "content": [
+        {"type": "codeBlock", "content": [_t("a = 1\nb = 2")]},
+        {"type": "blockquote", "content": [_p(_t("quoted"))]},
+        {"type": "table", "content": [{"type": "tableRow", "content": [cell("tableHeader", "Key"), cell("tableCell", "Value")]}]},
+    ]}
+
+    assert extract_text_from_adf(adf) == "    a = 1\n    b = 2\n\n> quoted\n\nKey | Value"

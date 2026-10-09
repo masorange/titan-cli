@@ -1,3 +1,4 @@
+from rich.console import Console
 from rich.text import Text as RichText
 
 from titan_cli.core.mods import AppStart, Box, Button, ModBus, Text, UIRender
@@ -342,3 +343,16 @@ def test_a_button_with_a_variant_is_drawn_as_titans_button():
     assert kind(Button("Review #5", lambda: None, variant="primary")) is _ModButton
     assert issubclass(_ModButton, TitanButton)
     assert _ModButton._variant(Button("x", lambda: None, variant="loud")) == "default"
+
+
+def test_a_url_in_plain_text_is_one_link_however_it_wraps():
+    from titan_cli.ui.tui.widgets.mod_side_panel import with_urls
+
+    url = "https://www.figma.com/design/nTUhkbEFwF4V/Home?node-id=1-2"
+    text = with_urls(f"Design ({url}). Rest")
+
+    assert text.plain == f"Design ({url}). Rest"
+    linked = [text.plain[span.start:span.end] for span in text.spans if span.style.meta.get("@click")]
+    assert linked == [url]
+    rows = to_rich(Text(f"See {url}", wrap=True)).wrap(Console(width=20), 20)
+    assert {span.style.meta["@click"] for row in rows for span in row.spans if span.style.meta.get("@click")} == {f"open_link({url!r})"}

@@ -163,15 +163,37 @@ __all__ = [
 ]
 
 
+def jql_string(value: str) -> str:
+    """`value` as a quoted JQL string, its quotes and backslashes escaped."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def build_issue_jql(
-    status: str,
+    status: Optional[str] = None,
     project: Optional[str] = None,
     conditions: Sequence[str] = (),
     order_by: str = "priority DESC, updated DESC",
 ) -> str:
-    """JQL for the issues in `status`, in `project` when given, matching every one of `conditions`."""
-    where = [f'project = "{project}"'] if project else []
-    where.append(f'status = "{status}"')
+    """
+    JQL for the issues in `project` and `status` when given, matching every one of
+    `conditions`. With none of them it matches every issue the user can see.
+    """
+    where = [f"project = {jql_string(project)}"] if project else []
+    if status:
+        where.append(f"status = {jql_string(status)}")
     where += [f"({condition})" for condition in conditions]
     jql = " AND ".join(where)
-    return f"{jql} ORDER BY {order_by}" if order_by else jql
+    return " ".join(part for part in (jql, f"ORDER BY {order_by}" if order_by else "") if part)
+
+
+def strip_order_by(jql: str) -> str:
+    """`jql` without its ORDER BY clause, so it can be one condition of another query."""
+    return re.split(r"\s*\bORDER\s+BY\b", jql, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+
+
+def components_condition(names: Sequence[str]) -> str:
+    """JQL for issues in any of the components `names` (empty when there are none)."""
+    if not names:
+        return ""
+    return f"component in ({', '.join(jql_string(n) for n in names)})"

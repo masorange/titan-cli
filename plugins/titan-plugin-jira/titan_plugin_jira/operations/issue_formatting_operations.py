@@ -190,20 +190,27 @@ def format_person_name(name: Optional[str]) -> str:
     return name.title() if name.isupper() else name
 
 
-def issue_description_lines(issue: UIJiraIssue, max_lines: Optional[int] = None) -> List[str]:
+def display_lines(text: Optional[str], max_lines: Optional[int] = None) -> List[str]:
     """
-    The issue's description as display lines: none when it has no description,
-    runs of blank lines collapsed to one, and cut with "…" past `max_lines`.
+    Text (a description, a comment body) as display lines: trailing spaces
+    dropped, runs of blank lines collapsed to one, none at either end, and cut
+    with "…" past `max_lines`. Leading indentation (code, nested lists) is kept.
     """
-    text = (issue.description or "").strip()
-    if not text or text == NO_DESCRIPTION:
-        return []
     lines: List[str] = []
-    for line in text.splitlines():
+    for line in (text or "").splitlines():
         if line.strip():
             lines.append(line.rstrip())
-        elif lines[-1] != "":
+        elif lines and lines[-1] != "":
             lines.append("")
+    while lines and lines[-1] == "":
+        lines.pop()
     if max_lines is not None and len(lines) > max_lines:
         lines = lines[:max_lines] + ["…"]
     return lines
+
+
+def issue_description_lines(issue: UIJiraIssue, max_lines: Optional[int] = None) -> List[str]:
+    """The issue's description as `display_lines`; none when it has no description."""
+    if (issue.description or "").strip() == NO_DESCRIPTION:
+        return []
+    return display_lines(issue.description, max_lines)

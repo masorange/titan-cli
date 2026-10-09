@@ -309,6 +309,39 @@ client.list_project_versions(project_key="APP")
 
 - `project_key`: Optional. Project key. Uses the configured default project when omitted.
 
+### List project components
+
+Returns the project's components (`UIJiraComponent`: `id`, `name`, `description`).
+`components_condition(names)` from `titan_plugin_jira.operations` turns some of them into
+a JQL condition (`component in (...)`).
+
+**Call:**
+
+```python
+client.list_components(project_key="APP")
+```
+
+**Parameters:**
+
+- `project_key`: Optional. Project key. Uses the configured default project when omitted.
+
+### List favourite filters
+
+Returns the saved filters the authenticated user starred in Jira (`UIJiraFilter`: `id`,
+`name`, `jql`, `url`). Filters shared without their query are left out. A filter's `jql`
+can be passed as one of the `conditions` of
+`build_issue_jql(status=None, project=None, conditions=())` from `titan_plugin_jira.operations`,
+which ANDs everything it is given (no status: any status); pass it through
+`strip_order_by(jql)` first, as a saved filter's query may end in an ORDER BY.
+
+**Call:**
+
+```python
+client.list_favourite_filters()
+```
+
+**Parameters:** none.
+
 ### Create a version
 
 Creates a Jira version in a project.

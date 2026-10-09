@@ -14,6 +14,8 @@ from .user import NetworkJiraUser
 from .status import NetworkJiraStatus, NetworkJiraStatusCategory
 from .priority import NetworkJiraPriority
 from .version import NetworkJiraVersion
+from .component import NetworkJiraComponent
+from .filter import NetworkJiraFilter
 
 __all__ = [
     "NetworkJiraIssue",
@@ -27,4 +29,6 @@ __all__ = [
     "NetworkJiraStatusCategory",
     "NetworkJiraPriority",
     "NetworkJiraVersion",
+    "NetworkJiraComponent",
+    "NetworkJiraFilter",
 ]

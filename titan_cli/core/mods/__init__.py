@@ -2,7 +2,7 @@
 
 from .bus import AIAnswer, DockSlot, ModAPI, ModBus, ModHost
 from .elements import Box, Button, Link, Text
-from .events import AppStart, StepCall, UIRender, WorkflowRun
+from .events import AppStart, StepCall, UIRender, WorkflowRun, outcome
 from .state import ModState
 from .loader import ModManifest, build_mod_bus, discover_mods, import_mod, load_mods, mod_sources, read_manifest
 
@@ -27,5 +27,6 @@ __all__ = [
     "import_mod",
     "load_mods",
     "mod_sources",
+    "outcome",
     "read_manifest",
 ]

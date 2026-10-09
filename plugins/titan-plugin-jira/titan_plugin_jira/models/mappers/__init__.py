@@ -13,6 +13,8 @@ from .status_mapper import from_network_status
 from .user_mapper import from_network_user
 from .issue_type_mapper import from_network_issue_type
 from .version_mapper import from_network_version
+from .component_mapper import from_network_component
+from .filter_mapper import from_network_filter
 
 __all__ = [
     "from_network_issue",
@@ -24,4 +26,6 @@ __all__ = [
     "from_network_user",
     "from_network_issue_type",
     "from_network_version",
+    "from_network_component",
+    "from_network_filter",
 ]

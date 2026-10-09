@@ -317,3 +317,49 @@ def test_list_project_versions_api_error(metadata_service, mock_network):
     # Assertions
     assert isinstance(result, ClientError)
     assert result.error_code == "LIST_VERSIONS_ERROR"
+
+
+def test_list_components_maps_each_component(metadata_service, mock_network):
+    mock_network.make_request.return_value = [
+        {"id": "1", "name": "Android", "description": "App"},
+        {"id": "2", "name": "Backend"},
+    ]
+
+    result = metadata_service.list_components("TEST")
+
+    mock_network.make_request.assert_called_once_with("GET", "project/TEST/components")
+    assert isinstance(result, ClientSuccess)
+    assert [(c.name, c.description) for c in result.data] == [("Android", "App"), ("Backend", "No description")]
+
+
+def test_list_components_error(metadata_service, mock_network):
+    mock_network.make_request.side_effect = JiraAPIError("Project not found", status_code=404)
+
+    result = metadata_service.list_components("NOPE")
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "LIST_COMPONENTS_ERROR"
+
+
+def test_list_favourite_filters_keeps_only_those_with_a_query(metadata_service, mock_network):
+    mock_network.make_request.return_value = [
+        {"id": 10023, "name": "Sprint actual", "jql": "sprint in openSprints()", "viewUrl": "https://x/issues/?filter=10023"},
+        {"id": 10024, "name": "Shared without query"},
+    ]
+
+    result = metadata_service.list_favourite_filters()
+
+    mock_network.make_request.assert_called_once_with("GET", "filter/favourite")
+    assert isinstance(result, ClientSuccess)
+    assert [(f.id, f.name, f.jql, f.url) for f in result.data] == [
+        ("10023", "Sprint actual", "sprint in openSprints()", "https://x/issues/?filter=10023")
+    ]
+
+
+def test_list_favourite_filters_error(metadata_service, mock_network):
+    mock_network.make_request.side_effect = JiraAPIError("Unauthorized", status_code=401)
+
+    result = metadata_service.list_favourite_filters()
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "LIST_FILTERS_ERROR"

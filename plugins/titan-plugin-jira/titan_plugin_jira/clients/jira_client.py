@@ -27,6 +27,8 @@ from ..models import (
     UIJiraStatus,
     UIJiraUser,
     UIJiraVersion,
+    UIJiraComponent,
+    UIJiraFilter,
     UIPriority
 )
 
@@ -373,6 +375,34 @@ class JiraClient:
             )
 
         return self._metadata_service.list_project_versions(key)
+
+    def list_components(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraComponent]]:
+        """
+        List the components of a project.
+
+        Args:
+            project_key: Project key (uses default if not provided)
+
+        Returns:
+            ClientResult[List[UIJiraComponent]]
+        """
+        key = project_key or self.project_key
+        if not key:
+            return ClientError(
+                error_message="Project key not provided",
+                error_code="MISSING_PROJECT_KEY"
+            )
+
+        return self._metadata_service.list_components(key)
+
+    def list_favourite_filters(self) -> ClientResult[List[UIJiraFilter]]:
+        """
+        List the saved filters the current user starred in Jira.
+
+        Returns:
+            ClientResult[List[UIJiraFilter]]: each with its name and JQL
+        """
+        return self._metadata_service.list_favourite_filters()
 
     def create_version(
         self,

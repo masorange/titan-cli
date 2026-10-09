@@ -166,8 +166,11 @@ class Dock(Widget):
     """
 
     DEFAULT_CSS = """
+    /* `split`, not `dock`: a docked bar is painted over the side panel (itself docked
+       right, full height), hiding the end of a pane; a split one takes its rows away
+       from everything else, so the panel and the screen stop above it. */
     Dock {
-        dock: bottom;
+        split: bottom;
         height: 5;
         width: 100%;
         background: $surface-lighten-1;

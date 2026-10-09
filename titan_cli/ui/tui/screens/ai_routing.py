@@ -303,7 +303,10 @@ class SelectProviderTypeModal(ModalScreen[Optional[str]]):
     #select-type-container {
         width: 74;
         height: auto;
-        max-height: 26;
+        /* Bounded by the viewport, as QuickInstanceModal is: a fixed 26 rows clipped
+           the Cancel button once the list held three choices with two-line
+           descriptions. The list gives up space first. */
+        max-height: 90vh;
         background: $surface-lighten-1;
         border: solid $primary;
         padding: 2;
@@ -311,7 +314,7 @@ class SelectProviderTypeModal(ModalScreen[Optional[str]]):
 
     #select-type-list {
         height: auto;
-        max-height: 16;
+        max-height: 55vh;
         margin-top: 1;
     }
 

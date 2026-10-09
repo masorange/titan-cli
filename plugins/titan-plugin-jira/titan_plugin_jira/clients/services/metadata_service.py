@@ -18,6 +18,8 @@ from ...models.network.rest import (
     NetworkJiraStatusCategory,
     NetworkJiraUser,
     NetworkJiraVersion,
+    NetworkJiraComponent,
+    NetworkJiraFilter,
 )
 from ...models.view import (
     UIJiraIssueType,
@@ -25,6 +27,8 @@ from ...models.view import (
     UIJiraUser,
     UIJiraVersion,
     UIPriority,
+    UIJiraComponent,
+    UIJiraFilter,
 )
 from ...exceptions import JiraAPIError
 from ...models.mappers import (
@@ -33,6 +37,8 @@ from ...models.mappers import (
     from_network_status,
     from_network_version,
     from_network_priority,
+    from_network_component,
+    from_network_filter,
 )
 
 
@@ -222,6 +228,70 @@ class MetadataService:
             return ClientError(
                 error_message=f"Failed to list versions for {project_key}: {e.message}",
                 error_code="LIST_VERSIONS_ERROR",
+            )
+
+    @log_client_operation()
+    def list_components(self, project_key: str) -> ClientResult[List[UIJiraComponent]]:
+        """
+        List the components of a project.
+
+        Args:
+            project_key: Project key
+
+        Returns:
+            ClientResult[List[UIJiraComponent]]
+        """
+        try:
+            data = self.network.make_request("GET", f"project/{project_key}/components")
+            network_components = [
+                NetworkJiraComponent(
+                    id=c.get("id", ""),
+                    name=c.get("name", ""),
+                    description=c.get("description"),
+                )
+                for c in data or []
+            ]
+            ui_components = [from_network_component(c) for c in network_components]
+            return ClientSuccess(
+                data=ui_components, message=f"Found {len(ui_components)} components"
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to list components for {project_key}: {e.message}",
+                error_code="LIST_COMPONENTS_ERROR",
+            )
+
+    @log_client_operation()
+    def list_favourite_filters(self) -> ClientResult[List[UIJiraFilter]]:
+        """
+        List the saved filters the current user starred in Jira.
+
+        Returns:
+            ClientResult[List[UIJiraFilter]]
+        """
+        try:
+            data = self.network.make_request("GET", "filter/favourite")
+            network_filters = [
+                NetworkJiraFilter(
+                    id=str(f.get("id", "")),
+                    name=f.get("name", ""),
+                    jql=f.get("jql", ""),
+                    viewUrl=f.get("viewUrl"),
+                    favourite=f.get("favourite", True),
+                )
+                for f in data or []
+            ]
+            # A filter shared without its query cannot narrow another search.
+            ui_filters = [from_network_filter(f) for f in network_filters if f.jql]
+            return ClientSuccess(
+                data=ui_filters, message=f"Found {len(ui_filters)} favourite filters"
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to list favourite filters: {e.message}",
+                error_code="LIST_FILTERS_ERROR",
             )
 
     @log_client_operation()

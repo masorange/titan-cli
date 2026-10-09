@@ -1,10 +1,13 @@
 from dataclasses import replace
 from unittest.mock import MagicMock
 
-from titan_cli.core.mods import ModBus
+import pytest
+
+from titan_cli.core.interrupt import WorkflowAborted
+from titan_cli.core.mods import ModBus, outcome
 from titan_cli.core.workflows import ParsedWorkflow
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.engine.results import Success, is_error
+from titan_cli.engine.results import Error, Exit, Skip, Success, is_error
 from titan_cli.ui.tui.textual_workflow_executor import TextualWorkflowExecutor
 
 
@@ -76,6 +79,54 @@ def test_workflow_run_hook_sees_start_and_end():
     executor.execute(workflow({"id": "noop", "plugin": "x", "step": "noop"}), WorkflowContext(data={}))
 
     assert trace == ["start:wf", "end:Workflow 'wf' finished."]
+
+
+def test_workflow_run_hook_reads_how_the_workflow_ended():
+    bus = ModBus()
+    on = bus.on_for("watcher")
+    ended = []
+
+    @on("workflow.run")
+    def around(m, e, next):
+        result = next(e)
+        ended.append(outcome(result))
+        return result
+
+    executor = make_executor(bus, {"ok": lambda ctx: Success("ok"), "boom": lambda ctx: Error("boom")})
+    executor.execute(workflow({"id": "ok", "plugin": "x", "step": "ok"}), WorkflowContext(data={}))
+    executor.execute(workflow({"id": "boom", "plugin": "x", "step": "boom"}), WorkflowContext(data={}))
+
+    assert ended == ["success", "error"]
+
+
+def test_an_aborted_workflow_reaches_a_hooks_finally_but_not_the_code_after_next():
+    bus = ModBus()
+    on = bus.on_for("watcher")
+    trace = []
+
+    @on("workflow.run")
+    def around(m, e, next):
+        try:
+            result = next(e)
+            trace.append("after next")
+            return result
+        finally:
+            trace.append("finally")
+
+    def aborted(ctx):
+        raise WorkflowAborted("user pressed Ctrl+C")
+
+    executor = make_executor(bus, {"stop": aborted})
+    with pytest.raises(WorkflowAborted):
+        executor.execute(workflow({"id": "stop", "plugin": "x", "step": "stop"}), WorkflowContext(data={}))
+
+    assert trace == ["finally"]
+
+
+def test_outcome_names_each_result_and_refuses_anything_else():
+    assert [outcome(r) for r in (Success("a"), Error("b"), Skip("c"), Exit("d"))] == ["success", "error", "skip", "exit"]
+    with pytest.raises(TypeError):
+        outcome("ok")
 
 
 def test_without_mods_the_executor_behaves_as_before():

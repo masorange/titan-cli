@@ -77,8 +77,8 @@ class BaseScreen(Screen):
         # Content area - subclasses define this
         yield from self.compose_content()
 
-        # Textual lays docked widgets out last-first: yielded before the dock,
-        # the panel stops above it and the dock keeps the full width.
+        # The dock splits the screen's bottom off (see Dock), so the panel and the
+        # content stop above it and the dock keeps the full width.
         yield ModSidePanel()
 
         if self.show_dock:
