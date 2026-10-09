@@ -99,6 +99,8 @@ class BaseScreen(Screen):
             dock = self.query_one("#dock", Dock)
         except Exception:
             return  # not mounted yet; on_mount paints it
+        # The fold is toggled on whichever screen is on top; one underneath catches up here.
+        dock.show_collapsed(getattr(self.app, "dock_collapsed", False))
 
         # Get git status
         git_branch = ""
@@ -120,11 +122,7 @@ class BaseScreen(Screen):
         cli_info, ai_info = ai_cells(ai_config, override)
         project_name = self.config.get_project_name() or "N/A"
         dock.show_status(project_name, git_branch, cli_info, ai_info)
-        try:
-            plugins = self.config.get_enabled_plugins()
-        except Exception:
-            plugins = []
-        dock.show_plugins(plugins)
+        dock.refresh_tiles()
 
     def on_screen_resume(self) -> None:
         """Called when screen is resumed (e.g., after another screen is dismissed)."""

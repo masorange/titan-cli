@@ -205,16 +205,3 @@ def test_a_dock_slot_carries_the_manifest_icon_and_an_empty_label_clears_it():
 
     assert (slots[0].icon, slots[0].label, slots[0].badge, slots[0].severity) == ("👀", "PRs", "2", "error")
     assert slots[1] is None
-
-
-def test_a_badge_names_the_plugin_tile_and_none_takes_it_off():
-    bus = ModBus()
-    bus.host = sink = RecordingSink()
-    badges = []
-    sink.badge = lambda mod, plugin, text, severity: badges.append((mod, plugin, text, severity))
-    m = bus.api("git")
-
-    m.ui.badge("github", "2 to review", severity="warning")
-    m.ui.badge("github", None)
-
-    assert badges == [("git", "github", "2 to review", "warning"), ("git", "github", None, None)]

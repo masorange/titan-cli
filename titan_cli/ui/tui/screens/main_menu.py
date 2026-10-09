@@ -26,7 +26,7 @@ from titan_cli.core.workflows import (
 )
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import Button, WorkflowCard
+from titan_cli.ui.tui.widgets import WorkflowCard
 from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
     PluginChannel,
@@ -44,10 +44,6 @@ CARD_TARGET_WIDTH = 38
 MAX_COLUMNS = 4
 # Horizontal space #home-body's padding takes out of the screen width.
 HOME_BODY_GUTTER = 8
-# Same idea for the action row: a button whose label is squeezed below this reads as
-# truncation, so the row stacks instead of shrinking. Its labels are shorter than a
-# card's body, hence the smaller target.
-ACTION_TARGET_WIDTH = 24
 # The grid's heading. Deliberately says nothing about where the cards came from: a
 # heading cannot be true of a mixed grid, and the per-card star already is.
 SECTION_TITLE = f"{Icons.WORKFLOW} Quick launch"
@@ -130,27 +126,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         margin-top: 1;
     }
 
-    /* A Grid, not a Horizontal, for the same reason the cards are one: on a narrow
-       terminal three buttons side by side shrink until their labels truncate. The column
-       count is recomputed on resize and drops to 1, stacking them the way the cards
-       stack. */
-    #home-actions {
-        height: auto;
-        padding: 1 3 1 3;
-        grid-size: 3;
-        grid-rows: 3;
-        grid-gutter: 1 2;
-    }
-
-    /* Real buttons rather than chips. A Chip is content-width by design - it exists to
-       annotate a step's output - so three of them read as a caption strip under the grid
-       instead of as the way out of this screen. These span the row and match the cards'
-       weight. */
-    #home-actions Button {
-        width: 1fr;
-        margin: 0;
-    }
-
     #home-empty {
         height: 1fr;
         align: center middle;
@@ -176,14 +151,10 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             with Container(id="home-empty"):
                 yield Static(
                     f"{Icons.PLUGIN}  No plugins are enabled for this project\n\n"
-                    "[dim]Enable Git, GitHub or Jira to start running workflows.[/dim]",
+                    "[dim]Enable Git, GitHub or Jira to start running workflows:[/dim]\n"
+                    "[dim]Plugins in the dock below, or press[/dim] p",
                     id="home-empty-message",
                 )
-            with Grid(id="home-actions"):
-                yield self._action_button(
-                    Icons.PLUGIN, "p", "Manage plugins", variant="primary"
-                )
-                yield self._action_button(Icons.AI_CONFIG, "a", "AI")
             return
 
         has_favorites = any(slot.is_favorite for slot in self._slots)
@@ -218,31 +189,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             hint.display = not has_favorites
             yield hint
 
-        with Grid(id="home-actions"):
-            # Workflows is the primary: it is the one a user reaches for, and the other
-            # two are monthly setup.
-            yield self._action_button(
-                Icons.WORKFLOW, "w", "All workflows", variant="primary"
-            )
-            yield self._action_button(Icons.PLUGIN, "p", "Plugins")
-            yield self._action_button(Icons.AI_CONFIG, "a", "AI")
-
-    def _action_button(self, icon: str, key: str, label: str, variant: str = "default") -> Button:
-        """One action, sized and weighted to be seen, with its key shown on it.
-
-        `w` as plain text beside the label read as the first word of "w All workflows",
-        so the key is bracketed - it is a shortcut, not part of the name.
-        """
-        # The bracket is escaped: a Button label is markup, so a bare `[w]` is parsed as
-        # a tag and silently disappears - the same hazard the card descriptions have.
-        button = Button(
-            f"{icon}  {label}  \\[{key}]",
-            variant=variant,
-            id=f"home-action-{key}",
-        )
-        button.tooltip = f"Press {key}"
-        return button
-
     def _build_slots(self) -> List[QuickLaunchSlot]:
         """Read what the grid needs and choose the slots."""
         if self._workflows is None:
@@ -271,7 +217,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         for message in self.config.get_plugin_sync_events():
             self.app.notify(message, severity="information", timeout=6)
         self._reflow_grid()
-        self._reflow_actions()
         # After the first refresh: setting it mid-mount is what let a later focus overwrite
         # it without a trace.
         self.call_after_refresh(self._focus_first_card)
@@ -280,7 +225,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
     def on_resize(self) -> None:
         """Reflow the columns. The set of cards is deliberately untouched (D-003)."""
         self._reflow_grid()
-        self._reflow_actions()
 
     def _column_count(self, width: int) -> int:
         """How many card columns fit in `width`."""
@@ -357,25 +301,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         self._reflow_grid()
         self._focus_first_card()
 
-    def _reflow_actions(self) -> None:
-        """Wrap the action row the same way the cards wrap, down to one per line.
-
-        Guarded on the value changing for the same reason `_reflow_grid` is: an
-        unconditional style write relayouts, which emits another Resize, which lands
-        back here.
-        """
-        try:
-            actions = self.query_one("#home-actions", Grid)
-        except NoMatches:
-            return
-        buttons = len(actions.query(Button))
-        if not buttons:
-            return
-        available = self.size.width - HOME_BODY_GUTTER
-        columns = max(1, min(buttons, available // ACTION_TARGET_WIDTH))
-        if actions.styles.grid_size_columns != columns:
-            actions.styles.grid_size_columns = columns
-
     def _focus_first_card(self) -> None:
         """Put the cursor on the first card, so Enter means something immediately."""
         cards = list(self.query(WorkflowCard))
@@ -422,17 +347,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
     def on_workflow_card_selected(self, message: WorkflowCard.Selected) -> None:
         """A card was chosen - run its workflow."""
         self.execute_workflow(message.workflow_name)
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """An action button was pressed or clicked."""
-        actions = {
-            "home-action-w": self.app.action_open_workflows,
-            "home-action-p": self.app.action_open_plugins,
-            "home-action-a": self.app.action_open_ai_config,
-        }
-        action = actions.get(event.button.id)
-        if action is not None:
-            action()
 
     def action_launch_slot(self, number: int) -> None:
         """Launch the workflow on the given number key."""

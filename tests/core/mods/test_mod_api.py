@@ -17,6 +17,9 @@ class RecordingHost:
     def open_pane(self, mod, pane, title, icon):
         self.calls.append(("open", mod, pane, title))
 
+    def badge(self, mod, pane, text, severity):
+        self.calls.append(("badge", mod, pane, text, severity))
+
     def repaint(self, mod):
         self.calls.append(("repaint", mod))
 
@@ -241,6 +244,42 @@ def test_clicking_the_shown_pane_folds_the_panel_and_another_switches_to_it():
     assert (host.active, host.collapsed) == ("git", False)
     host.select("unknown")
     assert (host.active, host.collapsed) == ("git", False)
+
+
+def test_a_badge_sits_under_its_own_panes_rail_icon_and_none_takes_it_off():
+    host = _host_with_panes("git")
+
+    host.badge("m", "git", "2", "warning")
+    assert host.badges["git"] == ("2", "warning")
+    host.badge("m", "git", None, None)
+    assert "git" not in host.badges
+
+
+def test_a_mod_cannot_badge_a_pane_it_did_not_open():
+    host = _host_with_panes("git")
+
+    host.badge("other", "git", "9", "error")
+    host.badge("m", "unknown", "9", "error")
+
+    assert host.badges == {}
+
+
+def test_m_ui_badge_names_the_mod_and_its_pane():
+    bus = ModBus()
+    bus.host = host = RecordingHost()
+
+    bus.api("git").ui.badge("git", "2", severity="warning")
+
+    assert host.calls == [("badge", "git", "git", "2", "warning")]
+
+
+def test_the_rail_shows_the_badge_under_the_icon_cut_to_fit():
+    from titan_cli.ui.tui.widgets.mod_side_panel import rail_text
+
+    assert rail_text("⎇", None).plain == "\n⎇\n"
+    text = rail_text("⎇", ("1234", "warning"))
+    assert text.plain == "\n⎇\n123"
+    assert "bold" in str(text.spans[0].style)
 
 
 def test_a_pane_takes_its_rail_icon_from_the_mod_manifest(tmp_path):

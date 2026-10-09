@@ -3,12 +3,15 @@ Dock Widget
 
 The bar at the bottom of every screen, in two rows:
 
-- Launcher: Titan's own destinations (workflows, plugins, AI), reachable from any
-  screen, followed by one slot per mod that asked for one with `m.ui.dock`.
+- Launcher, centred: Titan's own destinations (workflows, plugins, AI), reachable from
+  any screen, followed by one slot per mod that asked for one with `m.ui.dock`.
 - Status: where Titan was started (project, branch) and which AI runs what. The AI
   cells carry the key that changes them, F2 and F3, because this is the only place
   those shortcuts are advertised: a user who can see that the wrong model is selected
   can act on it without leaving the screen they are on.
+
+F6, or a click on the status row's arrow, folds the launcher away and leaves only
+the status row; the choice belongs to the app, so every screen's dock follows it.
 """
 from typing import Any, Callable, Optional, Sequence, Tuple
 
@@ -34,21 +37,6 @@ _SEVERITY_COLORS = {
 
 
 Badge = Tuple[str, Optional[str]]  # text, severity
-
-# How a plugin's tile reads; a plugin missing here shows its name and the plug.
-_PLUGIN_TILES = {
-    "git": ("🌿", "Git"),
-    "github": ("🐙", "GitHub"),
-    "jira": ("🎫", "Jira"),
-    "slack": ("💬", "Slack"),
-    "docker": ("🐳", "Docker"),
-}
-
-
-def plugin_tile(plugin: str) -> Tuple[str, str]:
-    """The icon and label of `plugin`'s tile."""
-    return _PLUGIN_TILES.get(plugin, (Icons.PLUGIN, plugin.replace("-", " ").title()))
-
 
 def tile_text(icon: Optional[str], label: str, badges: Sequence[Badge] = ()) -> Text:
     """A tile's two lines: the icon, then the label with each badge in its color."""
@@ -151,16 +139,31 @@ class DockItem(Static):
         self._on_press()
 
 
+class DockToggle(Static):
+    """The status row's arrow: folds or unfolds the launcher."""
+
+    DEFAULT_CSS = """
+    DockToggle {
+        width: 3;
+        padding: 0 1;
+        color: $text-muted;
+    }
+
+    DockToggle:hover {
+        color: $primary;
+        text-style: bold;
+    }
+    """
+
+    def on_click(self) -> None:
+        self.app.action_toggle_dock()
+
+
 class Dock(Widget):
     """
     Titan's bottom bar: a row of tiles over the session's status. Titan's own come
-    first, then one per enabled plugin (opening its workflows, carrying the badges
-    mods put on it), then the mods' own.
+    first, then the mods' own.
     """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._plugins: Sequence[str] = ()
 
     DEFAULT_CSS = """
     Dock {
@@ -170,14 +173,23 @@ class Dock(Widget):
         background: $surface-lighten-1;
     }
 
+    Dock.-collapsed {
+        height: 1;
+    }
+
+    Dock.-collapsed #dock-launcher {
+        display: none;
+    }
+
     Dock #dock-launcher {
         width: 100%;
         height: 4;
         padding: 0 1;
+        align: center top;
     }
 
     Dock #dock-tiles {
-        width: 1fr;
+        width: auto;
         height: 4;
         margin: 0 0 0 2;
     }
@@ -190,7 +202,7 @@ class Dock(Widget):
 
     Dock #dock-context {
         width: 1fr;
-        padding: 0 1;
+        padding: 0 1 0 0;
     }
 
     Dock #dock-ai, Dock #dock-keys {
@@ -210,9 +222,19 @@ class Dock(Widget):
             yield DockItem(tile_text(Icons.AI_CONFIG, "AI"), self._run("open_ai_config"), classes="titan")
             yield Horizontal(id="dock-tiles")
         with Horizontal(id="dock-status"):
+            yield DockToggle("▾", id="dock-toggle")
             yield Static("", id="dock-context", markup=False)
             yield Static("", id="dock-ai")
-            yield Static("[b]F4[/b] panel  [b]?[/b] help", id="dock-keys")
+            yield Static("[b]F4[/b] panel  [b]F6[/b] dock  [b]?[/b] help", id="dock-keys")
+
+    def on_mount(self) -> None:
+        self.show_collapsed(getattr(self.app, "dock_collapsed", False))
+
+    def show_collapsed(self, collapsed: bool) -> None:
+        """Fold the launcher away (only the status row stays) or bring it back."""
+        self.set_class(collapsed, "-collapsed")
+        self.query_one("#dock-toggle", DockToggle).update("▸" if collapsed else "▾")
+
     def _run(self, action: str) -> Callable[[], None]:
         return lambda: getattr(self.app, f"action_{action}")()
 
@@ -230,22 +252,13 @@ class Dock(Widget):
         ai.append(ai_info, style=colors.GREEN)
         self.query_one("#dock-ai", Static).update(ai)
 
-    def show_plugins(self, plugins: Sequence[str]) -> None:
-        """The enabled plugins, one tile each."""
-        self._plugins = list(plugins)
-        self.refresh_tiles()
-
     def refresh_tiles(self) -> None:
-        """Redraw the plugin and mod tiles from what mods last asked for."""
+        """Redraw the mods' tiles from what they last asked for."""
         self.call_later(self._paint_tiles)
 
     async def _paint_tiles(self) -> None:
         host = getattr(self.app, "mods_host", None)
         tiles = []
-        for plugin in self._plugins:
-            icon, label = plugin_tile(plugin)
-            badges = host.badges(plugin) if host is not None else ()
-            tiles.append(DockItem(tile_text(icon, label, badges), self._open_plugin(plugin)))
         slots: Sequence[Tuple[str, DockSlot]] = host.dock_slots() if host is not None else ()
         for mod, slot in slots:
             tile = DockItem(slot_text(slot), self._press(host, mod))
@@ -254,9 +267,6 @@ class Dock(Widget):
         container = self.query_one("#dock-tiles", Horizontal)
         await container.remove_children()
         await container.mount_all(tiles)
-
-    def _open_plugin(self, plugin: str) -> Callable[[], None]:
-        return lambda: self.app.action_open_workflows(plugin)
 
     @staticmethod
     def _press(host: Any, mod: str) -> Callable[[], None]:

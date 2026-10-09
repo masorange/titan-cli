@@ -44,13 +44,13 @@ class ModHost(Protocol):
 
     def dock(self, mod: str, slot: Optional["DockSlot"]) -> None: ...
 
-    def badge(self, mod: str, plugin: str, text: Optional[str], severity: Optional[str]) -> None: ...
-
     def toast(self, mod: str, text: str, severity: str) -> None: ...
 
     def copy(self, mod: str, text: str, what: str) -> None: ...
 
     def open_pane(self, mod: str, pane: str, title: str, icon: Optional[str]) -> None: ...
+
+    def badge(self, mod: str, pane: str, text: Optional[str], severity: Optional[str]) -> None: ...
 
     def repaint(self, mod: str) -> None: ...
 
@@ -105,9 +105,6 @@ class _HeadlessHost:
     def dock(self, mod: str, slot: Optional[DockSlot]) -> None:
         logger.debug("mod_dock", mod=mod, label=slot.label if slot else None)
 
-    def badge(self, mod: str, plugin: str, text: Optional[str], severity: Optional[str]) -> None:
-        logger.debug("mod_badge", mod=mod, plugin=plugin, text=text)
-
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, text=text, severity=severity)
 
@@ -116,6 +113,9 @@ class _HeadlessHost:
 
     def open_pane(self, mod: str, pane: str, title: str, icon: Optional[str]) -> None:
         logger.debug("mod_pane_opened", mod=mod, pane=pane)
+
+    def badge(self, mod: str, pane: str, text: Optional[str], severity: Optional[str]) -> None:
+        logger.debug("mod_badge", mod=mod, pane=pane, text=text)
 
     def repaint(self, mod: str) -> None:
         pass
@@ -165,9 +165,6 @@ class _ModUI:
         `icon`, `label`, and an optional `badge` coloured by `severity`
         (`success`, `warning`, `error`, ...). A click runs `on_click` on the UI
         thread; without one the tile only informs. `None` as label removes it.
-
-        For news about a plugin's own world (PRs, issues), prefer `badge` on
-        that plugin's tile over a tile of the mod's own.
         """
         if not label:
             self._bus.host.dock(self._mod, None)
@@ -175,14 +172,6 @@ class _ModUI:
         manifest = self._bus.manifests.get(self._mod)
         icon = manifest.icon if manifest else None
         self._bus.host.dock(self._mod, DockSlot(label, icon, badge, severity, on_click))
-
-    def badge(self, plugin: str, text: Optional[str], severity: Optional[str] = None) -> None:
-        """
-        Put `text` on the dock tile of `plugin` (`"github"`, `"jira"`, ...),
-        coloured by `severity`; `None` takes this mod's badge off it. The tile
-        shows only while the plugin is enabled.
-        """
-        self._bus.host.badge(self._mod, plugin, text, severity)
 
     def toast(self, text: str, severity: str = "information") -> None:
         """Show a toast. `severity` is `information`, `warning` or `error`."""
@@ -201,6 +190,14 @@ class _ModUI:
         """
         manifest = self._bus.manifests.get(self._mod)
         self._bus.host.open_pane(self._mod, pane, title, manifest.icon if manifest else None)
+
+    def badge(self, pane: str, text: Optional[str], severity: Optional[str] = None) -> None:
+        """
+        Put `text` under this mod's `pane` icon on the rail, coloured by `severity`;
+        `None` takes it off. It is what still shows with the panel folded (F4), so
+        keep it to a count or a mark: the rail has room for three characters.
+        """
+        self._bus.host.badge(self._mod, pane, text, severity)
 
 
 class _ModClock:

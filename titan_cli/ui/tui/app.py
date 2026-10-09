@@ -46,6 +46,7 @@ class TitanApp(App):
         Binding("f2", "quick_cli", "AI CLI"),
         Binding("f3", "quick_model", "AI Model"),
         Binding("f4", "toggle_mods_panel", "Panel"),
+        Binding("f6", "toggle_dock", "Dock"),
         Binding("?", "help", "Help"),
     ]
 
@@ -68,6 +69,8 @@ class TitanApp(App):
 
         self.config = config
         self._initial_screen = initial_screen
+        # Folding the dock is a session choice, shared by every screen's dock.
+        self.dock_collapsed = False
         self.title = "Titan CLI"
         self.sub_title = "Development Tools Orchestrator"
 
@@ -387,6 +390,14 @@ class TitanApp(App):
         """Collapse or expand the mods' side panel, on every screen."""
         self.mods_host.toggle_collapsed()
 
+    def action_toggle_dock(self) -> None:
+        """Fold or unfold the dock's launcher, on every screen."""
+        from titan_cli.ui.tui.widgets.dock import Dock
+
+        self.dock_collapsed = not self.dock_collapsed
+        for dock in self.screen.query(Dock):
+            dock.show_collapsed(self.dock_collapsed)
+
     def action_help(self) -> None:
         """Show or hide the list of every shortcut active here, Titan's and the mods'."""
         from textual.widgets import HelpPanel
@@ -421,14 +432,11 @@ class TitanApp(App):
             return
         self.push_screen(make())
 
-    def action_open_workflows(self, plugin: Optional[str] = None) -> None:
-        """Open the workflow list, filtered to `plugin`'s workflows when given."""
+    def action_open_workflows(self) -> None:
+        """Open the workflow list."""
         from titan_cli.ui.tui.screens.workflows import WorkflowsScreen
 
-        if plugin is not None and isinstance(self.screen, WorkflowsScreen):
-            self.screen.select_plugin(plugin)
-            return
-        self._launch(WorkflowsScreen, lambda: WorkflowsScreen(self.config, plugin=plugin))
+        self._launch(WorkflowsScreen, lambda: WorkflowsScreen(self.config))
 
     def action_open_plugins(self) -> None:
         """Open plugin management.

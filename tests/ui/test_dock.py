@@ -139,19 +139,3 @@ def test_a_mod_tile_shows_the_icon_over_the_label_and_its_badge_in_the_severity_
 
     assert text.plain == "🔀\nPRs 2"
     assert colors.ERROR in str(text.spans[-1].style)
-
-
-def test_a_plugin_tile_carries_every_badge_mods_put_on_it():
-    from titan_cli.ui.tui.widgets.dock import plugin_tile, tile_text
-
-    icon, label = plugin_tile("github")
-    text = tile_text(icon, label, [("2 to review", "warning"), ("CI ✗", "error")])
-
-    assert text.plain.endswith("GitHub 2 to review CI ✗")
-
-
-def test_an_unknown_plugin_tile_reads_its_name_behind_the_plug():
-    from titan_cli.ui.tui.icons import Icons
-    from titan_cli.ui.tui.widgets.dock import plugin_tile
-
-    assert plugin_tile("play-store") == (Icons.PLUGIN, "Play Store")

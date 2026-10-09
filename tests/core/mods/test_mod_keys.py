@@ -61,10 +61,11 @@ def test_titan_and_other_mods_keys_are_refused():
     host, apis = host_and_api("a", "b")
 
     assert apis["a"].keys.bind("f4", "Mine", lambda: None) is False
+    assert apis["a"].keys.bind("f6", "Mine", lambda: None) is False
     assert apis["a"].keys.bind("?", "Mine", lambda: None) is False
-    assert apis["a"].keys.bind("f6", "A's", lambda: None) is True
-    assert apis["b"].keys.bind("f6", "B's", lambda: None) is False
-    assert [key for key, *_ in host._app.bound] == ["f6"]
+    assert apis["a"].keys.bind("f7", "A's", lambda: None) is True
+    assert apis["b"].keys.bind("f7", "B's", lambda: None) is False
+    assert [key for key, *_ in host._app.bound] == ["f7"]
 
 
 def test_a_failing_key_function_is_logged_not_raised():

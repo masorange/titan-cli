@@ -29,10 +29,10 @@ class TitanModHost:
         self._registry = registry
         # mod -> its slot in the dock, in the order the mods first asked for one
         self._dock: Dict[str, DockSlot] = {}
-        # plugin -> mod -> (badge text, severity) the mod put on that plugin's tile
-        self._badges: Dict[str, Dict[str, Tuple[str, Optional[str]]]] = {}
         # pane id -> (mod that opened it, title, rail icon), in the order they were opened
         self.panes: Dict[str, Tuple[str, str, str]] = {}
+        # pane id -> (text, severity) its mod put under its rail icon
+        self.badges: Dict[str, Tuple[str, Optional[str]]] = {}
         # The one pane shown; the rest wait behind their rail icon.
         self.active: Optional[str] = None
         self.collapsed = False
@@ -56,17 +56,6 @@ class TitanModHost:
             self._dock[mod] = slot
         else:
             self._dock.pop(mod, None)
-        self._on_app_thread(self._paint_dock)
-
-    def badges(self, plugin: str) -> List[Tuple[str, Optional[str]]]:
-        """What the mods put on `plugin`'s tile, in the order they first did."""
-        return list(self._badges.get(plugin, {}).values())
-
-    def badge(self, mod: str, plugin: str, text: Optional[str], severity: Optional[str]) -> None:
-        if text:
-            self._badges.setdefault(plugin, {})[mod] = (text, severity)
-        else:
-            self._badges.get(plugin, {}).pop(mod, None)
         self._on_app_thread(self._paint_dock)
 
     def press_dock(self, mod: str) -> None:
@@ -105,6 +94,18 @@ class TitanModHost:
         self.panes[pane] = (mod, title, icon or title[:1].upper() or "?")
         if self.active is None:
             self.active = pane
+        self.repaint(mod)
+
+    def badge(self, mod: str, pane: str, text: Optional[str], severity: Optional[str]) -> None:
+        """A mark under a pane's rail icon; only the mod that opened the pane may set it."""
+        owner = self.panes.get(pane, (None,))[0]
+        if owner != mod:
+            logger.warning("mod_badge_foreign_pane", mod=mod, pane=pane, owner=owner)
+            return
+        if text:
+            self.badges[pane] = (text, severity)
+        else:
+            self.badges.pop(pane, None)
         self.repaint(mod)
 
     def toggle_collapsed(self) -> None:

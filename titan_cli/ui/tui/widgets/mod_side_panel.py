@@ -9,9 +9,11 @@ and when it changes, is the mods' business (their `m.state`). Collapsing it
 border resizes it, on every screen at once.
 
 Panes do not stack: a rail on the right edge holds one icon per pane, and
-the panel shows the one picked there (clicking the shown one folds it).
+the panel shows the one picked there (clicking the shown one folds it). A mod
+can put a short badge under its pane's icon (`m.ui.badge`), which is what
+still tells something with the panel folded.
 """
-from typing import Any, List
+from typing import Any, List, Optional, Tuple
 
 from rich.style import Style
 from rich.text import Text as RichText
@@ -282,10 +284,15 @@ def live_children(widget: Widget) -> List[Widget]:
 def patch(widget: Widget, element: Any, width: int) -> bool:
     """Bring a mounted widget in line with a redrawn element without remounting it.
 
-    False when the widget is of another kind: the caller replaces it.
+    False when the widget is of another kind, or a box not mounted yet: the caller
+    replaces it. A box built on the last repaint holds its children aside until it
+    mounts, a tick later; patching it before then would mount them a second time,
+    and both copies would show until a later repaint pruned the surplus.
     """
     cls = kind(element)
     if type(widget) is not cls:
+        return False
+    if cls not in (_Pressable, _ModButton, _Line) and not widget.is_mounted:
         return False
     if cls in (_Pressable, _ModButton):
         widget.set_button(element)
@@ -318,6 +325,15 @@ def reconcile(container: Widget, elements: List[Any], width: int) -> None:
         old.remove()
 
 
+def rail_text(icon: str, badge: Optional[Tuple[str, Optional[str]]]) -> RichText:
+    """A rail icon's three rows: blank, the icon, then the badge (cut to fit) in its color."""
+    text = RichText(f"\n{icon}\n", justify="center", no_wrap=True, overflow="crop")
+    if badge:
+        label, severity = badge
+        text.append(label[:RAIL_WIDTH - 1], style=f"bold {_COLORS.get(severity or '', severity) or colors.ACCENT}")
+    return text
+
+
 class _RailIcon(Static, can_focus=True):
     """A pane's icon on the rail: click or Enter shows that pane (or folds it when shown)."""
 
@@ -326,8 +342,7 @@ class _RailIcon(Static, can_focus=True):
     DEFAULT_CSS = """
     _RailIcon {
         width: 1fr;
-        height: 3;  /* odd, so the icon has a middle row */
-        content-align: center middle;
+        height: 3;  /* blank, icon, badge */
     }
     _RailIcon:hover, _RailIcon:focus {
         background: $boost;
@@ -338,9 +353,16 @@ class _RailIcon(Static, can_focus=True):
     """
 
     def __init__(self, pane: str, title: str, icon: str):
-        super().__init__(RichText(icon, no_wrap=True, overflow="crop"))
+        super().__init__(rail_text(icon, None))
         self.pane = pane
+        self.icon = icon
         self.tooltip = title
+        self._badge: Optional[Tuple[str, Optional[str]]] = None
+
+    def show_badge(self, badge: Optional[Tuple[str, Optional[str]]]) -> None:
+        if badge != self._badge:
+            self._badge = badge
+            self.update(rail_text(self.icon, badge))
 
     def on_click(self, event) -> None:
         event.stop()
@@ -446,6 +468,7 @@ class ModSidePanel(Horizontal):
             self._rail_panes = panes
         for icon in rail.query(_RailIcon):
             icon.set_class(icon.pane == host.active and not host.collapsed, "-active")
+            icon.show_badge(host.badges.get(icon.pane))
 
     def refresh_panes(self) -> None:
         host = getattr(self.app, "mods_host", None)
