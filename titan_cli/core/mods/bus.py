@@ -25,6 +25,7 @@ from titan_cli.core.logging import get_logger
 from titan_cli.engine.results import Error
 
 from . import store as _store
+from .events import SectionChange
 from .keys import normalize_key
 from .state import ModState
 from .store import ModStore
@@ -72,6 +73,10 @@ class ModHost(Protocol):
     def bind_key(self, mod: str, key: str, description: str, fn: Callable[[], None]) -> Optional[str]: ...
 
     def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]: ...
+
+    def unload(self, mod: str) -> None:
+        """Drop everything `mod` put on screen or scheduled: timers, keys, panes, badges, its dock tile."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -146,6 +151,30 @@ class _HeadlessHost:
 
     def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]:
         return "there is no screen to run it on"
+
+    def unload(self, mod: str) -> None:
+        pass
+
+
+class _BusView:
+    """
+    The bus as one `ModAPI` sees it. Once that API's mod is unloaded its `host` is the
+    headless one, so a thread the mod left running can no longer open panes, bind keys,
+    start timers or toast: whatever it still does goes nowhere.
+    """
+
+    def __init__(self, bus: "ModBus", alive: Callable[[], bool]):
+        self._bus = bus
+        self._alive = alive
+        self._stale = _HeadlessHost()
+
+    @property
+    def host(self) -> Any:
+        return self._bus.host if self._alive() else self._stale
+
+    @property
+    def manifests(self) -> Dict[str, Any]:
+        return self._bus.manifests
 
 
 class _ModUI:
@@ -303,16 +332,19 @@ class ModAPI:
 
     def __init__(self, bus: "ModBus", name: str):
         self.name = name
-        self.ui = _ModUI(bus, name)
-        self.clock = _ModClock(bus, name)
-        self.ai = _ModAI(bus, name)
-        self.keys = _ModKeys(bus, name)
-        self.workflows = _ModWorkflows(bus, name)
-        self.state = ModState(on_change=lambda: bus.host.repaint(name))
+        # False once the mod is unloaded: nothing it still holds reaches Titan any more.
+        self.alive = True
+        view = _BusView(bus, lambda: self.alive)
+        self.ui = _ModUI(view, name)
+        self.clock = _ModClock(view, name)
+        self.ai = _ModAI(view, name)
+        self.keys = _ModKeys(view, name)
+        self.workflows = _ModWorkflows(view, name)
+        self.state = ModState(on_change=lambda: view.host.repaint(name))
         # Read through the module so tests can point every store elsewhere.
         self.store = ModStore(name, root=lambda: _store.STORE_DIR)
         self.log = logger.bind(mod=name)
-        self._bus = bus
+        self._bus = view
 
     def client(self, name: str) -> Any:
         """
@@ -346,14 +378,22 @@ def _matches(match: Mapping[str, Any], e: Any) -> bool:
 class ModBus:
     """Holds every loaded mod's hooks and runs them as one chain per event."""
 
-    EVENTS = ("app.start", "workflow.run", "step.call", "ui.render")
+    EVENTS = ("app.start", "workflow.run", "step.call", "ui.render", "section.change")
 
     def __init__(self) -> None:
         self._hooks: Dict[str, List[_Registration]] = {event: [] for event in self.EVENTS}
         self._apis: Dict[str, ModAPI] = {}
         # name -> ModManifest of every mod that loaded (filled by the loader)
         self.manifests: Dict[str, Any] = {}
+        # name -> ModStatus of every mod found, loaded or not (filled by the loader)
+        self.statuses: Dict[str, Any] = {}
+        # name -> the live {section: bool} dict the mod holds as options["sections"]
+        self.sections: Dict[str, Dict[str, bool]] = {}
+        # name -> ModManifest of every mod found, loaded or not (filled by the loader)
+        self.found: Dict[str, Any] = {}
         self.host: ModHost = _HeadlessHost()
+        # The `app.start` the TUI dispatched, to replay for a mod loaded afterwards.
+        self.started: Optional[Any] = None
 
     @property
     def mods(self) -> List[str]:
@@ -391,15 +431,44 @@ class ModBus:
         """Drop every hook `mod` registered and its handle, as if it never loaded."""
         for event, registrations in self._hooks.items():
             self._hooks[event] = [r for r in registrations if r.mod != mod]
-        self._apis.pop(mod, None)
+        api = self._apis.pop(mod, None)
+        if api is not None:
+            api.alive = False
         self.manifests.pop(mod, None)
+        self.sections.pop(mod, None)
+
+    def unload(self, mod: str) -> None:
+        """`forget` plus what the mod left on the host: timers, keys, panes, badges, its dock tile."""
+        self.forget(mod)
+        unload = getattr(self.host, "unload", None)
+        if unload is not None:
+            unload(mod)
 
     def has_hooks(self, event: str) -> bool:
         return bool(self._hooks.get(event))
 
-    def dispatch(self, event: str, e: Any, final: Next) -> Any:
-        """Run `e` through the hooks that match it, ending in `final` (Titan's own behaviour)."""
-        chain = [r for r in self._hooks.get(event, []) if _matches(r.match, e)]
+    def set_section(self, mod: str, section: str, enabled: bool) -> bool:
+        """
+        Switch one of a loaded mod's sections now: updates the dict the mod reads as
+        `options["sections"]`, tells the mod's `section.change` hooks and repaints it.
+        Returns False when the mod is not loaded or has no such section.
+        """
+        switches = self.sections.get(mod)
+        if switches is None or section not in switches:
+            return False
+        switches[section] = enabled
+        self.dispatch("section.change", SectionChange(section, enabled), lambda e: None, mod=mod)
+        self.host.repaint(mod)
+        return True
+
+    def dispatch(self, event: str, e: Any, final: Next, mod: Optional[str] = None) -> Any:
+        """
+        Run `e` through the hooks that match it, ending in `final` (Titan's own behaviour).
+        With `mod`, only that mod's hooks take part.
+        """
+        if event == "app.start" and mod is None:
+            self.started = e
+        chain = [r for r in self._hooks.get(event, []) if _matches(r.match, e) and (mod is None or r.mod == mod)]
 
         def run(index: int, current: Any) -> Any:
             if index == len(chain):

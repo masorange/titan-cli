@@ -35,12 +35,15 @@ class TitanModHost:
         self.badges: Dict[str, Tuple[str, Optional[str]]] = {}
         # The one pane shown; the rest wait behind their rail icon.
         self.active: Optional[str] = None
-        self.collapsed = False
+        # Closed at start: only the rail shows until the person opens a pane (F4 or a click).
+        self.collapsed = True
         # Shared by every screen's panel, so a resize on one holds on all; for this session only.
         self.width = PANEL_WIDTH
         self._repaint_pending = False
         self._lock = threading.Lock()
         self._clients: Dict[str, Any] = {}
+        # mod -> the timers it started, to stop them when it is unloaded
+        self._timers: Dict[str, List[Any]] = {}
         self._executor = None
         # key -> (mod, description, fn)
         self._keys: Dict[str, Tuple[str, str, Callable[[], None]]] = {}
@@ -252,7 +255,7 @@ class TitanModHost:
             self._app.run_worker(work, thread=True, group=f"mod:{mod}", exit_on_error=False)
 
         def start() -> None:
-            self._app.set_interval(seconds, tick)
+            self._timers.setdefault(mod, []).append(self._app.set_interval(seconds, tick))
             if immediately:
                 tick()
 
@@ -284,6 +287,38 @@ class TitanModHost:
                 logger.exception("mod_run_failed", mod=mod)
 
         self._on_app_thread(lambda: self._app.run_worker(work, thread=True, group=f"mod:{mod}", exit_on_error=False))
+
+    # -- unloading ------------------------------------------------------------
+
+    def unload(self, mod: str) -> None:
+        """Take down everything `mod` put on screen or scheduled; the bus has dropped its hooks."""
+        self._on_app_thread(lambda: self._unload(mod))
+
+    def _unload(self, mod: str) -> None:
+        for timer in self._timers.pop(mod, []):
+            timer.stop()
+        try:
+            self._app.workers.cancel_group(self._app, f"mod:{mod}")
+        except Exception:
+            logger.debug("mod_workers_cancel_failed", mod=mod, exc_info=True)
+        with self._lock:
+            keys = [key for key, (holder, _, _) in self._keys.items() if holder == mod]
+            for key in keys:
+                del self._keys[key]
+        for key in keys:
+            # Textual has no public unbind: drop the app's binding so the footer stops listing it.
+            try:
+                self._app._bindings.key_to_bindings.pop(key, None)
+            except Exception:
+                logger.debug("mod_key_unbind_failed", mod=mod, key=key, exc_info=True)
+        for pane in [pane for pane, (owner, _, _) in self.panes.items() if owner == mod]:
+            del self.panes[pane]
+            self.badges.pop(pane, None)
+            if self.active == pane:
+                self.active = next(iter(self.panes), None)
+        self._dock.pop(mod, None)
+        self._paint_dock()
+        self.repaint(mod)
 
     # -- AI -------------------------------------------------------------------
 

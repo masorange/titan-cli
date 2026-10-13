@@ -453,6 +453,12 @@ class TitanApp(App):
                     screen.mark_discovery_stale()
         self._launch(PluginManagementScreen, lambda: PluginManagementScreen(self.config))
 
+    def action_open_mods(self) -> None:
+        """Open the Mods screen."""
+        from titan_cli.ui.tui.screens.mods_screen import ModsScreen
+
+        self._launch(ModsScreen, lambda: ModsScreen(self.config))
+
     def action_open_ai_config(self) -> None:
         """Open AI configuration."""
         from titan_cli.ui.tui.screens.ai_config import AIConfigScreen

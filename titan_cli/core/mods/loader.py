@@ -32,9 +32,11 @@ A project mod runs from the repo as `.titan/steps` already do: committing it
 is sharing it with whoever runs Titan there.
 
 A mod is enabled by being there; `[mods.<name>] enabled = false` in
-`~/.titan/config.toml` turns any mod off, and `[mods.<name>.options]`
-overrides the manifest's option defaults (see `options.py`). `dirs` is therefore
-not a mod name.
+`.titan/config.toml` of the project (or `~/.titan/config.toml` for every project)
+turns any mod off, and its `[mods.<name>.sections]` switch its sections one by one;
+the project's value wins, as for plugins. `[mods.<name>.options]` of the user's
+config overrides the manifest's option defaults (see `options.py`). `dirs` is
+therefore not a mod name.
 
 A mod hooks only the events its manifest lists: hooking another fails its
 register, so what Titan shows before running a mod is all it can hook.
@@ -58,6 +60,8 @@ from titan_cli.core.logging import get_logger
 
 from .bus import ModBus
 from .options import OptionSpec, parse_option_specs, resolve_options
+from .sections import SectionSpec, parse_section_specs, resolve_sections
+from .status import DISABLED, FAILED, LOADED, ModStatus
 
 logger = get_logger(__name__)
 
@@ -86,6 +90,8 @@ class ModManifest:
     events: Tuple[str, ...] = ()
     slots: Tuple[str, ...] = ()
     options: Dict[str, OptionSpec] = field(default_factory=dict)
+    # Parts of the mod the user can switch on or off one by one.
+    sections: Dict[str, SectionSpec] = field(default_factory=dict)
     # The label of the routing task `mods.<name>` its `m.ai` calls run under, when it
     # uses AI: the AI screen lists the task with it, so it can be pinned there too.
     ai_task: Optional[str] = None
@@ -116,6 +122,7 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         raise ValueError(f"{path}: name '{name}' does not match its folder '{folder.name}'")
     try:
         options = parse_option_specs(data.get("options", {}))
+        sections = parse_section_specs(data.get("sections", {}))
     except ValueError as e:
         raise ValueError(f"{path}: {e}") from e
     return ModManifest(
@@ -128,6 +135,7 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         events=tuple(mod.get("events", [])),
         slots=tuple(mod.get("slots", [])),
         options=options,
+        sections=sections,
         ai_task=mod.get("ai_task") or None,
         icon=mod.get("icon") or None,
     )
@@ -190,6 +198,12 @@ def project_root() -> Optional[Path]:
         return None
 
 
+def project_config_file() -> Optional[Path]:
+    """The project's `.titan/config.toml`, or None outside a project."""
+    root = project_root()
+    return root / ".titan" / "config.toml" if root else None
+
+
 def _read_mods_table(config_path: Optional[Path]) -> Dict[str, Any]:
     try:
         return tomllib.loads((config_path or USER_CONFIG).read_text()).get("mods", {})
@@ -197,9 +211,30 @@ def _read_mods_table(config_path: Optional[Path]) -> Dict[str, Any]:
         return {}
 
 
-def read_mods_config(config_path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
-    """The `[mods.<name>]` tables of the user config, or nothing."""
-    return {name: table for name, table in _read_mods_table(config_path).items() if name != DIRS_KEY}
+def read_mods_config(
+    config_path: Optional[Path] = None, project_config_path: Optional[Path] = None
+) -> Dict[str, Dict[str, Any]]:
+    """
+    The `[mods.<name>]` tables as they apply to this project: the project's `.titan/config.toml`
+    over the user's `~/.titan/config.toml`, key by key, as plugins do.
+
+    The project decides `enabled` and each of `sections`; options and `dirs` are the
+    user's alone. The Mods screen writes the project's file.
+    """
+    config = {name: dict(table) for name, table in _read_mods_table(config_path).items() if name != DIRS_KEY}
+    if project_config_path is None:
+        project_config_path = project_config_file()
+    if project_config_path is None or project_config_path == (config_path or USER_CONFIG):
+        return config
+    for name, table in _read_mods_table(project_config_path).items():
+        if name == DIRS_KEY or not isinstance(table, dict):
+            continue
+        mine = config.setdefault(name, {})
+        if isinstance(table.get("enabled"), bool):
+            mine["enabled"] = table["enabled"]
+        if isinstance(table.get("sections"), dict):
+            mine["sections"] = {**mine.get("sections", {}), **table["sections"]}
+    return config
 
 
 def mod_dirs(
@@ -270,30 +305,69 @@ def load_mods(
     mods_config = mods_config or {}
     loaded: List[str] = []
     for name, manifest in mods.items():
-        config = mods_config.get(name, {})
-        if config.get("enabled", True) is False:
-            logger.info("mod_disabled", mod=name, source=manifest.source)
-            continue
-        options, dropped = resolve_options(manifest.options, config.get("options", {}))
-        for option, reason in dropped:
-            logger.warning("mod_option_dropped", mod=name, option=option, reason=reason)
-        try:
-            module = import_mod(manifest.folder, name)
-            register = getattr(module, "register", None)
-            if not callable(register):
-                raise AttributeError(f"{manifest.entrypoint} defines no register(on, options)")
-            register(bus.on_for(name, manifest.events), options)
-        except Exception:
-            # All or nothing: hooks a register() added before failing would run
-            # for a mod that is reported as not loaded, and its modules would linger.
-            bus.forget(name)
-            _forget_modules(PACKAGE_PREFIX + name)
-            logger.exception("mod_load_failed", mod=name, path=str(manifest.folder))
-            continue
-        loaded.append(name)
-        bus.manifests[name] = manifest
-        logger.info("mod_loaded", mod=name, source=manifest.source, version=manifest.version)
+        bus.found[name] = manifest
+        if _load_one(bus, name, manifest, mods_config.get(name, {})):
+            loaded.append(name)
     return loaded
+
+
+def reload_mod(bus: ModBus, name: str, mods_config: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    """
+    Unload one mod and load it again with the current config, as if Titan had just started
+    with it: switch it on or off, or apply changed options and sections.
+
+    Re-reads its `mod.toml` and re-imports its code. Everything the old copy registered
+    (hooks, timers, keys, panes, badges, its dock tile) goes; a thread it left running
+    can no longer reach Titan, and what it keeps in `m.state` is lost (`m.store` stays).
+    Call it on the UI thread. Returns the mod's new state: loaded, disabled or failed.
+    """
+    previous = bus.found.get(name)
+    if previous is None:
+        raise KeyError(f"no mod named '{name}'")
+    bus.unload(name)
+    try:
+        manifest = read_manifest(previous.folder, previous.source)
+    except ValueError as e:
+        bus.statuses[name] = ModStatus(name, FAILED, error=str(e))
+        logger.error("mod_reload_failed", mod=name, reason=str(e))
+        return FAILED
+    bus.found[name] = manifest
+    if _load_one(bus, name, manifest, (mods_config or {}).get(name, {})) and bus.started is not None:
+        # The mod missed Titan's own `app.start`: give it one of its own.
+        bus.dispatch("app.start", bus.started, lambda e: None, mod=name)
+    return bus.statuses[name].state
+
+
+def _load_one(bus: ModBus, name: str, manifest: ModManifest, config: Dict[str, Any]) -> bool:
+    if config.get("enabled", True) is False:
+        logger.info("mod_disabled", mod=name, source=manifest.source)
+        bus.statuses[name] = ModStatus(name, DISABLED)
+        return False
+    options, dropped = resolve_options(manifest.options, config.get("options", {}))
+    for option, reason in dropped:
+        logger.warning("mod_option_dropped", mod=name, option=option, reason=reason)
+    options["sections"], dropped = resolve_sections(manifest.sections, config.get("sections", {}))
+    for section, reason in dropped:
+        logger.warning("mod_section_dropped", mod=name, section=section, reason=reason)
+    try:
+        module = import_mod(manifest.folder, name)
+        register = getattr(module, "register", None)
+        if not callable(register):
+            raise AttributeError(f"{manifest.entrypoint} defines no register(on, options)")
+        register(bus.on_for(name, manifest.events), options)
+    except Exception as e:
+        bus.statuses[name] = ModStatus(name, FAILED, error=f"{type(e).__name__}: {e}")
+        # All or nothing: hooks a register() added before failing would run
+        # for a mod that is reported as not loaded, and its modules would linger.
+        bus.unload(name)
+        _forget_modules(PACKAGE_PREFIX + name)
+        logger.exception("mod_load_failed", mod=name, path=str(manifest.folder))
+        return False
+    bus.sections[name] = options["sections"]
+    bus.statuses[name] = ModStatus(name, LOADED)
+    bus.manifests[name] = manifest
+    logger.info("mod_loaded", mod=name, source=manifest.source, version=manifest.version)
+    return True
 
 
 def build_mod_bus(

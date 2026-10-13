@@ -236,9 +236,19 @@ def test_the_first_pane_opened_is_the_one_shown_and_gets_its_initial_as_icon():
     assert host.panes["git"] == ("m", "Git", "G")
 
 
+def test_the_panel_starts_closed_and_opens_when_the_person_picks_a_pane():
+    host = _host_with_panes("jira", "git")
+
+    assert host.collapsed
+    host.select("git")
+    assert (host.active, host.collapsed) == ("git", False)
+
+
 def test_clicking_the_shown_pane_folds_the_panel_and_another_switches_to_it():
     host = _host_with_panes("jira", "git")
 
+    host.select("jira")
+    assert (host.active, host.collapsed) == ("jira", False)
     host.select("jira")
     assert (host.active, host.collapsed) == ("jira", True)
     host.select("git")
@@ -356,3 +366,37 @@ def test_a_url_in_plain_text_is_one_link_however_it_wraps():
     assert linked == [url]
     rows = to_rich(Text(f"See {url}", wrap=True)).wrap(Console(width=20), 20)
     assert {span.style.meta["@click"] for row in rows for span in row.spans if span.style.meta.get("@click")} == {f"open_link({url!r})"}
+
+
+def test_unloading_a_mod_takes_its_timers_keys_panes_badges_and_dock_tile_off_the_host():
+    import threading
+    from types import SimpleNamespace
+
+    from titan_cli.core.mods.bus import DockSlot
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    stopped, cancelled, bindings = [], [], {"f5": object(), "f6": object()}
+    app = SimpleNamespace(
+        _thread_id=threading.get_ident(), is_running=True,
+        set_interval=lambda seconds, fn: SimpleNamespace(stop=lambda: stopped.append(seconds)),
+        workers=SimpleNamespace(cancel_group=lambda node, group: cancelled.append(group)),
+        _bindings=SimpleNamespace(key_to_bindings=bindings),
+        screen=SimpleNamespace(query_one=lambda *a: (_ for _ in ()).throw(LookupError())),
+    )
+    host = TitanModHost(app=app, bus=ModBus())
+    host.repaint = lambda mod: None
+    host.every("git", 30, lambda: None, immediately=False)
+    host.every("git", 60, lambda: None, immediately=False)
+    host.every("other", 5, lambda: None, immediately=False)
+    host._keys.update({"f5": ("git", "Refresh", lambda: None), "f6": ("other", "Other", lambda: None)})
+    host.open_pane("git", "git", "Git", None)
+    host.open_pane("other", "other", "Other", None)
+    host.badge("git", "git", "2", "warning")
+    host.dock("git", DockSlot("Git"))
+
+    host.unload("git")
+
+    assert stopped == [30, 60] and cancelled == ["mod:git"]
+    assert list(host._keys) == ["f6"] and list(bindings) == ["f6"]
+    assert list(host.panes) == ["other"] and host.active == "other" and host.badges == {}
+    assert host.dock_slots() == []

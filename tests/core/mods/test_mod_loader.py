@@ -203,7 +203,7 @@ def test_mod_dirs_come_from_config_then_env_then_flag(tmp_path):
     dirs = mod_dirs(["/from-flag"], config_path=config, environ=env)
 
     assert dirs == [Path.home() / "from-config", Path("/from-env"), Path("/shared"), Path("/from-flag")]
-    assert read_mods_config(config) == {"guard": {"enabled": False}}
+    assert read_mods_config(config, tmp_path / "none.toml") == {"guard": {"enabled": False}}
 
 
 def test_invalid_mod_dirs_config_is_ignored(tmp_path):
@@ -283,3 +283,239 @@ def test_manifest_with_untyped_option_is_skipped(tmp_path):
     write_mod(tmp_path, "old", manifest='[mod]\nname = "old"\n[options]\nevery = 30\n')
 
     assert discover_mods([("user", tmp_path)]) == {}
+
+
+def test_project_config_wins_over_the_users_for_enabled_and_sections(tmp_path):
+    user, project = tmp_path / "user.toml", tmp_path / "project.toml"
+    user.write_text('[mods.mine]\nenabled = true\n[mods.git]\nenabled = false\n[mods.git.sections]\nqueue = false\nprs = false\n[mods.git.options]\nrefresh_key = "f6"\n')
+    project.write_text(
+        "[mods.mine]\nenabled = false\n[mods.git]\nenabled = true\n[mods.git.sections]\nqueue = true\n"
+        '[mods.team]\nenabled = false\n[mods.opts]\noptions = { x = 1 }\n[mods.bad]\nenabled = "no"\n'
+    )
+
+    assert read_mods_config(user, project) == {
+        "mine": {"enabled": False},
+        "git": {"enabled": True, "sections": {"queue": True, "prs": False}, "options": {"refresh_key": "f6"}},
+        "team": {"enabled": False},
+        "opts": {},
+        "bad": {},
+    }
+
+
+def test_missing_project_config_changes_nothing(tmp_path):
+    user = tmp_path / "user.toml"
+    user.write_text("[mods.git]\nenabled = false\n")
+
+    assert read_mods_config(user, tmp_path / "missing.toml") == {"git": {"enabled": False}}
+
+
+SECTIONED = (
+    '[mod]\nname = "multi"\nevents = ["step.call"]\n'
+    '[sections.queue]\ntitle = "Merge queue"\ndefault = false\n[sections.prs]\ntitle = "PRs"\n'
+)
+SEEN = "def register(on, options):\n    import builtins\n    builtins.SEEN_SECTIONS = dict(options['sections'])\n"
+
+
+def test_sections_reach_the_mod_as_switches(tmp_path):
+    import builtins
+
+    write_mod(tmp_path, "multi", source=SEEN, manifest=SECTIONED)
+
+    found = discover_mods([("user", tmp_path)])
+    assert {n: (s.title, s.default) for n, s in found["multi"].sections.items()} == {"queue": ("Merge queue", False), "prs": ("PRs", True)}
+
+    load_mods(ModBus(), found, {"multi": {"sections": {"queue": True, "prs": "no", "typo": False}}})
+    assert builtins.SEEN_SECTIONS == {"queue": True, "prs": True}
+
+
+def test_every_mod_found_gets_a_status(tmp_path):
+    from titan_cli.core.mods.status import DISABLED, FAILED, LOADED
+
+    write_mod(tmp_path, "fine")
+    write_mod(tmp_path, "off")
+    write_mod(tmp_path, "broken", source="def register(on, options):\n    raise RuntimeError('boom')\n")
+    bus = ModBus()
+
+    load_mods(bus, discover_mods([("user", tmp_path)]), {"off": {"enabled": False}})
+
+    assert {n: s.state for n, s in bus.statuses.items()} == {"fine": LOADED, "off": DISABLED, "broken": FAILED}
+    assert "boom" in bus.statuses["broken"].error
+    assert set(bus.found) == {"fine", "off", "broken"}
+
+
+def test_option_named_sections_is_reserved(tmp_path):
+    write_mod(tmp_path, "x", manifest='[mod]\nname = "x"\n[options.sections]\ntype = "bool"\ndefault = true\n')
+
+    assert discover_mods([("user", tmp_path)]) == {}
+
+
+def test_settings_are_written_to_the_project_config_and_never_without_one(tmp_path):
+    from titan_cli.core.mods.settings import NoProjectConfig, set_mod_enabled, set_mod_section
+
+    config = tmp_path / "config.toml"
+    config.write_text('[ai]\ndefault = "x"\n\n[mods.git]\nenabled = true\n')
+
+    set_mod_enabled("git", False, config)
+    set_mod_section("git", "queue", False, config)
+    set_mod_section("new", "a", True, config)
+
+    assert read_mods_config(tmp_path / "none.toml", config) == {
+        "git": {"enabled": False, "sections": {"queue": False}},
+        "new": {"sections": {"a": True}},
+    }
+    assert 'default = "x"' in config.read_text()
+
+    with pytest.raises(NoProjectConfig):
+        set_mod_enabled("git", True, tmp_path / "missing" / "config.toml")
+
+
+def test_entries_list_every_mod_by_source_with_what_is_saved(tmp_path):
+    from titan_cli.core.mods.status import mod_entries
+
+    titan, user = tmp_path / "titan", tmp_path / "user"
+    write_mod(user, "zed", manifest=SECTIONED.replace("multi", "zed"))
+    write_mod(user, "alpha")
+    write_mod(titan, "core")
+    found = discover_mods([("titan", titan), ("user", user)])
+    bus = ModBus()
+    load_mods(bus, found, {})
+
+    entries = mod_entries(bus.found, bus.statuses, {"alpha": {"enabled": False}, "zed": {"sections": {"queue": True}}})
+
+    assert [e.name for e in entries] == ["core", "alpha", "zed"]
+    alpha, zed = entries[1], entries[2]
+    assert alpha.enabled is False
+    assert zed.sections == {"queue": True, "prs": True}
+
+
+def test_a_section_switched_while_running_reaches_the_mod_at_once(tmp_path):
+    seen = []
+    source = (
+        "def register(on, options):\n"
+        "    import builtins\n"
+        "    builtins.LIVE = options['sections']\n"
+        "    @on('section.change', match={'section': 'queue'})\n"
+        "    def changed(m, e, next):\n"
+        "        builtins.CHANGES.append((e.section, e.enabled, options['sections']['queue']))\n"
+        "        return next(e)\n"
+    )
+    import builtins
+
+    builtins.CHANGES = seen
+    write_mod(tmp_path, "multi", source=source, manifest=SECTIONED.replace('["step.call"]', '["section.change"]'))
+    write_mod(tmp_path, "other", source="def register(on, options): pass\n", manifest=SECTIONED.replace("multi", "other"))
+    bus = ModBus()
+    repaints = []
+    bus.host.repaint = repaints.append
+    load_mods(bus, discover_mods([("user", tmp_path)]), {})
+
+    assert bus.set_section("multi", "queue", True)
+    assert not bus.set_section("multi", "nope", True)
+    assert not bus.set_section("ghost", "queue", True)
+    assert bus.set_section("multi", "prs", False)  # no hook for it: still switched
+
+    assert seen == [("queue", True, True)]
+    assert builtins.LIVE == {"queue": True, "prs": False}
+    assert repaints == ["multi", "multi"]
+
+
+RELOADABLE = (
+    "def register(on, options):\n"
+    "    import builtins\n"
+    "    builtins.REGISTERED = getattr(builtins, 'REGISTERED', 0) + 1\n"
+    "    builtins.OPTION_SEEN = options['reason']\n"
+    "    @on('app.start')\n"
+    "    def start(m, e, next):\n"
+    "        builtins.STARTS = getattr(builtins, 'STARTS', []) + [e.project_root]\n"
+    "        return next(e)\n"
+    "    @on('step.call')\n"
+    "    def guard(m, e, next):\n"
+    "        return m.deny('x')\n"
+)
+
+
+def _reloadable(tmp_path):
+    import builtins
+
+    for attr in ("REGISTERED", "STARTS", "OPTION_SEEN"):
+        if hasattr(builtins, attr):
+            delattr(builtins, attr)
+    write_mod(tmp_path, "r", source=RELOADABLE, manifest='[mod]\nname = "r"\nevents = ["app.start", "step.call"]\n[options.reason]\ntype = "string"\ndefault = "d"\n')
+    bus = ModBus()
+    unloaded = []
+    bus.host = type("H", (), {"unload": lambda self, mod: unloaded.append(mod), "repaint": lambda self, mod: None})()
+    load_mods(bus, discover_mods([("user", tmp_path)]), {})
+    return bus, unloaded
+
+
+def test_reload_switches_a_mod_off_and_on_without_a_restart(tmp_path):
+    import builtins
+
+    from titan_cli.core.mods import AppStart, reload_mod
+    from titan_cli.core.mods.status import DISABLED, LOADED
+
+    bus, unloaded = _reloadable(tmp_path)
+    bus.dispatch("app.start", AppStart(project_root="/repo"), lambda e: None)
+    assert push_result(bus).__class__.__name__ == "Error"
+
+    assert reload_mod(bus, "r", {"r": {"enabled": False}}) == DISABLED
+    assert push_result(bus).__class__.__name__ == "Success"  # its hook is gone
+    assert unloaded == ["r"]
+    assert "r" not in bus.manifests and "r" not in bus.sections
+
+    assert reload_mod(bus, "r", {}) == LOADED
+    assert push_result(bus).__class__.__name__ == "Error"
+    assert builtins.REGISTERED == 2
+    # The mod missed Titan's own app.start, so it gets one of its own, and only it.
+    assert builtins.STARTS == ["/repo", "/repo"]
+
+
+def test_reload_applies_options_and_rereads_the_manifest(tmp_path):
+    import builtins
+
+    from titan_cli.core.mods import reload_mod
+
+    bus, _ = _reloadable(tmp_path)
+    assert builtins.OPTION_SEEN == "d"
+
+    reload_mod(bus, "r", {"r": {"options": {"reason": "from config"}}})
+
+    assert builtins.OPTION_SEEN == "from config"
+
+
+def test_a_reload_that_fails_leaves_the_mod_failed_and_unloaded(tmp_path):
+    from titan_cli.core.mods import reload_mod
+    from titan_cli.core.mods.status import FAILED
+
+    bus, unloaded = _reloadable(tmp_path)
+    (tmp_path / "r" / "mod.py").write_text("def register(on, options):\n    raise RuntimeError('boom')\n")
+
+    assert reload_mod(bus, "r", {}) == FAILED
+    assert "boom" in bus.statuses["r"].error
+    assert push_result(bus).__class__.__name__ == "Success"
+
+    (tmp_path / "r" / "mod.toml").write_text("[mod\n")
+    assert reload_mod(bus, "r", {}) == FAILED
+
+
+def test_a_thread_left_by_an_unloaded_mod_reaches_nothing(tmp_path):
+    from titan_cli.core.mods import reload_mod
+
+    bus, _ = _reloadable(tmp_path)
+    calls = []
+    bus.host.toast = lambda *a: calls.append(a)
+    old = bus.api("r")
+    old.ui.toast("alive")
+    reload_mod(bus, "r", {"r": {"enabled": False}})
+
+    old.ui.toast("from a thread that outlived its mod")
+
+    assert len(calls) == 1
+    assert old.alive is False
+
+
+def test_reloading_an_unknown_mod_is_an_error(tmp_path):
+    from titan_cli.core.mods import reload_mod
+
+    with pytest.raises(KeyError):
+        reload_mod(ModBus(), "ghost", {})

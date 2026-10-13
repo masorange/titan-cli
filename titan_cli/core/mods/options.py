@@ -22,6 +22,8 @@ and reported, never handed to the mod.
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+# `options["sections"]` carries the mod's section switches (see sections.py).
+RESERVED = "sections"
 TYPES = ("string", "int", "float", "bool", "list", "choice")
 _SPEC_KEYS = {"type", "title", "description", "default", "values", "min", "max"}
 
@@ -71,6 +73,8 @@ def parse_option_specs(table: Mapping[str, Any]) -> Dict[str, OptionSpec]:
     """Build the specs from the manifest's `[options]` table. Raises ValueError when malformed."""
     specs: Dict[str, OptionSpec] = {}
     for name, raw in table.items():
+        if name == RESERVED:
+            raise ValueError(f"option name '{RESERVED}' is reserved for the mod's section switches")
         if not isinstance(raw, Mapping):
             raise ValueError(f"option '{name}' must be a table with a type and a default, e.g. [options.{name}]")
         unknown = set(raw) - _SPEC_KEYS

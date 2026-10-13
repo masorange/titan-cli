@@ -75,6 +75,20 @@ class AppStart:
 
 
 @dataclass(frozen=True)
+class SectionChange:
+    """
+    `section.change`: the user switched one of the mod's sections on or off while Titan runs.
+
+    Only that mod's hooks see it. `options["sections"]` already holds the new value, so
+    a mod that reads it each time it polls or draws needs no hook; one that must start
+    work when a section turns on (a first refresh) hooks this.
+    """
+
+    section: str
+    enabled: bool
+
+
+@dataclass(frozen=True)
 class UIRender:
     """
     `ui.render`: draw one slot. Answer with an element tree from

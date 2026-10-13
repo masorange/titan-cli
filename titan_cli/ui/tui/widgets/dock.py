@@ -222,6 +222,7 @@ class Dock(Widget):
         with Horizontal(id="dock-launcher"):
             yield DockItem(tile_text(Icons.WORKFLOW, "Workflows"), self._run("open_workflows"), classes="titan")
             yield DockItem(tile_text(Icons.PLUGIN, "Plugins"), self._run("open_plugins"), classes="titan")
+            yield DockItem(tile_text(Icons.MOD, "Mods"), self._run("open_mods"), classes="titan")
             yield DockItem(tile_text(Icons.AI_CONFIG, "AI"), self._run("open_ai_config"), classes="titan")
             yield Horizontal(id="dock-tiles")
         with Horizontal(id="dock-status"):

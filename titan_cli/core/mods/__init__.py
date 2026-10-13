@@ -2,14 +2,15 @@
 
 from .bus import AIAnswer, DockSlot, ModAPI, ModBus, ModHost
 from .elements import Box, Button, Link, Text
-from .events import AppStart, StepCall, UIRender, WorkflowRun, outcome
+from .events import AppStart, SectionChange, StepCall, UIRender, WorkflowRun, outcome
 from .state import ModState
-from .loader import ModManifest, build_mod_bus, discover_mods, import_mod, load_mods, mod_sources, read_manifest
+from .loader import ModManifest, build_mod_bus, discover_mods, import_mod, load_mods, mod_sources, read_manifest, reload_mod
 
 __all__ = [
     "AIAnswer",
     "DockSlot",
     "AppStart",
+    "SectionChange",
     "Box",
     "Button",
     "Link",
@@ -26,6 +27,7 @@ __all__ = [
     "discover_mods",
     "import_mod",
     "load_mods",
+    "reload_mod",
     "mod_sources",
     "outcome",
     "read_manifest",

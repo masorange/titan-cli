@@ -95,6 +95,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         ("escape", "quit", "Quit"),
         Binding("w", "app.open_workflows", "Workflows"),
         Binding("p", "app.open_plugins", "Plugins"),
+        Binding("m", "app.open_mods", "Mods"),
         Binding("a", "app.open_ai_config", "AI"),
     ] + [
         Binding(str(number), f"launch_slot({number})", show=False)
