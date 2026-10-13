@@ -2,8 +2,9 @@
 Mods screen: every mod Titan found, grouped by where it comes from, with a switch for
 the mod and one for each of its sections.
 
-Switches write the project's `.titan/config.toml`, as plugins do, so a mod is switched
-on or off per project; they apply at once: switching the mod
+Switches write the user's own global config, scoped to the active project (D-036): a mod
+is switched on or off per project, but it is a personal choice, not shared with the team
+through the project's own `.titan/config.toml`. They apply at once: switching the mod
 unloads or loads it (`reload_mod`), switching a section tells the running mod.
 """
 
@@ -18,7 +19,7 @@ from textual.widgets.option_list import Option
 
 from titan_cli.core.logging import get_logger
 from titan_cli.core.mods.loader import read_mods_config, reload_mod
-from titan_cli.core.mods.settings import NoProjectConfig, set_mod_enabled, set_mod_section
+from titan_cli.core.mods.settings import set_mod_enabled, set_mod_section
 from titan_cli.core.mods.status import FAILED, ModEntry, mod_entries, source_kind
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import BoldPrimaryText, BoldText, DimText, LabeledSwitch, ListDetailPanel, Text
@@ -205,10 +206,6 @@ class ModsScreen(BaseScreen):
                 set_mod_section(name, section, event.value)
                 # A running mod takes it now; one that is not loaded reads it at its next start.
                 self._bus().set_section(name, section, event.value)
-        except NoProjectConfig as e:
-            self.notify(str(e), severity="error")
-            self._refresh(name)
-            return
         except Exception as e:
             logger.exception("mod_setting_save_failed", mod=name)
             self.notify(f"Could not save: {e}", severity="error")
@@ -240,9 +237,6 @@ class ModsScreen(BaseScreen):
         try:
             set_mod_enabled(entry.name, not entry.enabled)
             reload_mod(self._bus(), entry.name, read_mods_config())
-        except NoProjectConfig as e:
-            self.notify(str(e), severity="error")
-            return
         except Exception as e:
             logger.exception("mod_setting_save_failed", mod=entry.name)
             self.notify(f"Could not save: {e}", severity="error")

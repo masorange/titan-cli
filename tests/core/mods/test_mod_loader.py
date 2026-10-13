@@ -203,7 +203,7 @@ def test_mod_dirs_come_from_config_then_env_then_flag(tmp_path):
     dirs = mod_dirs(["/from-flag"], config_path=config, environ=env)
 
     assert dirs == [Path.home() / "from-config", Path("/from-env"), Path("/shared"), Path("/from-flag")]
-    assert read_mods_config(config, tmp_path / "none.toml") == {"guard": {"enabled": False}}
+    assert read_mods_config(config, tmp_path / "unscoped-project") == {"guard": {"enabled": False}}
 
 
 def test_invalid_mod_dirs_config_is_ignored(tmp_path):
@@ -285,12 +285,23 @@ def test_manifest_with_untyped_option_is_skipped(tmp_path):
     assert discover_mods([("user", tmp_path)]) == {}
 
 
-def test_project_config_wins_over_the_users_for_enabled_and_sections(tmp_path):
-    user, project = tmp_path / "user.toml", tmp_path / "project.toml"
-    user.write_text('[mods.mine]\nenabled = true\n[mods.git]\nenabled = false\n[mods.git.sections]\nqueue = false\nprs = false\n[mods.git.options]\nrefresh_key = "f6"\n')
-    project.write_text(
-        "[mods.mine]\nenabled = false\n[mods.git]\nenabled = true\n[mods.git.sections]\nqueue = true\n"
-        '[mods.team]\nenabled = false\n[mods.opts]\noptions = { x = 1 }\n[mods.bad]\nenabled = "no"\n'
+def test_the_projects_scoped_override_wins_over_the_background_default(tmp_path):
+    from titan_cli.core.utils import project_source_scope_key
+
+    user = tmp_path / "user.toml"
+    project = tmp_path / "project"
+    project.mkdir()
+    key = project_source_scope_key(project)
+    user.write_text(
+        '[mods.mine]\nenabled = true\n[mods.git]\nenabled = false\n[mods.git.sections]\nqueue = false\nprs = false\n'
+        '[mods.git.options]\nrefresh_key = "f6"\n'
+        f'\n[project_sources.{key}]\nproject_path = "{project}"\n'
+        "[project_sources.{0}.mods.mine]\nenabled = false\n"
+        "[project_sources.{0}.mods.git]\nenabled = true\n"
+        "[project_sources.{0}.mods.git.sections]\nqueue = true\n"
+        "[project_sources.{0}.mods.team]\nenabled = false\n"
+        '[project_sources.{0}.mods.opts]\noptions = {{ x = 1 }}\n'
+        '[project_sources.{0}.mods.bad]\nenabled = "no"\n'.format(key)
     )
 
     assert read_mods_config(user, project) == {
@@ -302,11 +313,11 @@ def test_project_config_wins_over_the_users_for_enabled_and_sections(tmp_path):
     }
 
 
-def test_missing_project_config_changes_nothing(tmp_path):
+def test_a_different_projects_scoped_override_changes_nothing(tmp_path):
     user = tmp_path / "user.toml"
     user.write_text("[mods.git]\nenabled = false\n")
 
-    assert read_mods_config(user, tmp_path / "missing.toml") == {"git": {"enabled": False}}
+    assert read_mods_config(user, tmp_path / "some-other-project") == {"git": {"enabled": False}}
 
 
 SECTIONED = (
@@ -349,24 +360,30 @@ def test_option_named_sections_is_reserved(tmp_path):
     assert discover_mods([("user", tmp_path)]) == {}
 
 
-def test_settings_are_written_to_the_project_config_and_never_without_one(tmp_path):
-    from titan_cli.core.mods.settings import NoProjectConfig, set_mod_enabled, set_mod_section
+def test_settings_are_written_scoped_to_the_project_in_the_users_own_config(tmp_path):
+    from titan_cli.core.mods.settings import set_mod_enabled, set_mod_section
 
     config = tmp_path / "config.toml"
     config.write_text('[ai]\ndefault = "x"\n\n[mods.git]\nenabled = true\n')
+    project = tmp_path / "project"
+    project.mkdir()
 
-    set_mod_enabled("git", False, config)
-    set_mod_section("git", "queue", False, config)
-    set_mod_section("new", "a", True, config)
+    set_mod_enabled("git", False, project, config)
+    set_mod_section("git", "queue", False, project, config)
+    set_mod_section("new", "a", True, project, config)
 
-    assert read_mods_config(tmp_path / "none.toml", config) == {
+    assert read_mods_config(config, project) == {
         "git": {"enabled": False, "sections": {"queue": False}},
         "new": {"sections": {"a": True}},
     }
     assert 'default = "x"' in config.read_text()
+    assert '[mods.git]\nenabled = true' in config.read_text()  # The background default is untouched.
 
-    with pytest.raises(NoProjectConfig):
-        set_mod_enabled("git", True, tmp_path / "missing" / "config.toml")
+    # A project that has never run Titan yet gets the file created, no error.
+    set_mod_enabled("git", True, tmp_path / "missing" / "repo", tmp_path / "missing" / "config.toml")
+    assert read_mods_config(tmp_path / "missing" / "config.toml", tmp_path / "missing" / "repo") == {
+        "git": {"enabled": True}
+    }
 
 
 def test_entries_list_every_mod_by_source_with_what_is_saved(tmp_path):

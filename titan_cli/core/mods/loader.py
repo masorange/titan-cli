@@ -31,12 +31,16 @@ editing a mod means restarting Titan.
 A project mod runs from the repo as `.titan/steps` already do: committing it
 is sharing it with whoever runs Titan there.
 
-A mod is enabled by being there; `[mods.<name>] enabled = false` in
-`.titan/config.toml` of the project (or `~/.titan/config.toml` for every project)
-turns any mod off, and its `[mods.<name>.sections]` switch its sections one by one;
-the project's value wins, as for plugins. `[mods.<name>.options]` of the user's
-config overrides the manifest's option defaults (see `options.py`). `dirs` is
-therefore not a mod name.
+A mod is enabled by being there; `[mods.<name>] enabled = false` in the user's
+`~/.titan/config.toml` turns any mod off everywhere, for every project, and its
+`[mods.<name>.sections]` switches its sections one by one, the same way. Whether that
+holds for one project in particular is the user's own choice there, kept in the same
+file under `project_sources.<key>.mods.<name>` (`core/mods/settings.py`): personal, like
+a favorite workflow or a plugin's `dev_local` override, never written to the project's
+own `.titan/config.toml` - unlike a plugin, which project a mod runs in is not a fact
+the project gets to assert about anyone else running Titan there. `[mods.<name>.options]`
+overrides the manifest's option defaults (see `options.py`), not scoped per project.
+`dirs` is therefore not a mod name.
 
 A mod hooks only the events its manifest lists: hooking another fails its
 register, so what Titan shows before running a mod is all it can hook.
@@ -57,6 +61,7 @@ from types import ModuleType
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from titan_cli.core.logging import get_logger
+from titan_cli.core.utils import project_source_scope_key
 
 from .bus import ModBus
 from .options import OptionSpec, parse_option_specs, resolve_options
@@ -198,36 +203,41 @@ def project_root() -> Optional[Path]:
         return None
 
 
-def project_config_file() -> Optional[Path]:
-    """The project's `.titan/config.toml`, or None outside a project."""
-    root = project_root()
-    return root / ".titan" / "config.toml" if root else None
-
-
-def _read_mods_table(config_path: Optional[Path]) -> Dict[str, Any]:
+def _read_config(config_path: Optional[Path]) -> Dict[str, Any]:
     try:
-        return tomllib.loads((config_path or USER_CONFIG).read_text()).get("mods", {})
+        return tomllib.loads((config_path or USER_CONFIG).read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return {}
 
 
+def _read_mods_table(config_path: Optional[Path]) -> Dict[str, Any]:
+    return _read_config(config_path).get("mods", {})
+
+
 def read_mods_config(
-    config_path: Optional[Path] = None, project_config_path: Optional[Path] = None
+    config_path: Optional[Path] = None, project_root_path: Optional[Path] = None
 ) -> Dict[str, Dict[str, Any]]:
     """
-    The `[mods.<name>]` tables as they apply to this project: the project's `.titan/config.toml`
-    over the user's `~/.titan/config.toml`, key by key, as plugins do.
+    The `[mods.<name>]` tables as they apply here: the background default (the same file's
+    top-level `[mods.<name>]`, which applies to every project) overridden by the user's own
+    choice for this one project, kept in the same file under
+    `project_sources.<key>.mods.<name>` (`core/mods/settings.py`; D-036).
 
-    The project decides `enabled` and each of `sections`; options and `dirs` are the
-    user's alone. The Mods screen writes the project's file.
+    The project-scoped override decides `enabled` and each of `sections`; options and `dirs`
+    are the background default only, not scoped per project.
     """
-    config = {name: dict(table) for name, table in _read_mods_table(config_path).items() if name != DIRS_KEY}
-    if project_config_path is None:
-        project_config_path = project_config_file()
-    if project_config_path is None or project_config_path == (config_path or USER_CONFIG):
+    data = _read_config(config_path)
+    config = {name: dict(table) for name, table in data.get("mods", {}).items() if name != DIRS_KEY}
+    root = project_root_path if project_root_path is not None else project_root()
+    if root is None:
         return config
-    for name, table in _read_mods_table(project_config_path).items():
-        if name == DIRS_KEY or not isinstance(table, dict):
+    scoped = data.get("project_sources", {})
+    scoped = scoped.get(project_source_scope_key(root), {}) if isinstance(scoped, dict) else {}
+    scoped_mods = scoped.get("mods", {}) if isinstance(scoped, dict) else {}
+    if not isinstance(scoped_mods, dict):
+        return config
+    for name, table in scoped_mods.items():
+        if not isinstance(table, dict):
             continue
         mine = config.setdefault(name, {})
         if isinstance(table.get("enabled"), bool):

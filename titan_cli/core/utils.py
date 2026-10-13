@@ -1,3 +1,5 @@
+import hashlib
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -42,3 +44,19 @@ def find_project_root() -> Path:
         Path to the project root.
     """
     return find_git_root() or Path.cwd()
+
+
+def project_source_scope_key(project_path: Path) -> str:
+    """
+    The `project_sources` key a project's personal, per-machine state is filed under in
+    the global `~/.titan/config.toml`: a plugin's `dev_local` override, favorite workflows,
+    a mod's enabled flag and section switches (`core/config.py`, `core/mods/settings.py`).
+
+    Keyed by the resolved path, not just the name: moving the repo on disk loses the
+    entry rather than one project silently inheriting another's state because they share
+    a folder name.
+    """
+    resolved = project_path.resolve()
+    safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", resolved.name).strip("_").lower() or "project"
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:8]
+    return f"p_{safe_name}_{digest}"
