@@ -2,7 +2,7 @@
 Finds, configures and loads mods.
 
 A mod is a folder holding `mod.toml` (what it is, what it needs, which events
-and slots it uses, its option defaults) and `mod.py` (`register(on, options)`).
+and slots it uses, its typed options) and `mod.py` (`register(on, options)`).
 Titan reads the manifest without executing anything, so a mod can be listed,
 explained and switched off before its code ever runs.
 
@@ -33,7 +33,8 @@ is sharing it with whoever runs Titan there.
 
 A mod is enabled by being there; `[mods.<name>] enabled = false` in
 `~/.titan/config.toml` turns any mod off, and `[mods.<name>.options]`
-overrides the manifest's option defaults. `dirs` is therefore not a mod name.
+overrides the manifest's option defaults (see `options.py`). `dirs` is therefore
+not a mod name.
 
 A mod hooks only the events its manifest lists: hooking another fails its
 register, so what Titan shows before running a mod is all it can hook.
@@ -56,6 +57,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from titan_cli.core.logging import get_logger
 
 from .bus import ModBus
+from .options import OptionSpec, parse_option_specs, resolve_options
 
 logger = get_logger(__name__)
 
@@ -83,7 +85,7 @@ class ModManifest:
     requires_plugins: Tuple[str, ...] = ()
     events: Tuple[str, ...] = ()
     slots: Tuple[str, ...] = ()
-    options: Dict[str, Any] = field(default_factory=dict)
+    options: Dict[str, OptionSpec] = field(default_factory=dict)
     # The label of the routing task `mods.<name>` its `m.ai` calls run under, when it
     # uses AI: the AI screen lists the task with it, so it can be pinned there too.
     ai_task: Optional[str] = None
@@ -112,6 +114,10 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
     # Under a mods root the folder is the name; a dev folder is a checkout named freely.
     if source != DEV and name != folder.name:
         raise ValueError(f"{path}: name '{name}' does not match its folder '{folder.name}'")
+    try:
+        options = parse_option_specs(data.get("options", {}))
+    except ValueError as e:
+        raise ValueError(f"{path}: {e}") from e
     return ModManifest(
         name=name,
         version=str(mod.get("version", "0.0.0")),
@@ -121,7 +127,7 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         requires_plugins=tuple(mod.get("requires_plugins", [])),
         events=tuple(mod.get("events", [])),
         slots=tuple(mod.get("slots", [])),
-        options=dict(data.get("options", {})),
+        options=options,
         ai_task=mod.get("ai_task") or None,
         icon=mod.get("icon") or None,
     )
@@ -268,7 +274,9 @@ def load_mods(
         if config.get("enabled", True) is False:
             logger.info("mod_disabled", mod=name, source=manifest.source)
             continue
-        options = {**manifest.options, **config.get("options", {})}
+        options, dropped = resolve_options(manifest.options, config.get("options", {}))
+        for option, reason in dropped:
+            logger.warning("mod_option_dropped", mod=name, option=option, reason=reason)
         try:
             module = import_mod(manifest.folder, name)
             register = getattr(module, "register", None)

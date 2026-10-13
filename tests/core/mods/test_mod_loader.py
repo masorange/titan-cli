@@ -21,7 +21,7 @@ def write_mod(root, name, source=GUARD, manifest=None):
     folder = root / name
     folder.mkdir(parents=True)
     (folder / "mod.toml").write_text(
-        manifest if manifest is not None else f'[mod]\nname = "{name}"\nversion = "1.0.0"\nevents = ["step.call"]\n\n[options]\nreason = "from {root.name}"\n'
+        manifest if manifest is not None else f'[mod]\nname = "{name}"\nversion = "1.0.0"\nevents = ["step.call"]\n\n[options.reason]\ntype = "string"\ndefault = "from {root.name}"\n'
     )
     (folder / "mod.py").write_text(source)
     return folder
@@ -70,7 +70,7 @@ def test_manifest_is_read_without_running_the_mod(tmp_path):
         source="raise RuntimeError('must not run')\n",
         manifest='[mod]\nname = "panel"\nversion = "0.2.0"\ndescription = "A pane"\n'
         'requires_plugins = ["git"]\nevents = ["app.start", "ui.render"]\nslots = ["pane"]\n'
-        "[options]\nevery = 30\n",
+        "[options.every]\ntype = \"int\"\ndefault = 30\n",
     )
 
     manifest = discover_mods([("user", tmp_path)])["panel"]
@@ -79,7 +79,7 @@ def test_manifest_is_read_without_running_the_mod(tmp_path):
     assert manifest.requires_plugins == ("git",)
     assert manifest.events == ("app.start", "ui.render")
     assert manifest.slots == ("pane",)
-    assert manifest.options == {"every": 30}
+    assert manifest.options["every"].default == 30
 
 
 def test_folders_without_a_valid_manifest_or_entrypoint_are_skipped(tmp_path):
@@ -122,7 +122,7 @@ def test_loaded_mod_hooks_the_bus(tmp_path):
 
 
 def test_a_mod_cannot_hook_an_event_its_manifest_does_not_declare(tmp_path):
-    write_mod(tmp_path, "sneaky", manifest='[mod]\nname = "sneaky"\nevents = ["ui.render"]\n\n[options]\nreason = "x"\n')
+    write_mod(tmp_path, "sneaky", manifest='[mod]\nname = "sneaky"\nevents = ["ui.render"]\n\n[options.reason]\ntype = "string"\ndefault = "x"\n')
     bus = ModBus()
 
     assert load_mods(bus, discover_mods([("user", tmp_path)])) == []
@@ -268,3 +268,18 @@ def test_a_mod_name_must_be_usable_as_a_package_name(tmp_path):
     checkout = write_mod(tmp_path, "checkout", manifest='[mod]\nname = "has.dot"\n')
 
     assert discover_mods([("dev", checkout)]) == {}
+
+
+def test_invalid_config_option_falls_back_to_the_default(tmp_path):
+    write_mod(tmp_path, "guard")
+    bus = ModBus()
+
+    load_mods(bus, discover_mods([("user", tmp_path)]), {"guard": {"options": {"reason": 5, "typo": 1}}})
+
+    assert f"from {tmp_path.name}" in push_result(bus).message
+
+
+def test_manifest_with_untyped_option_is_skipped(tmp_path):
+    write_mod(tmp_path, "old", manifest='[mod]\nname = "old"\n[options]\nevery = 30\n')
+
+    assert discover_mods([("user", tmp_path)]) == {}
