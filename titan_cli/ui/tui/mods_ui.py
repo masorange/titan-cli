@@ -14,7 +14,7 @@ from rich.markup import escape
 from textual.app import App
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods import AIAnswer, DockSlot, ModBus, UIRender
+from titan_cli.core.mods import AIAnswer, DockSlot, HomeCardSlot, ModBus, UIRender
 from titan_cli.core.mods.keys import key_refusal
 
 logger = get_logger(__name__)
@@ -29,6 +29,8 @@ class TitanModHost:
         self._registry = registry
         # mod -> its slot in the dock, in the order the mods first asked for one
         self._dock: Dict[str, DockSlot] = {}
+        # mod -> its card on the home screen, in the order the mods first asked for one
+        self._home_cards: Dict[str, HomeCardSlot] = {}
         # pane id -> (mod that opened it, title, rail icon), in the order they were opened
         self.panes: Dict[str, Tuple[str, str, str]] = {}
         # pane id -> (text, severity) its mod put under its rail icon
@@ -76,6 +78,35 @@ class TitanModHost:
         self._on_app_thread(
             lambda: self._app.notify(escape(text), title=mod, severity=severity)
         )
+
+    # -- the home screen ---------------------------------------------------
+
+    def home_card_slots(self) -> List[Tuple[str, HomeCardSlot]]:
+        return list(self._home_cards.items())
+
+    def home_card(self, mod: str, slot: Optional[HomeCardSlot]) -> None:
+        if slot is not None:
+            self._home_cards[mod] = slot
+        else:
+            self._home_cards.pop(mod, None)
+        self._on_app_thread(self._paint_home_cards)
+
+    def press_home_card(self, mod: str) -> None:
+        """Enter or a click on a mod's home card: its own action, if it gave one."""
+        slot = self._home_cards.get(mod)
+        if slot is None or slot.on_click is None:
+            return
+        try:
+            slot.on_click()
+        except Exception:
+            logger.exception("mod_home_card_click_failed", mod=mod)
+
+    def _paint_home_cards(self) -> None:
+        from titan_cli.ui.tui.screens.main_menu import MainMenuScreen
+
+        screen = self._app.screen
+        if isinstance(screen, MainMenuScreen):
+            screen.refresh_mod_cards()
 
     def copy(self, mod: str, text: str, what: str) -> None:
         from titan_cli.ui.tui.clipboard import copy_with_feedback
@@ -318,6 +349,8 @@ class TitanModHost:
                 self.active = next(iter(self.panes), None)
         self._dock.pop(mod, None)
         self._paint_dock()
+        self._home_cards.pop(mod, None)
+        self._paint_home_cards()
         self.repaint(mod)
 
     # -- AI -------------------------------------------------------------------

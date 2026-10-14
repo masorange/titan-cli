@@ -17,6 +17,7 @@ from .prompt_selection_list import PromptSelectionList, SelectionOption
 from .prompt_choice import PromptChoice, ChoiceOption
 from .chip import Chip
 from .workflow_card import WorkflowCard
+from .mod_home_card import ModHomeCard
 from .decision_badge import DecisionBadge
 from .prompt_option_list import PromptOptionList, OptionItem
 from .styled_option_list import StyledOptionList, StyledOption
@@ -62,6 +63,7 @@ __all__ = [
     "ChoiceOption",
     "Chip",
     "WorkflowCard",
+    "ModHomeCard",
     "DecisionBadge",
     "PromptOptionList",
     "OptionItem",

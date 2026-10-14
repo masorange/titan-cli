@@ -1,6 +1,6 @@
 """Mods: user code that hooks Titan's runtime events. See `bus.py` for the hook contract."""
 
-from .bus import AIAnswer, DockSlot, ModAPI, ModBus, ModHost
+from .bus import AIAnswer, DockSlot, HomeCardSlot, ModAPI, ModBus, ModHost
 from .elements import Box, Button, Link, Text
 from .events import AppStart, SectionChange, StepCall, UIRender, WorkflowRun, outcome
 from .state import ModState
@@ -9,6 +9,7 @@ from .loader import ModManifest, build_mod_bus, discover_mods, import_mod, load_
 __all__ = [
     "AIAnswer",
     "DockSlot",
+    "HomeCardSlot",
     "AppStart",
     "SectionChange",
     "Box",

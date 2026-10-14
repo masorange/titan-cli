@@ -45,6 +45,8 @@ class ModHost(Protocol):
 
     def dock(self, mod: str, slot: Optional["DockSlot"]) -> None: ...
 
+    def home_card(self, mod: str, slot: Optional["HomeCardSlot"]) -> None: ...
+
     def toast(self, mod: str, text: str, severity: str) -> None: ...
 
     def copy(self, mod: str, text: str, what: str) -> None: ...
@@ -75,7 +77,7 @@ class ModHost(Protocol):
     def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]: ...
 
     def unload(self, mod: str) -> None:
-        """Drop everything `mod` put on screen or scheduled: timers, keys, panes, badges, its dock tile."""
+        """Drop everything `mod` put on screen or scheduled: timers, keys, panes, badges, its dock tile, its home card."""
         ...
 
 
@@ -90,6 +92,22 @@ class DockSlot:
     icon: Optional[str] = None
     badge: Optional[str] = None
     severity: Optional[str] = None  # a semantic color name, as in elements.Text
+    on_click: Optional[Callable[[], None]] = None
+
+
+@dataclass(frozen=True)
+class HomeCardSlot:
+    """
+    What a mod shows as its own card on the home screen, beside the quick-launch
+    workflows: its `mod.toml` icon, a short `title` and a `text` body under it.
+    A click or Enter runs `on_click`, if given - an independent slot from the
+    dock tile and the side panel pane: a mod may fill any mix of the three,
+    with different content in each.
+    """
+
+    title: str
+    text: str = ""
+    icon: Optional[str] = None
     on_click: Optional[Callable[[], None]] = None
 
 
@@ -109,6 +127,9 @@ class AIAnswer:
 class _HeadlessHost:
     def dock(self, mod: str, slot: Optional[DockSlot]) -> None:
         logger.debug("mod_dock", mod=mod, label=slot.label if slot else None)
+
+    def home_card(self, mod: str, slot: Optional["HomeCardSlot"]) -> None:
+        logger.debug("mod_home_card", mod=mod, title=slot.title if slot else None)
 
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, text=text, severity=severity)
@@ -201,6 +222,29 @@ class _ModUI:
         manifest = self._bus.manifests.get(self._mod)
         icon = manifest.icon if manifest else None
         self._bus.host.dock(self._mod, DockSlot(label, icon, badge, severity, on_click))
+
+    def home_card(
+        self,
+        title: Optional[str],
+        text: str = "",
+        on_click: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """
+        Show this mod as a card on the home screen, beside the quick-launch
+        workflows: its `mod.toml` `icon`, `title` and `text` below it. A click or
+        Enter runs `on_click`, if given. `None` as title removes it.
+
+        Independent from `dock` and `open`: nothing requires the same content in
+        the three, so a mod free to use any of them can show something different
+        in each (e.g. a count on the dock, detail in the pane, a different
+        summary and action here).
+        """
+        if not title:
+            self._bus.host.home_card(self._mod, None)
+            return
+        manifest = self._bus.manifests.get(self._mod)
+        icon = manifest.icon if manifest else None
+        self._bus.host.home_card(self._mod, HomeCardSlot(title, text, icon, on_click))
 
     def toast(self, text: str, severity: str = "information") -> None:
         """Show a toast. `severity` is `information`, `warning` or `error`."""

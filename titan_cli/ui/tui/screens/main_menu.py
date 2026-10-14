@@ -10,7 +10,7 @@ cells. So the body belongs to the workflows and those two demote to keys.
 """
 
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -19,6 +19,7 @@ from textual.css.query import NoMatches
 from textual.widgets import Static
 
 from titan_cli import __version__
+from titan_cli.core.mods import HomeCardSlot
 from titan_cli.core.workflows import (
     DEFAULT_SLOT_COUNT,
     QuickLaunchService,
@@ -26,7 +27,7 @@ from titan_cli.core.workflows import (
 )
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import WorkflowCard
+from titan_cli.ui.tui.widgets import ModHomeCard, WorkflowCard
 from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
     PluginChannel,
@@ -136,6 +137,28 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         width: auto;
         text-align: center;
     }
+
+    #home-mods-section {
+        /* Container's own default is height: 1fr; overflow: hidden hidden - inside
+           #home-body's VerticalScroll that clips the section to whatever space is
+           left over instead of sizing to its content, so the grid's own height
+           (and anything below the fold) never becomes part of what there is to
+           scroll to. */
+        height: auto;
+    }
+
+    #home-mods-title {
+        text-style: bold;
+        color: $accent;
+        margin: 1 0 1 1;
+    }
+
+    #home-mods-grid {
+        grid-size: 3;
+        grid-rows: 9;
+        grid-gutter: 1 2;
+        height: auto;
+    }
     """
 
     def compose_content(self) -> ComposeResult:
@@ -189,6 +212,40 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             )
             hint.display = not has_favorites
             yield hint
+
+            # Mods' own cards (mod-019 spike): one per mod that called `m.ui.home_card`,
+            # independent of what it shows on the dock or in its side panel pane. The
+            # section is composed either way and hidden when empty, same as the hint
+            # above, so refresh_mod_cards() only ever toggles and refills it.
+            slots = self._mod_card_slots()
+            with Container(id="home-mods-section") as mods_section:
+                yield Static(f"{Icons.MOD} Mods", id="home-mods-title")
+                with Grid(id="home-mods-grid"):
+                    for mod, slot in slots:
+                        yield self._mod_card_for(mod, slot)
+            mods_section.display = bool(slots)
+
+    def _mod_card_slots(self) -> List[Tuple[str, HomeCardSlot]]:
+        host = getattr(self.app, "mods_host", None)
+        return host.home_card_slots() if host is not None else []
+
+    def _mod_card_for(self, mod: str, slot: HomeCardSlot) -> ModHomeCard:
+        return ModHomeCard(mod, slot.icon or "", slot.title, slot.text, slot.on_click is not None)
+
+    def refresh_mod_cards(self) -> None:
+        """Rebuild the mods section from what they currently ask for."""
+        self.call_later(self._refresh_mod_cards)
+
+    async def _refresh_mod_cards(self) -> None:
+        try:
+            section = self.query_one("#home-mods-section", Container)
+            grid = self.query_one("#home-mods-grid", Grid)
+        except NoMatches:
+            return
+        slots = self._mod_card_slots()
+        section.display = bool(slots)
+        await grid.remove_children()
+        await grid.mount_all([self._mod_card_for(mod, slot) for mod, slot in slots])
 
     def _build_slots(self) -> List[QuickLaunchSlot]:
         """Read what the grid needs and choose the slots."""
