@@ -1,0 +1,55 @@
+[mod]
+name = "github"
+version = "0.1.0"
+icon = "🔀"
+description = "Side panel with review requests (one press reviews them), your PRs, the merge queue and CI check diagnosis"
+requires_plugins = ["github"]
+events = ["app.start", "workflow.run", "ui.render", "section.change"]
+slots = ["pane", "toast"]
+# Its AI diagnosis runs under the routing task "mods.github", listed with this label.
+ai_task = "PR check diagnosis"
+
+[sections.prs]
+title = "Pull requests"
+description = "Review requests, your PRs, check diagnosis and the review button."
+
+[sections.queue]
+title = "Merge queue"
+description = "Your place in the repo's merge queue."
+
+[options.prs_refresh_seconds]
+type = "int"
+title = "PRs refresh (s)"
+default = 120
+min = 1
+
+[options.queue_refresh_seconds]
+type = "int"
+title = "Merge queue refresh (s)"
+default = 60
+min = 1
+
+[options.refresh_key]
+type = "string"
+title = "Refresh key"
+description = "Key that refreshes every section now; empty for none."
+default = "f5"
+
+[options.queue_shown]
+type = "int"
+title = "Queue entries shown"
+default = 8
+min = 0
+
+[options.diagnosis_jobs]
+type = "int"
+title = "Checks diagnosed per press"
+description = "Which AI answers is the task \"mods.github\" in AI routing: the panel's picker pins it."
+default = 3
+min = 1
+
+[options.review_workflow]
+type = "string"
+title = "Review workflow"
+description = "Workflow a review request's Review button runs, given the PR as review_pr_number; empty for no button."
+default = "review-pr"

@@ -1,0 +1,237 @@
+"""The open issue's card: what it shows, in which order, and which actions it offers.
+
+Taking an issue, the JQL and the formatting are the jira plugin's, tested there.
+"""
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+from titan_cli.core.mods import AIAnswer, AppStart, Box, Button, ModBus, UIRender
+from titan_cli.core.mods.loader import import_mod
+from titan_cli.core.result import ClientError, ClientSuccess
+from titan_plugin_jira.models import UIJiraComment, UIJiraComponent, UIJiraFilter, UIJiraIssue, UIJiraStatus
+
+mod = import_mod(Path(__file__).parent, "jira_ready")
+
+OPTIONS = {"plan_workflow": "plan-jira-issue", "take_status": "In Progress"}
+
+
+def issue(status="Ready to Dev", description="line one", assignee="ANA GIL") -> UIJiraIssue:
+    return UIJiraIssue(
+        key="PROJ-1", id="1", summary="Do it", description=description, status=status, status_icon="🟡",
+        status_category="To Do", issue_type="Task", issue_type_icon="✅", assignee=assignee, assignee_email=None,
+        reporter="", priority="High", priority_icon="🔴", formatted_created_at="", formatted_updated_at="",
+        labels=[], components=[], fix_versions=[], is_subtask=False, parent_key=None, subtask_count=0,
+    )
+
+
+def actions():
+    return mod.CardActions(*(Mock() for _ in range(8)))
+
+
+def card(i, unfolded=False, taking=None, comments=None, comments_open=False, summary=None, act=None):
+    return mod.issue_card(i, "https://x/browse/PROJ-1", OPTIONS, taking, unfolded,
+                          comments, comments_open, summary, "Claude · opus", act or actions())
+
+
+def labels(box):
+    return [c.label for c in box.children if isinstance(c, Button)]
+
+
+def test_the_card_reads_summary_people_description_then_actions_last():
+    sections = card(issue()).children[1].children
+
+    assert sections[0].parts == ("Do it",)
+    assert labels(sections[2]) == ["▸ Description"]
+    assert labels(sections[-1]) == ["▶ Plan", "✋ Take"]
+
+
+def test_an_issue_already_in_the_working_status_offers_only_plan():
+    assert labels(card(issue(status="In Progress")).children[1].children[-1]) == ["▶ Plan"]
+
+
+def test_the_issue_being_taken_says_so():
+    assert labels(card(issue(), taking="PROJ-1").children[1].children[-1])[1] == "Taking…"
+
+
+def test_the_unfolded_description_shows_its_lines():
+    body = card(issue(), unfolded=True).children[1].children[2].children[1]
+
+    assert isinstance(body, Box) and body.children[0].parts == ("line one",)
+
+
+def test_an_issue_without_description_has_no_toggle():
+    assert mod.description(issue(description="No description"), False, Mock()) is None
+
+
+# -- status and filters, read from Jira --------------------------------------
+
+def status(name, category="To Do"):
+    return UIJiraStatus(id=name, name=name, description="", category=category, icon="🟡")
+
+
+CHOICES = mod.Choices(
+    statuses=[status("Ready to Dev"), status("Done", "Done")],
+    components=[UIJiraComponent("1", "Android", ""), UIJiraComponent("2", "iOS", "")],
+    filters=[UIJiraFilter("10023", "Sprint", "sprint in openSprints() ORDER BY Rank", "")],
+)
+
+
+def test_no_filter_adds_no_condition_and_no_status_means_any():
+    jira = Mock(project_key="PROJ")
+    jira.search_issues.return_value = ClientSuccess(data=[])
+
+    ready = mod.read_ready(jira, {"project": "", "shown": 10}, None, [], CHOICES)
+
+    assert ready.query == 'project = "PROJ" ORDER BY priority DESC, updated DESC'
+
+
+def test_components_are_or_ed_and_the_rest_and_ed_without_their_order():
+    filters = ["mine", "component:Android", "component:iOS", "filter:10023"]
+
+    assert mod.conditions(filters, CHOICES) == [
+        "assignee = currentUser()",
+        'component in ("Android", "iOS")',
+        "sprint in openSprints()",
+    ]
+
+
+def test_a_saved_filter_no_longer_starred_drops_out():
+    assert mod.conditions(["filter:999"], CHOICES) == []
+
+
+def test_choices_come_from_jira_ordered_by_category_and_a_failed_read_offers_nothing():
+    jira = Mock()
+    jira.list_statuses.return_value = ClientSuccess(data=[status("Done", "Done"), status("Doing", "In Progress"), status("Todo")])
+    jira.list_components.return_value = ClientError(error_message="403")
+    jira.list_favourite_filters.return_value = ClientSuccess(data=CHOICES.filters)
+
+    choices = mod.read_choices(jira, "PROJ")
+
+    assert [s.name for s in choices.statuses] == ["Todo", "Doing", "Done"]
+    assert choices.components == [] and choices.filters == CHOICES.filters
+
+
+def test_without_a_project_only_starred_filters_are_offered():
+    jira = Mock()
+    jira.list_favourite_filters.return_value = ClientSuccess(data=[])
+
+    choices = mod.read_choices(jira, "")
+
+    jira.list_statuses.assert_not_called()
+    assert choices.statuses == []
+
+
+def test_closed_drop_downs_say_what_is_picked():
+    status_line = mod.status_control(None, CHOICES, False, Mock(), Mock())
+    filters_line = mod.filters_control(["mine", "component:iOS", "filter:10023"], CHOICES, False, Mock(), Mock())
+
+    assert status_line.children[0].label == "Status   ▸ Any"
+    assert filters_line.children[0].label == "Filters  ▸ Mine · iOS · Sprint"
+    assert len(status_line.children) == 1  # closed: no options
+
+
+def test_the_open_status_drop_down_offers_any_then_jiras_statuses():
+    pick = Mock()
+    box = mod.status_control("Done", CHOICES, True, Mock(), pick)
+
+    options = box.children[1].children
+    assert [o.label for o in options if isinstance(o, Button)] == ["○ Any", "○ 🟡 Ready to Dev", "● 🟡 Done"]
+    options[0].on_press()
+    pick.assert_called_once_with(None)
+
+
+def test_the_open_filters_drop_down_groups_components_and_starred_filters():
+    box = mod.filters_control([], CHOICES, True, Mock(), Mock())
+
+    lines = [c.label if isinstance(c, Button) else c.parts[0] for c in box.children[1].children if c]
+    assert lines == ["☐ Mine", "Components", "☐ Android", "☐ iOS", "Starred filters", "☐ Sprint"]
+
+
+# -- description preview, comments, AI summary ---------------------------------
+
+
+def comment(body, author="ANA GIL"):
+    return UIJiraComment("1", author, None, body, "01/01/2026 10:00:00", None)
+
+
+def texts(box):
+    return [c.parts[0] if hasattr(c, "parts") else c.label for c in box.children if c]
+
+
+def test_a_folded_description_previews_its_first_lines():
+    folded = mod.description(issue(description="one\n\ntwo\nthree"), False, Mock())
+
+    assert texts(folded.children[1]) == ["one", "two", "…"]
+
+
+def test_an_issue_without_comments_shows_no_comments_fold():
+    assert mod.comments_section("PROJ-1", mod.Comments("done", []), False, Mock()) is None
+    assert texts(mod.comments_section("PROJ-1", None, False, Mock())) == ["Comments…"]
+
+
+def test_open_comments_show_who_said_what():
+    box = mod.comments_section("PROJ-1", mod.Comments("done", [comment("Mejor\n\nsolo Android")]), True, Mock())
+
+    assert box.children[0].label == "▾ Comments (1)"
+    first = box.children[1].children[0]
+    assert first.children[0].parts[0].parts == ("Ana Gil",)
+    assert texts(first)[1:] == ["Mejor", " ", "solo Android"]
+
+
+def test_a_done_summary_is_framed_with_its_model_and_can_be_copied():
+    act = actions()
+    box = mod.summary_section(issue(), mod.Summary("done", "Qué: X", "opus"), "Claude · opus", act)
+
+    assert [b.label for b in box.children[0].children] == ["✦ Summarize again", "⟳ Claude · opus"]
+    framed = box.children[1]
+    assert framed.border == "accent" and texts(framed)[1] == "Qué: X"
+    framed.children[-1].on_press()
+    act.copy_summary.assert_called_once()
+
+
+def test_a_running_summary_cannot_be_started_twice():
+    act = actions()
+    box = mod.summary_section(issue(), mod.Summary("running", model="opus"), None, act)
+
+    button = box.children[0].children[0]
+    assert button.label == "… summarizing with opus"
+    button.on_press()
+    act.summarize.assert_not_called()
+
+
+def test_summarize_reads_the_comments_first_and_sends_them_to_the_ai():
+    prompts, runs = [], []
+    jira = Mock(project_key="PROJ")
+    jira.get_comments.return_value = ClientSuccess(data=[comment("Al final solo Android")])
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, every=lambda *a: None, repaint=lambda mod: None,
+        run=lambda mod, fn: runs.append(fn), client=lambda name: jira,
+        ai_describe=lambda mod: "Claude · opus",
+        ai=lambda mod, prompt, system, max_tokens, model, timeout: prompts.append(prompt) or AIAnswer("Qué: X", "opus"),
+    )
+    bus = ModBus()
+    bus.host = host
+    options = {"project": "", "shown": 10, "refresh_seconds": 300, "plan_workflow": "", "take_status": ""}
+    mod.register(bus.on_for("jira_ready"), options)
+    bus.dispatch("app.start", AppStart(project_root="/repo"), lambda e: None)
+    m = bus.api("jira_ready")
+    m.state.set("ready", mod.Ready("q", [issue()], "PROJ"))
+    m.state.set("selected", "PROJ-1")
+
+    tree = bus.dispatch("ui.render", UIRender(component="Pane", pane=mod.PANE, width=50), lambda e: None)
+
+    def buttons(element):
+        if isinstance(element, Button):
+            yield element
+        for child in getattr(element, "children", ()) or ():
+            if child:
+                yield from buttons(child)
+
+    summarize_button = next(b for b in buttons(tree) if b.label == "✦ Summarize")
+    runs.clear()
+    summarize_button.on_press()
+    runs[-1]()
+
+    assert "Al final solo Android" in prompts[0]
+    assert m.state.get("summaries")["PROJ-1"] == mod.Summary("done", "Qué: X", "opus")

@@ -1,0 +1,329 @@
+"""The github mod: its reading and drawing are plain functions over fake clients."""
+from types import SimpleNamespace
+
+import pytest
+
+from titan_cli.core.mods import AIAnswer, Button, Link, ModBus
+from titan_cli.core.result import ClientSuccess
+from titan_plugin_github.models.view import UIMergeQueueEntry
+
+
+def test_draw_shows_every_section(mod, flatten, pr):
+    bus = ModBus()
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(repo="o/r", to_review=[pr(5)],
+                               mine=[pr(2, review="changes requested", checks="failing", failed=2, conflicts=True)],
+                               open_count=3))
+    m.state.set("queue", mod.models.Queue(configured=True, branch="master", total=1,
+                                   entries=[UIMergeQueueEntry(1, 2, "PR 2", "ana", "AWAITING_CHECKS", "running checks", 300, "~5m", True)]))
+
+    lines = flatten(mod.draw.draw(m, 44, {"diagnosis_jobs": 3, "review_workflow": "review-pr"}))
+
+    assert "Review #5" in lines
+    assert "Review #2" not in lines  # your own PRs are not yours to review
+    assert "#5 PR 5" in lines
+    links = [e for e in elements(mod.draw.draw(m, 44, {"diagnosis_jobs": 3, "review_workflow": "review-pr"})) if isinstance(e, Link)]
+    assert links[0].url == "https://github.com/o/r/pull/5"
+    assert "⇄ Pull requests o/r · 3 open  ⚠ 1 to review" in lines
+    assert "▾ Needs your review (1)" in lines
+    assert "@ana · ● awaiting review  ✓ checks" in lines
+    assert "● changes requested  ✗ checks (2)  ⚠ conflicts" in lines
+    assert "   ⇢ in merge queue #1 · ~5m" in lines
+    assert "▾ Merge queue · master (1)" in lines
+
+
+def test_review_runs_the_review_workflow_on_that_pr(mod, flatten, pr):
+    runs = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None,
+                               run_workflow=lambda mod, name, params: runs.append((mod, name, params)))
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(to_review=[pr(5)]))
+
+    tree = mod.draw.draw(m, 44, {"diagnosis_jobs": 3, "review_workflow": "review-pr"})
+    button = next(b for b in buttons(tree) if b.label == "Review #5")
+    button.on_press()
+
+    assert runs == [("github", "review-pr", {"review_pr_number": 5})]
+
+
+def test_no_review_button_without_a_review_workflow(mod, flatten, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(to_review=[pr(5)]))
+    assert not any("Review #" in line for line in flatten(mod.draw.draw(m, 44, {"review_workflow": ""})))
+
+
+def elements(element):
+    yield element
+    for child in (*getattr(element, "children", ()), *getattr(element, "parts", ())):
+        yield from elements(child)
+
+
+def buttons(element):
+    return [e for e in elements(element) if isinstance(e, Button)]
+
+
+LOG = "\n".join(
+    ["2026-10-06T10:00:00.0000000Z noise line"] * 400
+    + ["2026-10-06T10:00:01.0000000Z > Task :app:testDebugUnitTest FAILED",
+       "2026-10-06T10:00:01.0000000Z FooTest > bar FAILED at FooTest.kt:42"]
+    + ["2026-10-06T10:00:02.0000000Z tail"] * 5
+)
+
+
+class DiagnosisHost:
+    """Runs m.run inline and answers m.ai from a script, recording what it was asked."""
+
+    def __init__(self, github, answer):
+        self.github, self.answer, self.prompts, self.badges = github, answer, [], []
+
+    def badge(self, mod, pane, text, severity): self.badges.append((pane, text))
+    def toast(self, mod, text, severity): pass
+    def open_pane(self, mod, pane, title): pass
+    def repaint(self, mod): pass
+    def every(self, mod, seconds, fn, immediately): pass
+    def client(self, name): return self.github if name == "github" else None
+    def run(self, mod, fn): fn()
+
+    def ai(self, mod, prompt, system, max_tokens, model, timeout):
+        self.prompts.append((prompt, model))
+        return self.answer
+
+    pinned = None
+    configured = []
+
+    def ai_pinned(self, mod): return self.pinned
+    def ai_describe(self, mod): return {None: "MasOrange LLM · qwen3-coder", "cli:claude": "Claude CLI · opus"}[self.pinned]
+
+    def ai_configure(self, mod, title, on_done):
+        # Stands in for the person going through Titan's pickers and choosing Claude / opus.
+        self.configured.append((mod, title))
+        self.pinned = "cli:claude"
+        on_done()
+
+
+def test_diagnose_reads_each_failed_job_and_asks_the_routed_model(mod, tmp_path, monkeypatch, flatten, pr):
+    monkeypatch.setattr("titan_cli.core.mods.store.STORE_DIR", tmp_path)
+    logs = []
+    github = SimpleNamespace(get_actions_job_log=lambda job_id: logs.append(job_id) or ClientSuccess(data=LOG))
+    host = DiagnosisHost(github, AIAnswer(text='{"cause": "FooTest.bar fails", "quote": "FooTest > bar FAILED at FooTest.kt:42"}', model="m1"))
+    bus = ModBus()
+    bus.host = host
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, checks="failing", failed=4)]))
+
+    mod.diagnosis.diagnose(m, 2, {"diagnosis_jobs": 3})
+
+    d = m.state.get("diagnoses")["2"]
+    assert d.status == "done"
+    assert sorted(logs) == [0, 1, 2]  # three jobs at most, by the job id in each check's URL
+    assert {model for _, model in host.prompts} == {None}  # the mod never forces a model: AI routing decides
+    mod.diagnosis.refresh_ai_label(m)
+    lines = flatten(mod.draw.draw(m, 44, {"diagnosis_jobs": 3}))
+    assert "✦ Diagnose again (last: m1)" in lines
+    assert "FooTest.bar fails" in lines
+    assert "…and 1 more failed checks" in lines
+    assert "  ⟳ MasOrange LLM · qwen3-coder" in lines
+    assert "    Titan's AI default · Enter/click to change" in lines
+
+
+def test_diagnosis_failure_is_shown_not_raised(mod, tmp_path, monkeypatch, pr):
+    monkeypatch.setattr("titan_cli.core.mods.store.STORE_DIR", tmp_path)
+    github = SimpleNamespace(get_actions_job_log=lambda job_id: ClientSuccess(data=LOG))
+    bus = ModBus()
+    bus.host = DiagnosisHost(github, AIAnswer(error="AI is turned off for this task."))
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, checks="failing", failed=1)]))
+
+    mod.diagnosis.diagnose(m, 2, {"diagnosis_jobs": 3})
+
+    assert m.state.get("diagnoses")["2"].error == "AI: AI is turned off for this task."
+
+
+def test_ai_picker_opens_titans_task_picker_and_shows_the_result(mod, flatten):
+    host = DiagnosisHost(None, AIAnswer())
+    bus = ModBus()
+    bus.host = host
+    m = bus.api("github")
+    mod.diagnosis.refresh_ai_label(m)
+
+    before = flatten(mod.draw.model_picker(m, {}))
+    mod.draw.model_picker(m, {}).children[1].on_press()
+    after = flatten(mod.draw.model_picker(m, {}))
+
+    assert host.configured == [("github", "PR check diagnosis")]
+    assert before[1:] == ["  ⟳ MasOrange LLM · qwen3-coder", "    Titan's AI default · Enter/click to change"]
+    assert after[1:] == ["  ⟳ Claude CLI · opus", "    pinned for this panel · Enter/click to change"]
+
+
+def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(mod, tmp_path, monkeypatch, flatten, pr):
+    monkeypatch.setattr("titan_cli.core.mods.store.STORE_DIR", tmp_path)
+    copied = []
+
+    class CopyHost(DiagnosisHost):
+        def copy(self, mod, text, what):
+            copied.append((what, text))
+
+    github = SimpleNamespace(get_actions_job_log=lambda job_id: ClientSuccess(data=LOG))
+    bus = ModBus()
+    bus.host = CopyHost(github, AIAnswer(text='{"cause": "FooTest.bar fails", "where": "FooTest.kt:42", "quote": "nope"}', model="m1"))
+    m = bus.api("github")
+    pr2 = pr(2, checks="failing", failed=1)
+    m.state.set("prs", mod.models.Prs(mine=[pr2]))
+
+    assert not any("⧉" in line for line in flatten(mod.draw.diagnosis_of(m, pr2, {})))  # nothing to copy yet
+    mod.diagnosis.diagnose(m, 2, {"diagnosis_jobs": 3})
+    copy = next(b for b in mod.draw.diagnosis_of(m, pr2, {}).children if isinstance(b, Button) and b.label.startswith("⧉"))
+    copy.on_press()
+
+    what, text = copied[0]
+    assert (copy.label, what) == ("⧉ Copy diagnosis", "#2 diagnosis")
+    assert text.splitlines()[:6] == ["PR #2 PR 2", "Diagnosed by m1", "", "✗ job0", "FooTest.bar fails", "at FooTest.kt:42"]
+    assert "(this line is not in the log: do not trust the cause)" in text
+
+    m.state.set("diagnoses", {"2": mod.diagnosis.Diagnosis("error", error="AI: quota exhausted")})
+    mod.draw.diagnosis_of(m, pr2, {}).children[-1].on_press()
+    assert copied[-1] == ("#2 error", "PR #2 PR 2\nCould not diagnose: AI: quota exhausted\n")
+
+
+def test_refresh_key_is_bound_at_start_and_refreshes_every_section(mod, tmp_path):
+    from titan_cli.core.mods import AppStart
+
+    keys, runs = {}, []
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, badge=lambda *a: None, every=lambda *a: None, repaint=lambda mod: None,
+        run=lambda mod, fn: runs.append(fn),
+        client=lambda name: None,
+        bind_key=lambda mod, key, description, fn: keys.setdefault(key, (description, fn)) and None,
+    )
+    bus = ModBus()
+    bus.host = host
+    options = {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "f5", "queue_shown": 8}
+    mod.register(bus.on_for("github"), options)
+
+    bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
+    assert list(keys) == ["f5"] and keys["f5"][0] == "Refresh status"
+
+    runs.clear()
+    keys["f5"][1]()
+    assert len(runs) == 1  # the refresh goes off the UI thread
+    runs[0]()
+    state = bus.api("github").state
+    assert state.get("prs") is not None and state.get("queue") is not None
+
+
+def test_review_requests_badge_the_rail_icon_and_none_clears_it(mod, tmp_path, pr):
+    from titan_cli.core.mods import AppStart
+
+    timers, badges = [], []
+    to_review = [[pr(5), pr(6)]]
+    github = SimpleNamespace(
+        get_repo_full_name=lambda: "o/r",
+        list_pending_review_prs=lambda: ClientSuccess(data=to_review[0]),
+        list_my_prs=lambda: ClientSuccess(data=[]),
+        count_open_prs=lambda: ClientSuccess(data=2),
+    )
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, every=lambda mod, seconds, fn, immediately: timers.append(fn),
+        badge=lambda mod, pane, text, severity: badges.append((pane, text, severity)),
+        toast=lambda *a: None, repaint=lambda mod: None, run=lambda mod, fn: None,
+        client=lambda name: github if name == "github" else None, bind_key=lambda *a: None,
+    )
+    bus = ModBus()
+    bus.host = host
+    mod.register(bus.on_for("github"), {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "", "queue_shown": 8})
+    bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
+
+    refresh_prs = timers[0]
+    refresh_prs()
+    to_review[0] = []
+    refresh_prs()
+
+    assert badges == [("github", "2", "warning"), ("github", None, "warning")]
+
+
+def test_a_finished_or_aborted_workflow_refreshes_everything_off_its_thread(mod, tmp_path):
+    from titan_cli.core.mods import AppStart, WorkflowRun
+
+    runs = []
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, badge=lambda *a: None, every=lambda *a: None, repaint=lambda mod: None,
+        toast=lambda *a: None, run=lambda mod, fn: runs.append(fn), client=lambda name: None, bind_key=lambda *a: None,
+    )
+    bus = ModBus()
+    bus.host = host
+    mod.register(bus.on_for("github"), {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "", "queue_shown": 8})
+    bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
+    state = bus.api("github").state
+    runs.clear()
+
+    bus.dispatch("workflow.run", WorkflowRun("review-pr", "plugin", nested=True), lambda e: None)
+    assert runs == [] and state.get("prs") is None  # a nested workflow is part of its parent
+
+    bus.dispatch("workflow.run", WorkflowRun("review-pr", "plugin", nested=False), lambda e: None)
+    assert state.get("prs") is None  # not on the workflow's thread
+    runs[-1]()
+    assert state.get("prs") is not None and state.get("queue") is not None
+
+    runs.clear()
+
+    def aborted(e):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        bus.dispatch("workflow.run", WorkflowRun("review-pr", "plugin", nested=False), aborted)
+    assert len(runs) == 1  # an aborted run refreshes too
+
+
+def _state(mod, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(repo="o/r", to_review=[pr(5)], open_count=1))
+    m.state.set("queue", mod.models.Queue(configured=True, branch="master", total=0, entries=[]))
+    return m
+
+
+def test_a_switched_off_section_is_not_drawn(mod, flatten, pr):
+    m = _state(mod, pr)
+    opts = {"review_workflow": "review-pr"}
+
+    lines = flatten(mod.draw.draw(m, 44, opts, {"prs": True, "queue": False}))
+    assert "Review #5" in lines and not any("Merge queue" in line for line in lines)
+
+    lines = flatten(mod.draw.draw(m, 44, opts, {"prs": False, "queue": True}))
+    assert "Review #5" not in lines
+    assert "⇉ Merge queue" in lines and any(line.startswith(("▸ Merge queue", "▾ Merge queue")) for line in lines)
+
+
+def test_all_sections_off_says_so(mod, flatten, pr):
+    lines = flatten(mod.draw.draw(_state(mod, pr), 44, {}, {"prs": False, "queue": False}))
+
+    assert lines == ["Every section is switched off (Mods screen)."]
+
+
+def test_a_section_turned_on_while_running_refreshes_at_once_and_off_ones_do_not_poll(mod, tmp_path):
+    from titan_cli.core.mods import AppStart
+
+    ticks, runs = [], []
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, badge=lambda *a: None, repaint=lambda mod: None,
+        every=lambda mod, seconds, fn, immediately: ticks.append(fn),
+        run=lambda mod, fn: runs.append(fn), client=lambda name: None, bind_key=lambda *a: None,
+    )
+    bus = ModBus()
+    bus.host = host
+    options = {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "", "queue_shown": 8,
+               "sections": {"prs": False, "queue": True}}
+    mod.register(bus.on_for("github"), options)
+    bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
+    state = bus.api("github").state
+
+    for tick in ticks:
+        tick()
+    assert state.get("prs") is None and state.get("queue") is not None
+
+    bus.sections["github"] = options["sections"]
+    runs.clear()
+    bus.set_section("github", "prs", True)
+    assert len(runs) == 1
+    runs[0]()
+    assert state.get("prs") is not None

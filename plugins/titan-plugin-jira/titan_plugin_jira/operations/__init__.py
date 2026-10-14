@@ -50,6 +50,7 @@ from .plan_prompt_operations import (
     format_jira_issue_context,
     build_jira_plan_prompt,
 )
+from ..clients.services.issue_service import DEFAULT_SEARCH_FIELDS
 
 __all__ = [
     # JQL operations
@@ -84,4 +85,5 @@ __all__ = [
     "format_jira_issue_context",
     "build_jira_plan_prompt",
     "build_issue_summary_prompt",
+    "DEFAULT_SEARCH_FIELDS",
 ]

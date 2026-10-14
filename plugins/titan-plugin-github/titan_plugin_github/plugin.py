@@ -116,6 +116,13 @@ class GitHubPlugin(TitanPlugin):
         """
         return Path(__file__).parent / "workflows"
 
+    @property
+    def mods_path(self) -> Optional[Path]:
+        """
+        Returns the path to the mods directory this plugin ships.
+        """
+        return Path(__file__).parent / "mods"
+
     def get_client(self) -> GitHubClient:
         """
         Returns the initialized GitHubClient instance.
