@@ -40,6 +40,7 @@ plugins/
 | Workflow YAML, `extends`/hooks, Success/Skip/Error/Exit | [workflows.md](.claude/docs/workflows.md) |
 | Secrets | [security.md](.claude/docs/security.md) |
 | AI agents | [ai-agents.md](.claude/docs/ai-agents.md) |
+| Mods (the `m` API, events, slots, shipping one with a plugin) | [mods.md](.claude/docs/mods.md) |
 | Community plugin installer & dependency rules | [community-plugins.md](.claude/docs/community-plugins.md) |
 | Logging | [logging.md](.claude/docs/logging.md) |
 | Dev setup, `titan-dev` vs `titan` | [development-setup.md](.claude/docs/development-setup.md), [development-vs-production.md](.claude/docs/development-vs-production.md) |

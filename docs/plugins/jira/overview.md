@@ -35,6 +35,10 @@ The API token is stored in secrets, not in the config file.
 - [Workflow Steps](./workflow-steps.md): public reusable workflow steps grouped by functionality
 - [Built-in Workflows](./built-in-workflows.md): workflows shipped by the plugin
 
+## Mod
+
+The plugin ships the `jira_ready` [mod](../../concepts/mods.md): a side-panel pane with Jira issues narrowed by a status and filters read from Jira; opening one shows its description, comments and an AI summary (AI routing task `mods.jira_ready`), with Plan, Take and Open buttons. Options (`[mods.jira_ready.options]`): `project`, `shown`, `refresh_seconds`, `plan_workflow` (`plan-jira-issue`), `take_status` (`In Progress`); an empty `plan_workflow` or `take_status` hides its button.
+
 ## Accessing the client
 
 In Titan code, the public entry point is the Jira plugin client:
