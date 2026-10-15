@@ -98,7 +98,7 @@ Use these steps for the contributor flow of responding to PR comments and restor
 - `fetch_pending_comments`: load unresolved PR comments into workflow context
 - `check_clean_state`: ensure the current branch is safe to leave before checkout
 - `checkout_pr_branch`: switch to the PR branch while preserving original branch context
-- `review_comments`: guide the user through resolving comments and making local changes
+- `review_comments`: guide the user through resolving comments and making local changes. Each fix is committed with an AI-written subject describing the diff (routed under the `commit_message` task) and a body naming the comment it answers; it falls back to `Fix: <filename>` when no subject can be generated
 - `push_commits`: push local follow-up commits back to the PR branch
 - `send_comment_replies`: submit replies for the reviewed comments
 - `request_review`: request another review after follow-up work is pushed

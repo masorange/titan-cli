@@ -66,6 +66,24 @@ Helps a contributor review pending PR comments, switch to the PR branch, apply c
 9. `github.request_review`
 10. `github.checkout_original_branch`
 
+### Commit messages
+
+Each fix is committed on its own. The subject line is written by AI from the diff that is
+about to be committed, with the comment thread handed over as the intent, and the body names
+the comment the commit answers and keeps the author attribution:
+
+```
+fix: Reject expired tokens before refreshing them
+
+Addresses the review comment by @reviewer on src/auth.py:42.
+
+By: reviewer
+```
+
+The subject is routed under the `commit_message` AI task, the same one the git plugin's
+"Commit with AI" uses, so one preference in AI Configuration covers both. With AI off for that
+task — or when no message can be generated — the commit falls back to `Fix: <filename>`.
+
 ### Hooks
 
 - `after_review`: run lints, tests, or other checks before pushing replies

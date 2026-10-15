@@ -15,6 +15,7 @@ Modules:
 from .comment_operations import (
     build_ai_review_context,
     build_ai_review_prompt,
+    build_commit_message_context,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
@@ -69,6 +70,7 @@ from .code_review_operations import (
 __all__ = [
     # Comment operations
     "build_ai_review_context",
+    "build_commit_message_context",
     "build_ai_review_prompt",
     "find_ai_response_file",
     "create_commit_message",

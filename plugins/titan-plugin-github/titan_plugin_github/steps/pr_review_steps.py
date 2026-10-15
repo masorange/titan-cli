@@ -8,7 +8,11 @@ import json
 import os
 import threading
 import traceback
-from typing import List, Dict
+from typing import List, Dict, Optional
+from titan_cli.ai.router.declaration import declare_ai_usage
+from titan_cli.ai.router.enums import AIProviderType, AITask
+from titan_cli.ai.router.models import AIExecutionError, AIExecutionSuccess
+from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
@@ -20,6 +24,7 @@ from ..operations import (
     build_quote_reply,
     build_ai_review_context,
     build_ai_review_prompt,
+    build_commit_message_context,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
@@ -27,7 +32,13 @@ from ..operations import (
     build_pr_selection_description,
     build_pr_selection_title,
 )
-from titan_plugin_git.operations import format_diff_stat_display
+from titan_plugin_git.operations import (
+    build_ai_commit_prompt,
+    format_diff_stat_display,
+    process_ai_commit_message,
+)
+
+logger = get_logger(__name__)
 
 def _show_thread_and_get_action(
     ctx: WorkflowContext,
@@ -124,21 +135,85 @@ def _show_thread_and_get_action(
     return choice
 
 
+@declare_ai_usage(
+    task=AITask.COMMIT_MESSAGE,
+    # One prompt in, one line out - the same contract as the git plugin's commit message
+    # step, and routed under the same task so one preference covers both.
+    executes=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
+    enforces=True,
+)
+def _generate_commit_subject(ctx: WorkflowContext, pr_thread: UICommentThread) -> Optional[str]:
+    """
+    Write the commit's subject line from the change that is about to be committed.
+
+    Reuses the git plugin's prompt and post-processing, so a Titan commit reads the same
+    whoever makes it, and hands it the comment thread as the "why" a diff cannot carry.
+
+    Returns None whenever a subject cannot be written - AI off for the task, no diff, a
+    failed call - and the caller falls back to the `Fix: <filename>` message.
+    """
+    if not ctx.ai_router:
+        return None
+
+    diff_result = ctx.git.get_uncommitted_diff()
+    match diff_result:
+        case ClientSuccess(data=diff_text) if diff_text and diff_text.strip():
+            pass
+        case _:
+            return None
+
+    status_result = ctx.git.get_status()
+    match status_result:
+        case ClientSuccess(data=status):
+            files = status.modified_files + status.untracked_files + status.staged_files
+        case _:
+            files = []
+
+    prompt = build_ai_commit_prompt(
+        diff_text,
+        files,
+        max_diff_chars=8000,
+        extra_context=build_commit_message_context(pr_thread),
+    )
+
+    result = ctx.ai_router.generate_text(
+        prompt,
+        policy=_generate_commit_subject,
+        cwd=ctx.get("project_root", "."),
+        timeout=180,
+        max_tokens=1024,
+        temperature=0.7,
+    )
+
+    match result:
+        case AIExecutionSuccess(data=generated_text):
+            subject = process_ai_commit_message(generated_text)
+            return subject or None
+        case AIExecutionError(error_code=code, error_message=err):
+            # Not an error for the run: the commit still happens, with the old message.
+            logger.info("review_commit_subject_unavailable", error_code=code, error=err)
+            return None
+
+
 def _commit_review_changes(
     ctx: WorkflowContext,
     main_comment,
-    comment_commits: Dict[int, str]
+    comment_commits: Dict[int, str],
+    pr_thread: Optional[UICommentThread] = None,
 ) -> bool:
     """
     Show diff stat and commit uncommitted changes.
 
-    Assumes changes are already detected. Shows the diff stat, then commits
-    using the standard review commit message format.
+    Assumes changes are already detected. Shows the diff stat, then commits with a subject
+    written from the diff (falling back to `Fix: <filename>`) and a body naming the comment
+    it answers.
 
     Args:
         ctx: Workflow context
         main_comment: The comment being addressed (for commit message)
         comment_commits: Dict to store commit hash (mutated in place)
+        pr_thread: The thread the fix answers, when the caller has it: it is the "why" the
+            subject is written from
 
     Returns:
         True if commit succeeded, False otherwise
@@ -152,11 +227,21 @@ def _commit_review_changes(
             ctx.textual.dim_text("Changes detected")
 
     ctx.textual.text("")
+
+    subject = None
+    if pr_thread is not None:
+        with ctx.textual.loading("Writing the commit message..."):
+            subject = _generate_commit_subject(ctx, pr_thread)
+
     commit_msg = create_commit_message(
         main_comment.body,
         main_comment.author_login,
-        main_comment.path
+        main_comment.path,
+        comment_line=main_comment.line,
+        subject=subject,
     )
+    ctx.textual.bold_primary_text(f"  {commit_msg.splitlines()[0]}")
+    ctx.textual.text("")
 
     with ctx.textual.loading("Committing changes..."):
         # no_verify=True: skip pre-commit hooks during AI review fixes to avoid
@@ -278,7 +363,7 @@ def _handle_ai_review(
                 has_changes = False
 
         if has_changes:
-            if not _commit_review_changes(ctx, main_comment, comment_commits):
+            if not _commit_review_changes(ctx, main_comment, comment_commits, pr_thread):
                 return False
 
         else:
@@ -365,7 +450,7 @@ def _handle_manual_change(
         )
         return False
 
-    return _commit_review_changes(ctx, main_comment, comment_commits)
+    return _commit_review_changes(ctx, main_comment, comment_commits, pr_thread)
 
 
 def _handle_resolve_thread(
