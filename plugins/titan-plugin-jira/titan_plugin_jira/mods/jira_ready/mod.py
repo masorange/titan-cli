@@ -503,11 +503,11 @@ def register(on, options):
         jira = m.client("jira")
         if jira is not None:
             m.state.set("choices", read_choices(jira, project_of(jira, options)))
-        status, filters = chosen_status(m), active_filters(m)
+        status, filters, limit = chosen_status(m), active_filters(m), m.state.get("limit")
         m.state.set("loading", True)
-        result = read_ready(jira, options, status, filters, m.state.get("choices"), m.state.get("limit"))
+        result = read_ready(jira, options, status, filters, m.state.get("choices"), limit)
         # A slower search started before the last change must not overwrite a newer one.
-        if (status, filters) == (chosen_status(m), active_filters(m)):
+        if (status, filters, limit) == (chosen_status(m), active_filters(m), m.state.get("limit")):
             m.state.set("ready", result)
             m.state.set("loading", False)
 
