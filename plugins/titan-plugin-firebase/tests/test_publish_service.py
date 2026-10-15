@@ -504,3 +504,18 @@ def test_create_key_rejects_invalid_values_before_writing(
     assert isinstance(result, ClientError)
     assert result.error_code == "INVALID_VALUE"
     assert [call["method"] for call in network.fake_session.calls] == ["GET"]
+
+
+def test_publish_refuses_when_the_key_changed_after_review(
+    make_network, make_response, template_payload, change
+):
+    edited = copy.deepcopy(template_payload)
+    edited["parameters"]["feature_enabled"]["defaultValue"]["value"] = "true"
+    network = make_network([make_response(200, edited, {"ETag": "e2"})])
+
+    result = RemoteConfigService(network).publish_change(PROJECT, change)
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "TEMPLATE_EDIT_ERROR"
+    assert "cambió en Firebase" in result.error_message
+    assert [call["method"] for call in network.fake_session.calls] == ["GET"]

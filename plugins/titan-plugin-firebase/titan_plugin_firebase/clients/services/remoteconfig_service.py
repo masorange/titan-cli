@@ -37,6 +37,7 @@ from ...operations.template_operations import (
     build_change,
     build_parameter_payload,
     effective_value_type_for,
+    ensure_change_is_current,
     parameter_payload,
 )  # build_change is the pure operation; the service method below is validate_change
 from ...models.values import RemoteConfigValueError
@@ -165,7 +166,9 @@ class RemoteConfigService:
         calls: the read-modify-write is retried once against the new template,
         which is the documented recovery and is safe because the change is
         described declaratively (key, target, value) rather than as a
-        pre-rendered payload.
+        pre-rendered payload. Each cycle also verifies the reviewed "before"
+        value still matches the live template, so an edit to the same key made
+        after the diff was shown fails instead of being overwritten.
 
         `change` and its value are positional on purpose: the logging decorator
         records keyword arguments, and a parameter value can carry
@@ -209,6 +212,7 @@ class RemoteConfigService:
             )
 
         try:
+            ensure_change_is_current(payload, change)
             updated = apply_change(payload, change)
         except TemplateEditError as exc:
             return ClientError(

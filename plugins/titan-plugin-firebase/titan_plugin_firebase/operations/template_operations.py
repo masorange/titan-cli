@@ -138,6 +138,36 @@ def build_change(
     )
 
 
+def ensure_change_is_current(
+    payload: dict[str, Any],
+    change: UIRemoteConfigChange,
+) -> None:
+    """
+    Check that the value the user reviewed is still the live one.
+
+    A fresh ETag only proves nobody published between our read and our write;
+    it says nothing about edits made after the diff was shown. Comparing the
+    reviewed "before" against the live template keeps a console edit to this
+    same key from being overwritten unnoticed.
+
+    Raises:
+        TemplateEditError: If the parameter is gone or its target value
+            changed since the change was built.
+    """
+    live_value, live_inherited = current_raw_value(
+        payload, change.key, change.condition
+    )
+    if live_inherited == change.inherited_from_default and (
+        live_inherited or live_value == change.old_raw_value
+    ):
+        return
+    raise TemplateEditError(
+        f"El valor de '{change.key}' cambió en Firebase desde que revisaste "
+        "el diff. No se ha publicado nada; vuelve a validar el cambio para "
+        "ver el valor actual."
+    )
+
+
 def apply_change(
     payload: dict[str, Any],
     change: UIRemoteConfigChange,
