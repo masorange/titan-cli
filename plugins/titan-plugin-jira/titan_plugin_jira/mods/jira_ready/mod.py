@@ -47,7 +47,7 @@ DESCRIPTION_LINES = 200
 PREVIEW_LINES = 2
 COMMENT_LINES = 60
 SUMMARY_TOKENS = 900
-SHOW_ALL = 100  # what one Jira search returns at most; there is no paging yet
+SHOW_ALL = 99  # below Jira's 100-result search cap, so the +1 probe can still detect truncation
 MINE = "mine"
 MINE_JQL = "assignee = currentUser()"
 CATEGORY_ORDER = {"To Do": 0, "In Progress": 1, "Done": 2}
