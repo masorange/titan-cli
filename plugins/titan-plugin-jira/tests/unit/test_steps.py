@@ -176,6 +176,7 @@ def test_list_versions_step_success(mock_workflow_context, mock_jira_client_new)
             name="v1.0.0",
             description="No description",
             released=False,
+            start_date="Not set",
             release_date="Not set",
         ),
         UIJiraVersion(
@@ -183,6 +184,7 @@ def test_list_versions_step_success(mock_workflow_context, mock_jira_client_new)
             name="v2.0.0",
             description="No description",
             released=False,
+            start_date="Not set",
             release_date="2025-06-01",
         ),
     ]

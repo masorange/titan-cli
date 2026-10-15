@@ -212,6 +212,7 @@ class MetadataService:
                         name=v_data.get("name", ""),
                         description=v_data.get("description"),
                         released=v_data.get("released", False),
+                        startDate=v_data.get("startDate"),
                         releaseDate=v_data.get("releaseDate"),
                     )
                 )
@@ -300,6 +301,7 @@ class MetadataService:
         project_key: str,
         name: str,
         description: str | None = None,
+        start_date: str | None = None,
         release_date: str | None = None,
     ) -> ClientResult[UIJiraVersion]:
         """Create a Jira version for a project."""
@@ -311,6 +313,8 @@ class MetadataService:
 
             if description:
                 payload["description"] = description
+            if start_date:
+                payload["startDate"] = start_date
             if release_date:
                 payload["releaseDate"] = release_date
 
@@ -321,6 +325,7 @@ class MetadataService:
                 name=data.get("name", name),
                 description=data.get("description"),
                 released=data.get("released", False),
+                startDate=data.get("startDate"),
                 releaseDate=data.get("releaseDate"),
             )
 
@@ -341,6 +346,7 @@ class MetadataService:
         project_key: str,
         name: str,
         description: str | None = None,
+        start_date: str | None = None,
         release_date: str | None = None,
     ) -> ClientResult[UIJiraVersion]:
         """Return an existing version by name or create it if missing."""
@@ -361,6 +367,7 @@ class MetadataService:
             project_key=project_key,
             name=name,
             description=description,
+            start_date=start_date,
             release_date=release_date,
         )
 

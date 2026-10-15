@@ -155,6 +155,7 @@ class UIJiraVersion:
     name: str                        # Version name
     description: str                 # "No description" if empty
     released: bool                   # Release status
+    start_date: str                  # "Not set" or formatted date
     release_date: str                # "Not set" or formatted date
 
 

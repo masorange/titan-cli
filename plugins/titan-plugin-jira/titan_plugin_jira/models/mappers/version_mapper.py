@@ -19,6 +19,7 @@ def from_network_version(network_version: NetworkJiraVersion) -> UIJiraVersion:
         UIJiraVersion optimized for rendering
     """
     description = network_version.description or "No description"
+    start_date = network_version.startDate or "Not set"
     release_date = network_version.releaseDate or "Not set"
 
     return UIJiraVersion(
@@ -26,6 +27,7 @@ def from_network_version(network_version: NetworkJiraVersion) -> UIJiraVersion:
         name=network_version.name,
         description=description,
         released=network_version.released,
+        start_date=start_date,
         release_date=release_date
     )
 

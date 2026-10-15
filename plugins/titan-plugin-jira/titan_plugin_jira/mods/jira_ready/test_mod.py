@@ -112,7 +112,9 @@ def test_a_closed_picker_adds_nothing_and_a_move_in_progress_blocks_the_buttons(
 
 
 def version(name, released=False, id_="1"):
-    return UIJiraVersion(id=id_, name=name, description="", released=released, release_date="Not set")
+    return UIJiraVersion(
+        id=id_, name=name, description="", released=released, start_date="Not set", release_date="Not set"
+    )
 
 
 def test_the_fix_version_picker_ticks_the_current_one_and_pressing_another_replaces_it():

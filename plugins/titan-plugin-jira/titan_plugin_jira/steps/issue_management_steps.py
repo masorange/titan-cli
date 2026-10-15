@@ -186,6 +186,7 @@ def create_version_step(ctx: WorkflowContext) -> WorkflowResult:
     version_name = ctx.get("version_name")
     project_key = ctx.get("project_key")
     description = ctx.get("version_description")
+    start_date = ctx.get("start_date")
     release_date = ctx.get("release_date")
 
     if not version_name:
@@ -198,6 +199,7 @@ def create_version_step(ctx: WorkflowContext) -> WorkflowResult:
             name=version_name,
             project_key=project_key,
             description=description,
+            start_date=start_date,
             release_date=release_date,
         )
 
@@ -244,6 +246,7 @@ def ensure_version_exists_step(ctx: WorkflowContext) -> WorkflowResult:
     version_name = ctx.get("version_name")
     project_key = ctx.get("project_key")
     description = ctx.get("version_description")
+    start_date = ctx.get("start_date")
     release_date = ctx.get("release_date")
 
     if not version_name:
@@ -256,6 +259,7 @@ def ensure_version_exists_step(ctx: WorkflowContext) -> WorkflowResult:
             name=version_name,
             project_key=project_key,
             description=description,
+            start_date=start_date,
             release_date=release_date,
         )
 

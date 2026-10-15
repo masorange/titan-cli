@@ -292,6 +292,7 @@ def test_create_version_delegates_to_metadata_service(jira_client):
         project_key="TEST",
         name="1.0.0",
         description=None,
+        start_date=None,
         release_date=None,
     )
 
@@ -309,6 +310,7 @@ def test_ensure_version_exists_delegates_to_metadata_service(jira_client):
         project_key="TEST",
         name="1.0.0",
         description=None,
+        start_date=None,
         release_date=None,
     )
 

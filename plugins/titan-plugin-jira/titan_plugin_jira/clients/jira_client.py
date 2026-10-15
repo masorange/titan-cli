@@ -409,6 +409,7 @@ class JiraClient:
         name: str,
         project_key: Optional[str] = None,
         description: Optional[str] = None,
+        start_date: Optional[str] = None,
         release_date: Optional[str] = None,
     ) -> ClientResult[UIJiraVersion]:
         """Create a version in the provided or default Jira project."""
@@ -423,6 +424,7 @@ class JiraClient:
             project_key=key,
             name=name,
             description=description,
+            start_date=start_date,
             release_date=release_date,
         )
 
@@ -431,6 +433,7 @@ class JiraClient:
         name: str,
         project_key: Optional[str] = None,
         description: Optional[str] = None,
+        start_date: Optional[str] = None,
         release_date: Optional[str] = None,
     ) -> ClientResult[UIJiraVersion]:
         """Return an existing version by name or create it if missing."""
@@ -445,6 +448,7 @@ class JiraClient:
             project_key=key,
             name=name,
             description=description,
+            start_date=start_date,
             release_date=release_date,
         )
 
