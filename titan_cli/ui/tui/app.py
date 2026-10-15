@@ -492,11 +492,12 @@ class TitanApp(App):
 
 
 def _enabled_plugins(config, registry) -> Optional[list]:
-    """Names of the enabled plugins; None when they cannot be told."""
+    """Names of the enabled plugins that actually loaded; None when they cannot be told."""
     if registry is None:
         return None
     try:
-        return list(registry.list_enabled(config))
+        loaded = set(registry.list_installed())
+        return [name for name in registry.list_enabled(config) if name in loaded]
     except Exception:
         return None
 
