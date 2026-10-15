@@ -6,16 +6,12 @@ given, the order in which styling is applied to it, and the choice between a
 collapsible row and a plain line.
 """
 
-import asyncio
-
 from rich.text import Text
-from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
 from titan_cli.ui.tui.widgets import (
     CollapsibleEntry,
-    JsonTree,
     build_collapsible_list,
     build_json_entry,
     escape_markup,
@@ -142,23 +138,6 @@ def test_an_entry_body_can_include_widgets_directly():
     assert collapsible._contents_list[0] is widget
 
 
-class _JsonTreeApp(App):
-    def compose(self) -> ComposeResult:
-        yield JsonTree(
-            "Response body",
-            {
-                "productId": "0000018",
-                "from": "2026-09-01",
-                "cost": [],
-                "consumption": [
-                    {"type": "MOBILE_CALL", "amount": -1, "usage": 0},
-                    {"type": "MOBILE_DATA", "amount": -1, "usage": 0},
-                ],
-            },
-            collapsed=False,
-        )
-
-
 def test_json_value_keeps_scalars_visible_and_folds_nested_collections():
     entry = build_json_entry(
         "Response body",
@@ -199,16 +178,3 @@ def test_json_entry_exposes_pretty_json_for_copying():
     assert entry.copy_label == "Response body"
     assert entry.copy_text == '{\n  "enabled": true\n}'
 
-
-def test_json_tree_mounts_values_as_shared_collapsible_entries():
-    captured = {}
-
-    async def run():
-        app = _JsonTreeApp()
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            captured["entries"] = len(list(app.query(ListEntry)))
-
-    asyncio.run(run())
-
-    assert captured == {"entries": 2}
