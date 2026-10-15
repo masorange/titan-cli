@@ -54,6 +54,3 @@ default_channels = [
     "chapter-apps-android-ragnarok",
     "help-titan-cli",
 ]
-
-[mods.git]
-enabled = true
