@@ -270,6 +270,34 @@ def test_a_mod_name_must_be_usable_as_a_package_name(tmp_path):
     assert discover_mods([("dev", checkout)]) == {}
 
 
+@pytest.mark.parametrize(
+    "toml, expected",
+    [
+        ("[mods]\nenabled = false\n", {}),
+        ("mods = 1\n", {}),
+        ("[mods.guard]\noptions = 1\n", {"guard": {"options": {}}}),
+        ("[mods.guard]\nsections = 1\nenabled = false\n", {"guard": {"sections": {}, "enabled": False}}),
+    ],
+)
+def test_malformed_mods_config_is_dropped_without_raising(tmp_path, toml, expected):
+    config = tmp_path / "config.toml"
+    config.write_text(toml)
+
+    assert read_mods_config(config, tmp_path / "project") == expected
+    assert mod_dirs(config_path=config, environ={}) == []
+
+
+def test_scoped_sections_merge_over_a_malformed_background_one(tmp_path):
+    project = tmp_path / "project"
+    user = tmp_path / "config.toml"
+    from titan_cli.core.utils import project_source_scope_key
+
+    key = project_source_scope_key(project)
+    user.write_text(f'[mods.guard]\nsections = 1\n\n[project_sources."{key}".mods.guard.sections]\nprs = false\n')
+
+    assert read_mods_config(user, project) == {"guard": {"sections": {"prs": False}}}
+
+
 def test_invalid_config_option_falls_back_to_the_default(tmp_path):
     write_mod(tmp_path, "guard")
     bus = ModBus()

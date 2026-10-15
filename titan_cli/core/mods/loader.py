@@ -222,7 +222,8 @@ def _read_config(config_path: Optional[Path]) -> Dict[str, Any]:
 
 
 def _read_mods_table(config_path: Optional[Path]) -> Dict[str, Any]:
-    return _read_config(config_path).get("mods", {})
+    mods = _read_config(config_path).get("mods", {})
+    return mods if isinstance(mods, dict) else {}
 
 
 def read_mods_config(
@@ -238,7 +239,20 @@ def read_mods_config(
     are the background default only, not scoped per project.
     """
     data = _read_config(config_path)
-    config = {name: dict(table) for name, table in data.get("mods", {}).items() if name != DIRS_KEY}
+    mods = data.get("mods", {})
+    config: Dict[str, Dict[str, Any]] = {}
+    for name, table in (mods.items() if isinstance(mods, dict) else ()):
+        if name == DIRS_KEY:
+            continue
+        if not isinstance(table, dict):
+            logger.warning("mod_config_invalid", mod=name, reason="not a table")
+            continue
+        entry = dict(table)
+        for key in ("options", "sections"):
+            if key in entry and not isinstance(entry[key], dict):
+                logger.warning("mod_config_invalid", mod=name, key=key, reason="not a table")
+                entry[key] = {}
+        config[name] = entry
     root = project_root_path if project_root_path is not None else project_root()
     if root is None:
         return config
