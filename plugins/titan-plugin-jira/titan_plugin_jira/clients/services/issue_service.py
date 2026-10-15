@@ -11,6 +11,7 @@ from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
+from ...constants import DEFAULT_SEARCH_FIELDS
 from ...models import (
     NetworkJiraIssue,
     NetworkJiraFields,
@@ -25,9 +26,6 @@ from ...models import (
 from ...models.network.rest.issue import NetworkJiraComponent, NetworkJiraVersion
 from ...exceptions import JiraAPIError
 
-
-# Fields a search returns when the caller names none: enough for a list of issues.
-DEFAULT_SEARCH_FIELDS = ["summary", "status", "assignee", "priority", "created", "updated"]
 
 class IssueService:
     """

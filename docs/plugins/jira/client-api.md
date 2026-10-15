@@ -81,7 +81,7 @@ client.search_issues(
 - `max_results`: Optional. Maximum number of issues to return.
 - `fields`: Optional. Fields to request from Jira.
   When omitted, `DEFAULT_SEARCH_FIELDS` from
-  `titan_plugin_jira.clients.services.issue_service` (summary, status, assignee, priority,
+  `titan_plugin_jira.constants` (summary, status, assignee, priority,
   created, updated); add `"description"` to get `UIJiraIssue.description` filled.
 
 ### Get an issue's web URL

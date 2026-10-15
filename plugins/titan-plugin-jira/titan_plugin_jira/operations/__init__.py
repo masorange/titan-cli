@@ -50,7 +50,7 @@ from .plan_prompt_operations import (
     format_jira_issue_context,
     build_jira_plan_prompt,
 )
-from ..clients.services.issue_service import DEFAULT_SEARCH_FIELDS
+from ..constants import DEFAULT_SEARCH_FIELDS
 
 __all__ = [
     # JQL operations
