@@ -463,6 +463,10 @@ class JiraClient:
             version_name=version_name,
         )
 
+    def set_fix_version(self, issue_key: str, version_id: Optional[str]) -> ClientResult[None]:
+        """Replace the issue's fixVersions with one Jira version ID; `None` clears them."""
+        return self._issue_service.set_fix_version(issue_key=issue_key, version_id=version_id)
+
     def assign_issue(self, issue_key: str, account_id: str) -> ClientResult[None]:
         """Assign an existing issue to a user by account ID."""
         return self._issue_service.assign_issue(issue_key=issue_key, account_id=account_id)

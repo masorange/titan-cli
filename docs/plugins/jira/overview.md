@@ -37,7 +37,7 @@ The API token is stored in secrets, not in the config file.
 
 ## Mod
 
-The plugin ships the `jira_ready` [mod](../../concepts/mods.md): a side-panel pane with Jira issues narrowed by a status and filters read from Jira; opening one shows its description, comments and an AI summary (AI routing task `mods.jira_ready`), with Plan, Take and Open buttons. Options (`[mods.jira_ready.options]`): `project`, `shown`, `refresh_seconds`, `plan_workflow` (`plan-jira-issue`), `take_status` (`In Progress`); an empty `plan_workflow` or `take_status` hides its button.
+The plugin ships the `jira_ready` [mod](../../concepts/mods.md): a side-panel pane with Jira issues narrowed by a status and filters read from Jira; opening one shows its description, comments and an AI summary (AI routing task `mods.jira_ready`), with Plan, Take, Move, Fix version and Open buttons. Move reads the statuses Jira allows from the issue's current one and transitions it to the one you pick. The open issue shows its fix version (or that it has none). Fix version lists the versions of the issue's project, unreleased ones or, with the Released switch on, released ones; the current one is ticked, and picking another replaces it (Clear empties it). Options (`[mods.jira_ready.options]`): `project`, `shown`, `refresh_seconds`, `plan_workflow` (`plan-jira-issue`), `take_status` (`In Progress`); an empty `plan_workflow` or `take_status` hides its button. The list shows `shown` issues; when Jira has more, "＋ Show all" loads them (up to 100, one Jira search).
 
 ## Accessing the client
 

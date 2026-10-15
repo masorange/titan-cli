@@ -5,8 +5,8 @@ of the project, its components, and the saved filters you starred, plus
 "Mine". Nothing has to be picked: no status means any status, no filter
 means every issue. Opening an issue shows its summary, assignee, status and
 folded description, and lets you plan it (the plan workflow opens on it,
-skipping its issue prompt) or take it (assigned to you and moved to the
-working status).
+skipping its issue prompt), take it (assigned to you and moved to the
+working status) or move it to any status Jira allows from where it is.
 
 Everything Jira-specific (the JQL, taking an issue, the description and name
 formatting, the issue URL) comes from the jira plugin; this file only polls
@@ -19,7 +19,15 @@ from typing import Callable, Dict, List, Optional
 
 from titan_cli.core.mods import Box, Button, Link, Text
 from titan_cli.core.result import ClientError, ClientSuccess
-from titan_plugin_jira.models import UIJiraComment, UIJiraComponent, UIJiraFilter, UIJiraIssue, UIJiraStatus
+from titan_plugin_jira.models import (
+    UIJiraComment,
+    UIJiraComponent,
+    UIJiraFilter,
+    UIJiraIssue,
+    UIJiraStatus,
+    UIJiraTransition,
+    UIJiraVersion,
+)
 from titan_plugin_jira.operations import (
     DEFAULT_SEARCH_FIELDS,
     build_issue_jql,
@@ -34,11 +42,12 @@ from titan_plugin_jira.operations import (
 
 PANE = "jira-ready"
 TITLE = "Jira"
-FIELDS = [*DEFAULT_SEARCH_FIELDS, "description"]
+FIELDS = [*DEFAULT_SEARCH_FIELDS, "description", "fixVersions"]
 DESCRIPTION_LINES = 200
 PREVIEW_LINES = 2
 COMMENT_LINES = 60
 SUMMARY_TOKENS = 900
+SHOW_ALL = 100  # what one Jira search returns at most; there is no paging yet
 MINE = "mine"
 MINE_JQL = "assignee = currentUser()"
 CATEGORY_ORDER = {"To Do": 0, "In Progress": 1, "Done": 2}
@@ -57,6 +66,22 @@ class Comments:
     """An issue's comments, read when its card opens: loading, done or error."""
     status: str
     items: List[UIJiraComment] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Transitions:
+    """The statuses an issue can move to, read when its picker opens: loading, done or error."""
+    status: str
+    items: List[UIJiraTransition] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Versions:
+    """The versions of an issue's project, read when its fix version picker opens: loading, done or error."""
+    status: str
+    items: List[UIJiraVersion] = field(default_factory=list)
     error: Optional[str] = None
 
 
@@ -80,6 +105,11 @@ class CardActions:
     summarize: Callable[[UIJiraIssue], None]
     copy_summary: Callable[[UIJiraIssue], None]
     pick_ai: Callable[[], None]
+    toggle_move: Callable[[str], None]
+    move: Callable[[UIJiraIssue, str], None]
+    toggle_fix: Callable[[UIJiraIssue], None]
+    set_fix: Callable[[UIJiraIssue, Optional[UIJiraVersion]], None]
+    toggle_released: Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -89,6 +119,7 @@ class Ready:
     project: str = ""  # empty: every project the user can see
     error: Optional[str] = None
     urls: Dict[str, str] = field(default_factory=dict)  # issue key -> its page
+    more: bool = False  # Jira has issues beyond the ones listed
 
 
 def component_id(name: str) -> str:
@@ -149,21 +180,26 @@ def conditions(filters: List[str], choices: Optional[Choices]) -> List[str]:
     return out
 
 
-def read_ready(jira, options, status: Optional[str], filters: List[str], choices: Optional[Choices]) -> Ready:
+def read_ready(jira, options, status: Optional[str], filters: List[str], choices: Optional[Choices],
+               limit: Optional[int] = None) -> Ready:
+    """The first `limit` issues (the `shown` option unless "Show all" raised it); one extra is read to know if more remain."""
+    limit = limit or options["shown"]
     if jira is None:
         return Ready("", [], error="Jira is not available here: enable and configure the jira plugin")
     project = project_of(jira, options)
     query = build_issue_jql(status, project, conditions(filters, choices))
-    match jira.search_issues(query, max_results=options["shown"], fields=FIELDS):
-        case ClientSuccess(data=issues):
-            return Ready(query, issues, project, urls={i.key: jira.issue_url(i.key) for i in issues})
+    match jira.search_issues(query, max_results=limit + 1, fields=FIELDS):
+        case ClientSuccess(data=found):
+            issues = found[:limit]
+            return Ready(query, issues, project, urls={i.key: jira.issue_url(i.key) for i in issues},
+                         more=len(found) > limit)
         case ClientError(error_message=message):
             return Ready(query, [], project, error=message)
 
 
 def issue_line(issue: UIJiraIssue, selected: bool, select) -> Button:
-    """One line per issue; pressing it opens (or closes) its card."""
-    return Button(f"{'▾' if selected else '▸'} {issue.priority_icon} {issue.key} {issue.summary}", lambda: select(issue.key))
+    """One line per issue, led by the status colour the status filter uses; pressing it opens (or closes) its card."""
+    return Button(f"{'▾' if selected else '▸'} {issue.status_icon} {issue.key} {issue.summary}", lambda: select(issue.key))
 
 
 def description(issue: UIJiraIssue, unfolded: bool, fold) -> Optional[Box]:
@@ -232,22 +268,105 @@ def summary_section(issue: UIJiraIssue, summary: Optional[Summary], ai_label: Op
     )
 
 
-def actions(issue: UIJiraIssue, url: str, options, taking: Optional[str], plan, take) -> Box:
+def project_key(issue_key: str) -> str:
+    """`ECAPP` for `ECAPP-2262`."""
+    return issue_key.rsplit("-", 1)[0]
+
+
+def move_options(issue: UIJiraIssue, transitions: List[UIJiraTransition]) -> List[UIJiraTransition]:
+    """The transitions that lead somewhere else, one per status (Jira may offer several to the same one)."""
+    seen = {issue.status.strip().lower()}
+    options = []
+    for transition in transitions:
+        status = transition.to_status.strip().lower()
+        if status not in seen:
+            seen.add(status)
+            options.append(transition)
+    return options
+
+
+def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open: bool,
+                 moving: Optional[str], act: CardActions) -> Optional[Box]:
+    """The statuses the open issue can move to; pressing one moves it. Nothing while the picker is closed."""
+    if not is_open:
+        return None
+    if transitions is None or transitions.status == "loading":
+        return Box(Text("Loading statuses…", dim=True), border="subtle")
+    if transitions.status == "error":
+        return Box(Text(f"Statuses: {transitions.error}", color="error", wrap=True), border="subtle")
+    options = move_options(issue, transitions.items)
+    if not options:
+        return Box(Text("Jira offers no other status from here", dim=True), border="subtle")
+    busy = moving == issue.key
+    return Box(
+        Text("Move to", dim=True),
+        *(
+            Button(f"{t.to_status_icon} {t.to_status}", lambda status=t.to_status: None if busy else act.move(issue, status), dim=busy)
+            for t in options
+        ),
+        border="subtle",
+    )
+
+
+def fix_version_options(versions: List[UIJiraVersion], released: bool) -> List[UIJiraVersion]:
+    """The project's released versions, or the ones still to be released, in Jira's order."""
+    return [v for v in versions if v.released == released]
+
+
+def fix_version_section(issue: UIJiraIssue, versions: Optional[Versions], is_open: bool,
+                        fixing: Optional[str], act: CardActions, released: bool = False) -> Optional[Box]:
+    """
+    The project's versions, released or not as the switch says; the issue's current ones are
+    ticked and pressing another one replaces them.
+    """
+    if not is_open:
+        return None
+    if versions is None or versions.status == "loading":
+        return Box(Text("Loading versions…", dim=True), border="subtle")
+    if versions.status == "error":
+        return Box(Text(f"Versions: {versions.error}", color="error", wrap=True), border="subtle")
+    if not versions.items:
+        return Box(Text("This project has no versions", dim=True), border="subtle")
+    busy = fixing == issue.key
+    current = set(issue.fix_versions)
+
+    def option(version: UIJiraVersion) -> Button:
+        mark = "☑" if version.name in current else "☐"
+        return Button(f"{mark} {version.name}", lambda: None if busy else act.set_fix(issue, version),
+                      dim=busy or version.name not in current)
+
+    shown = fix_version_options(versions.items, released)
+    return Box(
+        Box(Text("Fix version", dim=True), Button(f"{'◉' if released else '○'} Released", act.toggle_released, dim=True),
+            row=True),
+        *(option(v) for v in shown),
+        not shown and Text("No released versions" if released else "No unreleased versions", dim=True),
+        current and Button("✕ Clear", lambda: None if busy else act.set_fix(issue, None), dim=True),
+        border="subtle",
+    )
+
+
+def actions(issue: UIJiraIssue, url: str, options, taking: Optional[str], moving: Optional[str],
+            move_open: bool, fix_open: bool, plan, take, toggle_move, toggle_fix) -> Box:
     buttons = []
     if options["plan_workflow"]:
         buttons.append(Button("▶ Plan", lambda: plan(issue.key), variant="default"))
     if options["take_status"] and issue.status.strip().lower() != options["take_status"].strip().lower():
         label = "Taking…" if taking == issue.key else "✋ Take"
         buttons.append(Button(label, lambda: take(issue), variant="default"))
+    buttons.append(Button("Moving…" if moving == issue.key else f"{'▾' if move_open else '▸'} Move", lambda: toggle_move(issue.key), variant="default"))
+    buttons.append(Button(f"{'▾' if fix_open else '▸'} Fix version", lambda: toggle_fix(issue), variant="default"))
     return Box(*buttons, url and Text(Link("↗ Open", url)), row=True)
 
 
 def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unfolded: bool,
                comments: Optional[Comments], comments_open: bool, summary: Optional[Summary],
-               ai_label: Optional[str], act: CardActions) -> Box:
+               ai_label: Optional[str], act: CardActions, transitions: Optional[Transitions] = None,
+               move_open: bool = False, moving: Optional[str] = None, versions: Optional[Versions] = None,
+               fix_open: bool = False, fixing: Optional[str] = None, fix_released: bool = False) -> Box:
     """
     The open issue: its line, summary, who has it, status, description, comments,
-    the AI summary; the actions always last.
+    the AI summary, the statuses it can move to once asked; the actions always last.
     """
     assignee = format_person_name(issue.assignee) if issue.assignee and issue.assignee != "Unassigned" else ""
     return Box(
@@ -257,11 +376,16 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
             Box(
                 Text("👤 ", assignee or Text("Unassigned", dim=True)),
                 Text(f"{issue.status_icon} {issue.status}", dim=True),
+                Text("🏷 ", ", ".join(issue.fix_versions)) if issue.fix_versions else Text("🏷 No fix version", dim=True),
+                issue.priority and Text(f"Priority: {issue.priority}", dim=True),
             ),
             description(issue, unfolded, act.fold),
             comments_section(issue.key, comments, comments_open, act.toggle_comments),
             summary_section(issue, summary, ai_label, act),
-            actions(issue, url, options, taking, act.plan, act.take),
+            move_section(issue, transitions, move_open, moving, act),
+            fix_version_section(issue, versions, fix_open, fixing, act, fix_released),
+            actions(issue, url, options, taking, moving, move_open, fix_open, act.plan, act.take,
+                    act.toggle_move, act.toggle_fix),
             gap=1,
         ),
         border="primary",
@@ -322,7 +446,7 @@ def filters_control(filters: List[str], choices: Optional[Choices], is_open: boo
     )
 
 
-def draw(m, options, pick_status, toggle_filter, open_control, act: CardActions):
+def draw(m, options, pick_status, toggle_filter, open_control, show_more, act: CardActions):
     status, filters = chosen_status(m), active_filters(m)
     choices: Optional[Choices] = m.state.get("choices")
     shown = m.state.get("open_control")
@@ -332,7 +456,7 @@ def draw(m, options, pick_status, toggle_filter, open_control, act: CardActions)
     ]
 
     ready: Optional[Ready] = m.state.get("ready")
-    if ready is None or m.state.get("loading"):
+    if ready is None:
         body = [Text("Loading…", dim=True)]
     elif ready.error:
         body = [Text(ready.error, color="error", wrap=True)]
@@ -342,19 +466,34 @@ def draw(m, options, pick_status, toggle_filter, open_control, act: CardActions)
         selected = m.state.get("selected")
         comments = m.state.get("comments") or {}
         summaries = m.state.get("summaries") or {}
+        transitions = m.state.get("transitions") or {}
+        versions = m.state.get("versions") or {}
         body = [
             issue_card(i, ready.urls.get(i.key, ""), options, m.state.get("taking"), m.state.get("unfolded") == i.key,
                        comments.get(i.key), m.state.get("comments_open") == i.key, summaries.get(i.key),
-                       m.state.get("ai_label"), act)
+                       m.state.get("ai_label"), act, transitions.get(i.key), m.state.get("move_open") == i.key,
+                       m.state.get("moving"), versions.get(project_key(i.key)), m.state.get("fix_open") == i.key,
+                       m.state.get("fixing"), bool(m.state.get("fix_released")))
             if i.key == selected else issue_line(i, False, act.select)
             for i in ready.issues
         ]
     if ready is not None and not ready.error:
-        count = "" if m.state.get("loading") else f" · {len(ready.issues)}"
+        count = " · loading…" if m.state.get("loading") else f" · {len(ready.issues)}{'+' if ready.more else ''}"
         scope = Text(f"{ready.project or 'All projects'}{count}", dim=True)
     else:
         scope = None
-    return Box(Box(scope, *controls), Box(*body, gap=1), gap=1)
+    more = ready is not None and not ready.error and ready.more and not m.state.get("loading")
+    at_cap = (m.state.get("limit") or 0) >= SHOW_ALL
+    return Box(
+        Box(scope, *controls),
+        Box(
+            *body,
+            more and not at_cap and Button("＋ Show all", show_more, variant="default"),
+            more and at_cap and Text(f"Showing the first {SHOW_ALL}: narrow it with a status or a filter", dim=True, wrap=True),
+            gap=1,
+        ),
+        gap=1,
+    )
 
 
 def register(on, options):
@@ -364,7 +503,7 @@ def register(on, options):
             m.state.set("choices", read_choices(jira, project_of(jira, options)))
         status, filters = chosen_status(m), active_filters(m)
         m.state.set("loading", True)
-        result = read_ready(jira, options, status, filters, m.state.get("choices"))
+        result = read_ready(jira, options, status, filters, m.state.get("choices"), m.state.get("limit"))
         # A slower search started before the last change must not overwrite a newer one.
         if (status, filters) == (chosen_status(m), active_filters(m)):
             m.state.set("ready", result)
@@ -387,6 +526,40 @@ def register(on, options):
             case ClientError(error_message=message):
                 put(Comments("error", error=message))
                 return []
+
+    def load_transitions(m, key) -> None:
+        """Read the statuses `key` can move to into state; off the UI thread, fresh every time the picker opens."""
+        def put(t):
+            m.state.update("transitions", lambda all_: {**(all_ or {}), key: t}, default={})
+
+        jira = m.client("jira")
+        if jira is None:
+            put(Transitions("error", error="Jira is not available here"))
+            return
+        put(Transitions("loading"))
+        match jira.get_transitions(key):
+            case ClientSuccess(data=items):
+                put(Transitions("done", items))
+            case ClientError(error_message=message):
+                put(Transitions("error", error=message))
+
+    def load_versions(m, key) -> None:
+        """Read the versions of `key`'s project into state; off the UI thread, fresh every time the picker opens."""
+        project = project_key(key)
+
+        def put(v):
+            m.state.update("versions", lambda all_: {**(all_ or {}), project: v}, default={})
+
+        jira = m.client("jira")
+        if jira is None:
+            put(Versions("error", error="Jira is not available here"))
+            return
+        put(Versions("loading"))
+        match jira.list_project_versions(project):
+            case ClientSuccess(data=items):
+                put(Versions("done", items))
+            case ClientError(error_message=message):
+                put(Versions("error", error=message))
 
     def summarize(m, issue: UIJiraIssue) -> None:
         """Ask the AI what `issue` asks for, its comments included; off the UI thread."""
@@ -425,11 +598,17 @@ def register(on, options):
         def pick_status(status):
             m.store.set("status", status)
             m.state.set("open_control", None)
+            m.state.set("limit", None)
+            search()
+
+        def show_more():
+            m.state.set("limit", SHOW_ALL)
             search()
 
         def toggle_filter(fid):
             on_now = active_filters(m)
             m.store.set("filters", [f for f in on_now if f != fid] if fid in on_now else [*on_now, fid])
+            m.state.set("limit", None)
             search()
 
         def select(key):
@@ -476,6 +655,63 @@ def register(on, options):
 
             m.run(work)
 
+        def toggle_move(key):
+            opening = m.state.get("move_open") != key
+            m.state.set("move_open", key if opening else None)
+            if opening:
+                m.run(lambda: load_transitions(m, key))
+
+        def move(issue, to_status):
+            if m.state.get("moving"):
+                return
+            m.state.set("moving", issue.key)
+            m.state.set("move_open", None)
+
+            def work():
+                jira = m.client("jira")
+                result = jira.transition_issue(issue.key, to_status) if jira else None
+                m.state.set("moving", None)
+                match result:
+                    case ClientSuccess(message=message):
+                        m.ui.toast(message)
+                    case ClientError(error_message=message):
+                        m.ui.toast(message, "error")
+                    case None:
+                        m.ui.toast("Jira is not available here", "error")
+                refresh(m)
+
+            m.run(work)
+
+        def toggle_fix(issue):
+            opening = m.state.get("fix_open") != issue.key
+            m.state.set("fix_open", issue.key if opening else None)
+            if opening:
+                m.run(lambda: load_versions(m, issue.key))
+
+        def toggle_released():
+            m.state.set("fix_released", not m.state.get("fix_released"))
+
+        def set_fix(issue, version):
+            if m.state.get("fixing"):
+                return
+            m.state.set("fixing", issue.key)
+            m.state.set("fix_open", None)
+
+            def work():
+                jira = m.client("jira")
+                result = jira.set_fix_version(issue.key, version.id if version else None) if jira else None
+                m.state.set("fixing", None)
+                match result:
+                    case ClientSuccess(message=message):
+                        m.ui.toast(message)
+                    case ClientError(error_message=message):
+                        m.ui.toast(message, "error")
+                    case None:
+                        m.ui.toast("Jira is not available here", "error")
+                refresh(m)
+
+            m.run(work)
+
         act = CardActions(select, fold, plan, take, toggle_comments,
-                          lambda issue: m.run(lambda: summarize(m, issue)), copy_summary, pick_ai)
-        return draw(m, options, pick_status, toggle_filter, open_control, act)
+                          lambda issue: m.run(lambda: summarize(m, issue)), copy_summary, pick_ai, toggle_move, move, toggle_fix, set_fix, toggle_released)
+        return draw(m, options, pick_status, toggle_filter, open_control, show_more, act)

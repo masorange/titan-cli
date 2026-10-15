@@ -372,3 +372,30 @@ def test_ui_model_has_formatted_fields(issue_service, mock_network, sample_api_i
     # Icons should be present
     assert ui_issue.status_icon in ["🔵", "🟡", "🟢", "⚪"]  # Valid status icons
     assert ui_issue.priority_icon in ["🔴", "🟠", "🟡", "🟢", "🔵", "⚪"]  # Valid priority icons (🟠 for High)
+
+
+def test_set_fix_version_replaces_the_field(issue_service, mock_network):
+    result = issue_service.set_fix_version("TEST-1", "10001")
+
+    assert isinstance(result, ClientSuccess)
+    mock_network.make_request.assert_called_once_with(
+        "PUT", "issue/TEST-1", json={"fields": {"fixVersions": [{"id": "10001"}]}}
+    )
+
+
+def test_set_fix_version_none_clears_the_field(issue_service, mock_network):
+    result = issue_service.set_fix_version("TEST-1", None)
+
+    assert isinstance(result, ClientSuccess)
+    mock_network.make_request.assert_called_once_with(
+        "PUT", "issue/TEST-1", json={"fields": {"fixVersions": []}}
+    )
+
+
+def test_set_fix_version_api_error(issue_service, mock_network):
+    mock_network.make_request.side_effect = JiraAPIError("Field not on screen", status_code=400)
+
+    result = issue_service.set_fix_version("TEST-1", "10001")
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "SET_FIX_VERSION_ERROR"

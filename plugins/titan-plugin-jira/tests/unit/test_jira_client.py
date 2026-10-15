@@ -330,6 +330,15 @@ def test_assign_fix_version_delegates_to_issue_service(jira_client):
     )
 
 
+def test_set_fix_version_delegates_to_issue_service(jira_client):
+    jira_client._issue_service.set_fix_version = Mock(return_value=ClientSuccess(data=None, message="Set"))
+
+    result = jira_client.set_fix_version("TEST-123", "10001")
+
+    assert isinstance(result, ClientSuccess)
+    jira_client._issue_service.set_fix_version.assert_called_once_with(issue_key="TEST-123", version_id="10001")
+
+
 def test_get_comments_delegates(jira_client):
     """Test that get_comments delegates to CommentService"""
     jira_client._comment_service.get_comments = Mock(

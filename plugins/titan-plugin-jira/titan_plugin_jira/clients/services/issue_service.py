@@ -397,6 +397,28 @@ class IssueService:
             )
 
     @log_client_operation()
+    def set_fix_version(
+        self,
+        issue_key: str,
+        version_id: Optional[str],
+    ) -> ClientResult[None]:
+        """Make a Jira version the issue's only fixVersion; `None` clears the field."""
+        try:
+            versions = [{"id": version_id}] if version_id else []
+            self.network.make_request("PUT", f"issue/{issue_key}", json={"fields": {"fixVersions": versions}})
+
+            return ClientSuccess(
+                data=None,
+                message=f"Set fixVersion of {issue_key}" if version_id else f"Cleared fixVersion of {issue_key}",
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to set fixVersion of {issue_key}: {e.message}",
+                error_code="SET_FIX_VERSION_ERROR",
+            )
+
+    @log_client_operation()
     def assign_fix_version_by_name(
         self,
         issue_key: str,

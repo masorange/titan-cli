@@ -9,7 +9,15 @@ from unittest.mock import Mock
 from titan_cli.core.mods import AIAnswer, AppStart, Box, Button, ModBus, UIRender
 from titan_cli.core.mods.loader import import_mod
 from titan_cli.core.result import ClientError, ClientSuccess
-from titan_plugin_jira.models import UIJiraComment, UIJiraComponent, UIJiraFilter, UIJiraIssue, UIJiraStatus
+from titan_plugin_jira.models import (
+    UIJiraComment,
+    UIJiraComponent,
+    UIJiraFilter,
+    UIJiraIssue,
+    UIJiraStatus,
+    UIJiraTransition,
+    UIJiraVersion,
+)
 
 mod = import_mod(Path(__file__).parent, "jira_ready")
 
@@ -26,12 +34,14 @@ def issue(status="Ready to Dev", description="line one", assignee="ANA GIL") -> 
 
 
 def actions():
-    return mod.CardActions(*(Mock() for _ in range(8)))
+    return mod.CardActions(*(Mock() for _ in range(13)))
 
 
-def card(i, unfolded=False, taking=None, comments=None, comments_open=False, summary=None, act=None):
+def card(i, unfolded=False, taking=None, comments=None, comments_open=False, summary=None, act=None,
+         transitions=None, move_open=False, moving=None, versions=None, fix_open=False, fixing=None, fix_released=False):
     return mod.issue_card(i, "https://x/browse/PROJ-1", OPTIONS, taking, unfolded,
-                          comments, comments_open, summary, "Claude · opus", act or actions())
+                          comments, comments_open, summary, "Claude · opus", act or actions(),
+                          transitions, move_open, moving, versions, fix_open, fixing, fix_released)
 
 
 def labels(box):
@@ -43,15 +53,167 @@ def test_the_card_reads_summary_people_description_then_actions_last():
 
     assert sections[0].parts == ("Do it",)
     assert labels(sections[2]) == ["▸ Description"]
-    assert labels(sections[-1]) == ["▶ Plan", "✋ Take"]
+    assert labels(sections[-1]) == ["▶ Plan", "✋ Take", "▸ Move", "▸ Fix version"]
 
 
-def test_an_issue_already_in_the_working_status_offers_only_plan():
-    assert labels(card(issue(status="In Progress")).children[1].children[-1]) == ["▶ Plan"]
+def test_an_issue_already_in_the_working_status_does_not_offer_take():
+    assert labels(card(issue(status="In Progress")).children[1].children[-1]) == ["▶ Plan", "▸ Move", "▸ Fix version"]
 
 
 def test_the_issue_being_taken_says_so():
     assert labels(card(issue(), taking="PROJ-1").children[1].children[-1])[1] == "Taking…"
+
+
+# -- moving an issue to another status ---------------------------------------
+
+def transition(to_status, icon="🔵"):
+    return UIJiraTransition(id=to_status, name=f"Go {to_status}", to_status=to_status, to_status_icon=icon)
+
+
+def test_moving_offers_every_other_status_once_and_never_the_current_one():
+    done = mod.Transitions("done", [transition("Ready to Dev"), transition("In Progress"),
+                                    transition("in progress"), transition("Done")])
+
+    options = mod.move_options(issue(status="Ready to Dev"), done.items)
+
+    assert [t.to_status for t in options] == ["In Progress", "Done"]
+
+
+def test_the_move_button_unfolds_the_statuses_and_pressing_one_moves_the_issue():
+    act = actions()
+    done = mod.Transitions("done", [transition("In Progress"), transition("Done")])
+
+    sections = card(issue(), transitions=done, move_open=True, act=act).children[1].children
+    picker, buttons = sections[-2], sections[-1]
+
+    assert "▾ Move" in labels(buttons)
+    assert labels(picker) == ["🔵 In Progress", "🔵 Done"]
+    picker.children[2].on_press()
+    assert act.move.call_args.args[1] == "Done"
+
+
+def test_the_picker_says_so_while_loading_and_when_jira_fails():
+    loading = card(issue(), transitions=mod.Transitions("loading"), move_open=True).children[1].children[-2]
+    failed = card(issue(), transitions=mod.Transitions("error", error="403"), move_open=True).children[1].children[-2]
+
+    assert loading.children[0].parts == ("Loading statuses…",)
+    assert failed.children[0].parts == ("Statuses: 403",)
+
+
+def test_a_closed_picker_adds_nothing_and_a_move_in_progress_blocks_the_buttons():
+    assert mod.move_section(issue(), None, False, None, actions()) is None
+    act = actions()
+    busy = mod.move_section(issue(), mod.Transitions("done", [transition("Done")]), True, "PROJ-1", act)
+
+    busy.children[1].on_press()
+
+    act.move.assert_not_called()
+    assert "Moving…" in labels(card(issue(), moving="PROJ-1").children[1].children[-1])
+
+
+def version(name, released=False, id_="1"):
+    return UIJiraVersion(id=id_, name=name, description="", released=released, release_date="Not set")
+
+
+def test_the_fix_version_picker_ticks_the_current_one_and_pressing_another_replaces_it():
+    act = actions()
+    current = issue()
+    current.fix_versions.append("2.0")
+    done = mod.Versions("done", [version("1.0", True, "10"), version("2.0", False, "20"), version("3.0", False, "30")])
+
+    sections = card(current, act=act, versions=done, fix_open=True).children[1].children
+    picker, buttons = sections[-2], sections[-1]
+
+    assert labels(picker) == ["☑ 2.0", "☐ 3.0", "✕ Clear"]
+    assert "▾ Fix version" in labels(buttons)
+    picker.children[2].on_press()
+    assert act.set_fix.call_args.args[1].id == "30"
+    picker.children[3].on_press()
+    assert act.set_fix.call_args.args[1] is None
+
+
+def test_the_released_switch_sits_beside_the_title_and_swaps_the_list():
+    act = actions()
+    done = mod.Versions("done", [version("1.0", True, "10"), version("2.0", False, "20")])
+
+    unreleased = mod.fix_version_section(issue(), done, True, None, act, released=False)
+    released = mod.fix_version_section(issue(), done, True, None, act, released=True)
+
+    title = unreleased.children[0]
+    assert title.row and title.children[0].parts == ("Fix version",) and title.children[1].label == "○ Released"
+    assert labels(unreleased) == ["☐ 2.0"] and released.children[0].children[1].label == "◉ Released"
+    assert labels(released) == ["☐ 1.0"]
+    title.children[1].on_press()
+    act.toggle_released.assert_called_once()
+
+
+def test_the_card_says_which_fix_version_the_issue_has_or_that_it_has_none():
+    with_version = issue()
+    with_version.fix_versions.extend(["26.42", "26.43"])
+
+    def line(i):
+        return card(i).children[1].children[1].children[2]
+
+    assert line(with_version).parts == ("🏷 ", "26.42, 26.43")
+    assert line(issue()).parts == ("🏷 No fix version",)
+
+
+def test_the_fix_version_picker_says_so_while_loading_failing_or_empty_and_blocks_while_busy():
+    def picker(versions, fixing=None):
+        return mod.fix_version_section(issue(), versions, True, fixing, actions())
+
+    assert picker(mod.Versions("loading")).children[0].parts == ("Loading versions…",)
+    assert picker(mod.Versions("error", error="403")).children[0].parts == ("Versions: 403",)
+    assert picker(mod.Versions("done")).children[0].parts == ("This project has no versions",)
+    assert mod.fix_version_section(issue(), None, False, None, actions()) is None
+    act = actions()
+    busy = mod.fix_version_section(issue(), mod.Versions("done", [version("1.0")]), True, "PROJ-1", act)
+    busy.children[1].on_press()
+    act.set_fix.assert_not_called()
+
+
+def test_fix_version_reads_the_project_versions_when_opened_and_sets_the_one_pressed():
+    runs, toasts = [], []
+    jira = Mock(project_key="PROJ")
+    jira.list_project_versions.return_value = ClientSuccess(data=[version("1.0", id_="10")])
+    jira.set_fix_version.return_value = ClientSuccess(data=None, message="Set fixVersion of PROJ-1")
+    jira.search_issues.return_value = ClientSuccess(data=[])
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, every=lambda *a: None, repaint=lambda mod: None,
+        run=lambda mod, fn: runs.append(fn), client=lambda name: jira,
+        ai_describe=lambda mod: "Claude · opus", toast=lambda mod, text, severity: toasts.append((text, severity)),
+    )
+    bus = ModBus()
+    bus.host = host
+    options = {"project": "", "shown": 10, "refresh_seconds": 300, "plan_workflow": "", "take_status": ""}
+    mod.register(bus.on_for("jira_ready"), options)
+    bus.dispatch("app.start", AppStart(project_root="/repo"), lambda e: None)
+    m = bus.api("jira_ready")
+    m.state.set("ready", mod.Ready("q", [issue()], "PROJ"))
+    m.state.set("selected", "PROJ-1")
+
+    def buttons(element):
+        if isinstance(element, Button):
+            yield element
+        for child in getattr(element, "children", ()) or ():
+            if child:
+                yield from buttons(child)
+
+    def render():
+        return bus.dispatch("ui.render", UIRender(component="Pane", pane=mod.PANE, width=50), lambda e: None)
+
+    next(b for b in buttons(render()) if b.label == "▸ Fix version").on_press()
+    runs.pop()()
+    assert m.state.get("versions")["PROJ"].status == "done"
+    jira.list_project_versions.assert_called_once_with("PROJ")
+
+    runs.clear()
+    next(b for b in buttons(render()) if b.label == "☐ 1.0").on_press()
+    runs.pop()()
+
+    jira.set_fix_version.assert_called_once_with("PROJ-1", "10")
+    assert toasts == [("Set fixVersion of PROJ-1", "information")]
+    assert m.state.get("fixing") is None and m.state.get("fix_open") is None
 
 
 def test_the_unfolded_description_shows_its_lines():
@@ -235,3 +397,121 @@ def test_summarize_reads_the_comments_first_and_sends_them_to_the_ai():
 
     assert "Al final solo Android" in prompts[0]
     assert m.state.get("summaries")["PROJ-1"] == mod.Summary("done", "Qué: X", "opus")
+
+
+def test_move_reads_the_statuses_when_opened_and_transitions_to_the_one_pressed():
+    runs, toasts = [], []
+    jira = Mock(project_key="PROJ")
+    jira.get_transitions.return_value = ClientSuccess(data=[transition("In Progress"), transition("Done")])
+    jira.transition_issue.return_value = ClientSuccess(data=None, message="Transitioned PROJ-1 to Done")
+    jira.search_issues.return_value = ClientSuccess(data=[])
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, every=lambda *a: None, repaint=lambda mod: None,
+        run=lambda mod, fn: runs.append(fn), client=lambda name: jira,
+        ai_describe=lambda mod: "Claude · opus", toast=lambda mod, text, severity: toasts.append((text, severity)),
+    )
+    bus = ModBus()
+    bus.host = host
+    options = {"project": "", "shown": 10, "refresh_seconds": 300, "plan_workflow": "", "take_status": ""}
+    mod.register(bus.on_for("jira_ready"), options)
+    bus.dispatch("app.start", AppStart(project_root="/repo"), lambda e: None)
+    m = bus.api("jira_ready")
+    m.state.set("ready", mod.Ready("q", [issue()], "PROJ"))
+    m.state.set("selected", "PROJ-1")
+
+    def buttons(element):
+        if isinstance(element, Button):
+            yield element
+        for child in getattr(element, "children", ()) or ():
+            if child:
+                yield from buttons(child)
+
+    def render():
+        return bus.dispatch("ui.render", UIRender(component="Pane", pane=mod.PANE, width=50), lambda e: None)
+
+    next(b for b in buttons(render()) if b.label == "▸ Move").on_press()
+    runs.pop()()
+    assert m.state.get("transitions")["PROJ-1"].status == "done"
+
+    runs.clear()
+    next(b for b in buttons(render()) if b.label == "🔵 Done").on_press()
+    runs.pop()()
+
+    jira.transition_issue.assert_called_once_with("PROJ-1", "Done")
+    assert toasts == [("Transitioned PROJ-1 to Done", "information")]
+    assert m.state.get("moving") is None and m.state.get("move_open") is None
+
+
+def test_one_issue_beyond_the_limit_is_read_to_know_there_is_more():
+    jira = Mock(project_key="PROJ")
+    jira.issue_url.return_value = "u"
+    jira.search_issues.return_value = ClientSuccess(data=[issue() for _ in range(4)])
+
+    ready = mod.read_ready(jira, {"project": "", "shown": 3}, None, [], CHOICES)
+
+    assert jira.search_issues.call_args.kwargs["max_results"] == 4
+    assert len(ready.issues) == 3 and ready.more
+
+    jira.search_issues.return_value = ClientSuccess(data=[issue() for _ in range(3)])
+    assert not mod.read_ready(jira, {"project": "", "shown": 3}, None, [], CHOICES).more
+
+
+def test_show_all_reads_everything_jira_returns_in_one_search_and_a_filter_resets_it():
+    runs = []
+    jira = Mock(project_key="PROJ")
+    jira.issue_url.return_value = "u"
+    jira.list_statuses.return_value = ClientSuccess(data=[])
+    jira.list_components.return_value = ClientSuccess(data=[])
+    jira.list_favourite_filters.return_value = ClientSuccess(data=[])
+    jira.search_issues.return_value = ClientSuccess(data=[issue() for _ in range(3)])
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, every=lambda *a: None, repaint=lambda mod: None,
+        run=lambda mod, fn: runs.append(fn), client=lambda name: jira, ai_describe=lambda mod: "x",
+    )
+    bus = ModBus()
+    bus.host = host
+    options = {"project": "", "shown": 2, "refresh_seconds": 300, "plan_workflow": "", "take_status": ""}
+    mod.register(bus.on_for("jira_ready"), options)
+    bus.dispatch("app.start", AppStart(project_root="/repo"), lambda e: None)
+    m = bus.api("jira_ready")
+
+    def buttons(element):
+        if isinstance(element, Button):
+            yield element
+        for child in getattr(element, "children", ()) or ():
+            if child:
+                yield from buttons(child)
+
+    def render():
+        return bus.dispatch("ui.render", UIRender(component="Pane", pane=mod.PANE, width=50), lambda e: None)
+
+    m.state.set("ready", mod.Ready("q", [issue(), issue()], "PROJ", more=True))
+    next(b for b in buttons(render()) if b.label == "＋ Show all").on_press()
+    runs.pop()()
+
+    assert jira.search_issues.call_args.kwargs["max_results"] == mod.SHOW_ALL + 1
+    assert "＋ Show all" not in [b.label for b in buttons(render())]
+
+
+def test_a_refresh_keeps_the_list_on_screen_so_the_pane_does_not_jump_to_the_top():
+    bus = ModBus()
+    mod.register(bus.on_for("jira_ready"), {"project": "", "shown": 10, "refresh_seconds": 300,
+                                            "plan_workflow": "", "take_status": ""})
+    m = bus.api("jira_ready")
+    m.state.set("ready", mod.Ready("q", [issue()], "PROJ"))
+    m.state.set("loading", True)
+
+    tree = bus.dispatch("ui.render", UIRender(component="Pane", pane=mod.PANE, width=50), lambda e: None)
+
+    def texts(element):
+        if isinstance(element, str):
+            yield element
+        for part in getattr(element, "parts", ()) or ():
+            yield from texts(part)
+        for child in getattr(element, "children", ()) or ():
+            yield from texts(child)
+        if isinstance(element, Button):
+            yield element.label
+
+    shown = " ".join(texts(tree))
+    assert "PROJ-1" in shown and "PROJ · loading…" in shown and "Loading…" not in shown.replace("loading…", "")

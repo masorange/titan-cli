@@ -406,6 +406,21 @@ client.assign_fix_version(
 - `version_name`: Optional. Version name. Required when `version_id` is not provided.
 - `project_key`: Optional. Project key used to resolve `version_name`. Uses the configured default project when omitted.
 
+### Set the fixVersion
+
+Replaces the issue's fixVersions with one version (`assign_fix_version` adds to them). `None` clears the field.
+
+**Call:**
+
+```python
+client.set_fix_version(issue_key="APP-123", version_id="10001")
+```
+
+**Parameters:**
+
+- `issue_key`: Required. Issue key.
+- `version_id`: Required. Jira version ID, or `None` to clear the field. List a project's versions with `list_project_versions`.
+
 ### Assign an issue to a user
 
 Assigns an existing issue to a user by account ID.
