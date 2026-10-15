@@ -301,8 +301,8 @@ class MetadataService:
         project_key: str,
         name: str,
         description: str | None = None,
-        start_date: str | None = None,
         release_date: str | None = None,
+        start_date: str | None = None,
     ) -> ClientResult[UIJiraVersion]:
         """Create a Jira version for a project."""
         try:
@@ -346,8 +346,8 @@ class MetadataService:
         project_key: str,
         name: str,
         description: str | None = None,
-        start_date: str | None = None,
         release_date: str | None = None,
+        start_date: str | None = None,
     ) -> ClientResult[UIJiraVersion]:
         """Return an existing version by name or create it if missing."""
         versions_result = self.list_project_versions(project_key)

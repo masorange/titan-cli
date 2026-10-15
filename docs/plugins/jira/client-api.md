@@ -353,8 +353,8 @@ client.create_version(
     name="25.45",
     project_key="APP",
     description="Weekly mobile release",
-    start_date="2026-04-24",
     release_date="2026-04-30",
+    start_date="2026-04-24",
 )
 ```
 
@@ -363,8 +363,8 @@ client.create_version(
 - `name`: Required. Version name.
 - `project_key`: Optional. Project key. Uses the configured default project when omitted.
 - `description`: Optional. Version description.
-- `start_date`: Optional. Jira start date in `YYYY-MM-DD` format.
 - `release_date`: Optional. Jira release date in `YYYY-MM-DD` format.
+- `start_date`: Optional. Jira start date in `YYYY-MM-DD` format. Declared after `release_date` to keep existing positional calls working; pass it by keyword.
 
 ### Ensure a version exists
 
@@ -385,8 +385,8 @@ client.ensure_version_exists(
 - `name`: Required. Version name.
 - `project_key`: Optional. Project key. Uses the configured default project when omitted.
 - `description`: Optional. Description to use if the version must be created.
-- `start_date`: Optional. Start date to use if the version must be created.
 - `release_date`: Optional. Release date to use if the version must be created.
+- `start_date`: Optional. Start date to use if the version must be created. Pass it by keyword.
 
 ### Assign a fixVersion
 
