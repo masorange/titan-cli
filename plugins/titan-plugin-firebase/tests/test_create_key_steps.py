@@ -143,6 +143,30 @@ def test_create_key_plan_validates_only_missing_selected_projects():
     assert [(o.value, o.selected) for o in options] == [("mm-firebase-lebara", True)]
 
 
+def test_create_key_plan_prompts_for_optional_values_with_yaml_default_params():
+    ctx = _create_ctx(
+        key="new_flag",
+        value_type="bool",
+        default_value="TRUE",
+        conditional_values="",
+        description="",
+        target_project_ids="mm-firebase-lebara",
+    )
+    ctx.textual.ask_text.return_value = "Flag description"
+    ctx.firebase.create_remote_config_key.return_value = ClientSuccess(
+        data=_create_result(validated_only=True)
+    )
+
+    result = execute_firebase_remoteconfig_create_key_plan_step(ctx)
+
+    assert isinstance(result, Success)
+    ctx.textual.ask_text.assert_any_call("Descripción opcional:", default="")
+    titles = [call.args[0] for call in ctx.textual.ask_multiselect.call_args_list]
+    assert "¿Qué condiciones tendrán valor propio?" in titles
+    request = result.metadata["firebase_create_key_plan"][0].request
+    assert request.description == "Flag description"
+
+
 def test_create_key_plan_exits_when_the_key_exists_everywhere():
     ctx = _create_ctx(key="common_flag")
 

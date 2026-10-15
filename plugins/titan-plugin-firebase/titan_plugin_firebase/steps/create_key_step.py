@@ -247,11 +247,11 @@ def _resolve_default_value(
 
 def _resolve_description(ctx: WorkflowContext) -> str | None:
     """Read or ask for an optional parameter description."""
-    raw = ctx.get("description")
-    if raw is None:
-        raw = ctx.get("firebase_description")
-    if raw is not None:
-        return blank_to_none(raw)
+    description = blank_to_none(ctx.get("description")) or blank_to_none(
+        ctx.get("firebase_description")
+    )
+    if description is not None:
+        return description
     if not ctx.textual:
         return None
     return blank_to_none(ctx.textual.ask_text("Descripción opcional:", default=""))
@@ -265,9 +265,9 @@ def _resolve_condition_values(
 ) -> dict[str, str]:
     """Read or ask for optional condition values shared by selected targets."""
     raw = ctx.get("conditional_values")
-    if raw is None:
+    if blank_to_none(raw) is None:
         raw = ctx.get("firebase_conditional_values")
-    if raw is not None:
+    if blank_to_none(raw) is not None:
         values = parse_condition_value_map(raw)
         _validate_requested_conditions(ctx, values, targets)
         return values
