@@ -5,8 +5,7 @@ Unlike a plugin - a fact of the repo the team shares via the project's own
 whether you like to see the merge queue is not something a teammate's commit should
 decide for you. So a switch here lands in `~/.titan/config.toml`, scoped to the active
 project under the same `project_sources.<key>` block a plugin's `dev_local` override and
-a favorite workflow already use (`core/config.py`), never in the project's own file (D-036,
-superseding D-035).
+a favorite workflow already use (`core/config.py`), never in the project's own file.
 """
 
 from pathlib import Path

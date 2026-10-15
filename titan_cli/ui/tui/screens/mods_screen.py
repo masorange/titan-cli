@@ -2,7 +2,7 @@
 Mods screen: every mod Titan found, grouped by where it comes from, with a switch for
 the mod and one for each of its sections.
 
-Switches write the user's own global config, scoped to the active project (D-036): a mod
+Switches write the user's own global config, scoped to the active project: a mod
 is switched on or off per project, but it is a personal choice, not shared with the team
 through the project's own `.titan/config.toml`. They apply at once: switching the mod
 unloads or loads it (`reload_mod`), switching a section tells the running mod.

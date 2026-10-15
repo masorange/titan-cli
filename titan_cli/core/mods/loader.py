@@ -233,7 +233,7 @@ def read_mods_config(
     The `[mods.<name>]` tables as they apply here: the background default (the same file's
     top-level `[mods.<name>]`, which applies to every project) overridden by the user's own
     choice for this one project, kept in the same file under
-    `project_sources.<key>.mods.<name>` (`core/mods/settings.py`; D-036).
+    `project_sources.<key>.mods.<name>` (`core/mods/settings.py`).
 
     The project-scoped override decides `enabled` and each of `sections`; options and `dirs`
     are the background default only, not scoped per project.
