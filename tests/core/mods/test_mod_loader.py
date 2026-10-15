@@ -285,6 +285,25 @@ def test_manifest_with_untyped_option_is_skipped(tmp_path):
     assert discover_mods([("user", tmp_path)]) == {}
 
 
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        'mod = "x"\n',
+        '[mod]\nname = 5\n',
+        '[mod]\nname = "bad"\nevents = "ui.render"\n',
+        '[mod]\nname = "bad"\nslots = [1]\n',
+        '[mod]\nname = "bad"\n\n[options]\n',  # valid: control case below
+        'options = 1\n[mod]\nname = "bad"\n',
+        'sections = 1\n[mod]\nname = "bad"\n',
+    ],
+)
+def test_type_malformed_manifests_are_skipped_without_raising(tmp_path, manifest):
+    write_mod(tmp_path, "bad", manifest=manifest)
+    found = discover_mods([("user", tmp_path)])
+
+    assert ("bad" in found) == manifest.startswith('[mod]\nname = "bad"\n\n[options]')
+
+
 def test_the_projects_scoped_override_wins_over_the_background_default(tmp_path):
     from titan_cli.core.utils import project_source_scope_key
 

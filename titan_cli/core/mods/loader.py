@@ -117,7 +117,18 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         raise ValueError(f"{path}: {e}") from e
 
     mod = data.get("mod", {})
+    if not isinstance(mod, dict):
+        raise ValueError(f"{path}: [mod] must be a table")
     name = mod.get("name") or folder.name
+    if not isinstance(name, str):
+        raise ValueError(f"{path}: name must be a string")
+    for key in ("requires_plugins", "events", "slots"):
+        value = mod.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ValueError(f"{path}: {key} must be a list of strings")
+    for key in ("options", "sections"):
+        if not isinstance(data.get(key, {}), dict):
+            raise ValueError(f"{path}: [{key}] must be a table")
     if not VALID_NAME.fullmatch(name):
         raise ValueError(f"{path}: name '{name}' must be letters, digits, '_' or '-', up to 64")
     if name == DIRS_KEY:
@@ -166,7 +177,7 @@ def discover_mods(sources: List[Tuple[str, Path]]) -> Dict[str, ModManifest]:
         for folder in folders:
             try:
                 manifest = read_manifest(folder, source)
-            except ValueError:
+            except Exception:  # a bad manifest of any shape must not stop Titan starting
                 logger.exception("mod_manifest_invalid", path=str(folder))
                 continue
             if not manifest.entrypoint.is_file():
@@ -337,7 +348,7 @@ def reload_mod(bus: ModBus, name: str, mods_config: Optional[Dict[str, Dict[str,
     bus.unload(name)
     try:
         manifest = read_manifest(previous.folder, previous.source)
-    except ValueError as e:
+    except Exception as e:
         bus.statuses[name] = ModStatus(name, FAILED, error=str(e))
         logger.error("mod_reload_failed", mod=name, reason=str(e))
         return FAILED
