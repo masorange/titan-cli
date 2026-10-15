@@ -77,10 +77,10 @@ the branch already does it (`already_done`), whether the comment is mistaken (`w
 whether it needs a human decision (`needs_discussion`) — with the files a fix would touch and
 the **other places that use what would change**.
 
-That session reads the repository you are on, plus material Titan writes under
-`~/.titan/respond-comments/` (the diff per file, each file's version before the PR, the PR
-description and every comment). The material is kept outside the repository on purpose: the
-fixes are committed from your own checkout.
+That session reads the repository you are on, plus material Titan writes into
+`.titan-review/` at its root (the diff per file, each file's version before the PR, the PR
+description and every comment). The directory is added to `.git/info/exclude`, so it stays out
+of `git status` and out of your commits — `git commit -a` never stages untracked files.
 
 Each verdict is shown with its reasoning, and you decide: let the AI make the change, change
 it yourself, post the drafted reply (opened for editing first), write your own, or skip. When
@@ -93,7 +93,7 @@ so it starts with the callers and the risk already worked out instead of eleven 
 ### What the run records
 
 Every run writes what it did to
-`~/.titan/respond-comments/<repo>-pr<N>/.titan-review/runs/<run id>.json`: one row per comment
+`~/.titan/respond-comments/<repo>-pr<N>/runs/<run id>.json`: one row per comment
 with its verdict, what you chose, whether that agreed with the verdict, and **the commit it
 produced**. The same facts go to the log as `comment_decision` and `respond_comments_summary`,
 next to `comment_judgement_session` and `comment_judgement_summary` (CLI, model, cost,

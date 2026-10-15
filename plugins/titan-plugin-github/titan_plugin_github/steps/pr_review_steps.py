@@ -6,6 +6,7 @@ to keep the main step functions clean and readable.
 """
 import json
 import os
+import subprocess
 import threading
 import time
 import traceback
@@ -104,13 +105,11 @@ def _write_run_record(ctx: WorkflowContext, record: dict) -> Optional[str]:
     On disk and not only in the log because the log rotates: the review run that opened this
     domain was one rotation away from being unavailable when it was needed for scoring.
     """
-    from ..operations.review_material_operations import MATERIAL_DIR
-
     pr_number = ctx.get("selected_pr_number")
     if not pr_number:
         return None
     try:
-        target = _material_root(ctx, pr_number) / MATERIAL_DIR / run_record_path(record.get("run"))
+        target = _records_root(ctx, pr_number) / run_record_path(record.get("run"))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(record, indent=2, default=str))
         return str(target)
@@ -119,27 +118,69 @@ def _write_run_record(ctx: WorkflowContext, record: dict) -> Optional[str]:
         return None
 
 
-MATERIAL_KEPT_PRS = 5
-"""How many PRs' material directories survive. Each one holds a copy of every changed file,
-so without a ceiling the directory grows with every PR ever answered."""
+RECORDS_KEPT_PRS = 5
+"""How many PRs' run records survive under `~/.titan`, so the directory cannot grow forever."""
 
 
-def _material_root(ctx: WorkflowContext, pr_number: int) -> Path:
-    """Where this PR's material goes: under `~/.titan`, never inside the repository.
+def _material_root(ctx: WorkflowContext) -> Path:
+    """Where this PR's material goes: the repository itself.
 
-    The review can write into its own throw-away worktree; this workflow works in the user's
-    own checkout and commits from it with `git commit -a`, so material written there would be
-    swept into the next fix's commit. `~/.titan` follows the precedent of the plugin cache.
+    It has to be inside, because a restricted session cannot read outside its working
+    directory. Asked to judge from `~/.titan/...`, the CLI answered, in its own words:
+    "I couldn't do this review because I couldn't read the comments. The `comments.md` file
+    and the rest of `.titan-review` are outside the one directory this session can read."
+
+    Putting it here is safe, which is what the first attempt got wrong: `git commit -a`
+    stages modified TRACKED files, so an untracked `.titan-review/` is never committed
+    (verified), and `_exclude_material` keeps it out of `git status` too, so it cannot
+    make the next run's clean-tree check fail either.
+    """
+    return Path(ctx.get("project_root", ".")).resolve()
+
+
+def _exclude_material(root: Path) -> None:
+    """Make `.titan-review/` invisible to git in this clone, without touching the repo.
+
+    `.git/info/exclude` and not `.gitignore`: the material is Titan's business, not
+    something to commit into the user's project. Without it the directory shows up as
+    untracked, which is noise in `git status` and would fail `check_clean_state` on the
+    next run.
+    """
+    from ..operations.review_material_operations import MATERIAL_DIR
+
+    entry = f"{MATERIAL_DIR}/"
+    try:
+        # A worktree's .git is a file pointing at the real git dir; ask git instead of guessing.
+        git_dir = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=root, capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        exclude = (root / git_dir / "info" / "exclude") if not Path(git_dir).is_absolute() \
+            else Path(git_dir) / "info" / "exclude"
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        current = exclude.read_text() if exclude.exists() else ""
+        if entry not in current.split():
+            exclude.write_text(f"{current.rstrip()}\n{entry}\n" if current.strip() else f"{entry}\n")
+    except (OSError, subprocess.SubprocessError) as exc:
+        # Worst case the directory shows as untracked: worth a line, never worth failing on.
+        logger.warning("material_exclude_failed", error=str(exc))
+
+
+def _records_root(ctx: WorkflowContext, pr_number: int) -> Path:
+    """Where this run's record goes: under `~/.titan`, outside the repository.
+
+    Records are Titan's, not the session's: nothing in the repository should read them, and
+    they must survive the next run, which wipes the material directory before writing it.
     """
     slug = Path(ctx.get("project_root", ".")).resolve().name or "repo"
     base = Path.home() / ".titan" / "respond-comments"
     root = base / f"{slug}-pr{pr_number}"
-    _prune_material(base, keep=root)
+    _prune_records(base, keep=root)
     return root
 
 
-def _prune_material(base: Path, keep: Path) -> None:
-    """Keep the most recent `MATERIAL_KEPT_PRS` directories, plus the one about to be used."""
+def _prune_records(base: Path, keep: Path) -> None:
+    """Keep the most recent `RECORDS_KEPT_PRS` directories, plus the one about to be used."""
     import shutil
 
     try:
@@ -150,11 +191,11 @@ def _prune_material(base: Path, keep: Path) -> None:
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
-        for stale in existing[MATERIAL_KEPT_PRS:]:
+        for stale in existing[RECORDS_KEPT_PRS:]:
             if stale != keep:
                 shutil.rmtree(stale, ignore_errors=True)
     except OSError as exc:
-        logger.debug("respond_material_prune_failed", error=str(exc))
+        logger.debug("respond_records_prune_failed", error=str(exc))
 
 
 def _write_judgement_material(
@@ -173,6 +214,7 @@ def _write_judgement_material(
         return False
 
     root.mkdir(parents=True, exist_ok=True)
+    _exclude_material(root)
     written = write_review_material_at(
         ctx,
         str(root),
@@ -267,6 +309,8 @@ def judge_pr_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("Textual UI context is not available for this step.")
 
     from .code_review_steps import (
+        _log_ai_prompt,
+        _log_ai_response,
         announce_review_adapter,
         cli_failure_reason,
         resolve_review_adapter,
@@ -293,7 +337,7 @@ def judge_pr_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     announce_review_adapter(ctx, adapter)
 
-    root = _material_root(ctx, pr_number)
+    root = _material_root(ctx)
     with ctx.textual.loading("Preparing the PR's material…"):
         prepared = _write_judgement_material(ctx, root, threads)
     if not prepared:
@@ -323,6 +367,7 @@ def judge_pr_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     if options.get("effort"):
         options["effort"] = JUDGEMENT_EFFORT
     cli = adapter.cli_name.value
+    _log_ai_prompt("judge_pr_comments", cli, prompt, comments=len(threads))
 
     started_at = time.monotonic()
     with ctx.textual.loading(f"{cli.capitalize()} is judging {len(threads)} comment(s)…"):
@@ -343,6 +388,17 @@ def judge_pr_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         exit_code=response.exit_code,
         timed_out=response.exit_code == 124,
         structured_output=structured,
+    )
+
+    # Without this the only way to find out what the session actually answered is to run it
+    # again by hand: a schema the CLI rejected (`{"verdicts": []}` and a one-line stderr) was
+    # invisible in the log until it was reproduced.
+    _log_ai_response(
+        step_name="judge_pr_comments",
+        cli_name=cli,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
     )
 
     if not response.succeeded:
@@ -433,21 +489,24 @@ def judge_pr_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     )
 
 
-def _show_verdict(ctx: WorkflowContext, verdict: Optional[CommentVerdict]) -> None:
-    """Put the judging session's answer on screen, so the user decides with it in hand."""
-    if verdict is None:
-        return
+def _verdict_lines(verdict: Optional[CommentVerdict]) -> tuple:
+    """The verdict as (heading, text) pairs for the panel above the options, and its variant.
 
-    label, panel_type = _VERDICT_LABELS[verdict.verdict]
-    lines = [f"{label} — {verdict.reason}"]
+    Each part is its own pair so the panel can wrap them: one joined string is what made the
+    reason, the files and the callers run off the right edge of the screen.
+    """
+    if verdict is None:
+        return [], "default"
+
+    label, variant = _VERDICT_LABELS[verdict.verdict]
+    lines = [(label, verdict.reason)]
     if verdict.files_affected:
-        lines.append(f"Files: {', '.join(verdict.files_affected)}")
+        lines.append(("Files to change", ", ".join(verdict.files_affected)))
     if verdict.callers_to_check:
-        lines.append(f"Also uses it: {', '.join(verdict.callers_to_check)}")
+        lines.append(("Also uses it — must keep working", ", ".join(verdict.callers_to_check)))
     if verdict.risk:
-        lines.append(f"Risk: {verdict.risk}")
-    ctx.textual.text("")
-    ctx.textual.panel("\n".join(lines), panel_type=panel_type, show_icon=False)
+        lines.append(("Risk", verdict.risk))
+    return lines, variant
 
 
 def _show_thread_and_get_action(
@@ -513,15 +572,17 @@ def _show_thread_and_get_action(
         result_event.set()
 
     # Create and mount CommentThread widget
+    lines, variant = _verdict_lines(verdict)
     thread_widget = CommentThread(
         thread=pr_thread,
         thread_number=f"Thread {thread_idx + 1} of {total_threads}",
         options=options,
-        on_select=on_choice_selected
+        on_select=on_choice_selected,
+        verdict_lines=lines,
+        verdict_variant=variant,
     )
 
     ctx.textual.text("")
-    _show_verdict(ctx, verdict)
     ctx.textual.mount(thread_widget)
 
     # Wait for user selection

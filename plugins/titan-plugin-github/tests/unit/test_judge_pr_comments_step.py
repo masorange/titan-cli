@@ -114,7 +114,7 @@ def test_verdicts_are_published_by_comment_id_and_written_as_files(
         lambda ctx, adapter: None,
     )
     monkeypatch.setattr(pr_review_steps, "_write_judgement_material", lambda *a, **k: True)
-    monkeypatch.setattr(pr_review_steps, "_material_root", lambda ctx, pr: tmp_path / "material")
+    monkeypatch.setattr(pr_review_steps, "_material_root", lambda ctx: tmp_path / "material")
 
     result = judge_pr_comments_step(_ctx(tmp_path, [sample_ui_comment_thread]))
 
@@ -140,7 +140,7 @@ def test_an_unreadable_answer_publishes_no_verdicts(
         lambda ctx, adapter: None,
     )
     monkeypatch.setattr(pr_review_steps, "_write_judgement_material", lambda *a, **k: True)
-    monkeypatch.setattr(pr_review_steps, "_material_root", lambda ctx, pr: tmp_path / "material")
+    monkeypatch.setattr(pr_review_steps, "_material_root", lambda ctx: tmp_path / "material")
 
     result = judge_pr_comments_step(_ctx(tmp_path, [sample_ui_comment_thread]))
 
@@ -155,8 +155,8 @@ def test_the_step_routes_under_the_respond_task():
 
 
 @pytest.mark.unit
-def test_material_is_pruned_to_the_most_recent_prs(tmp_path, monkeypatch):
-    """Each directory holds a copy of every changed file, so it cannot grow forever."""
+def test_records_are_pruned_to_the_most_recent_prs(tmp_path, monkeypatch):
+    """Run records accumulate per PR, so the directory cannot grow forever."""
     base = tmp_path / ".titan" / "respond-comments"
     base.mkdir(parents=True)
     for n in range(8):
@@ -166,10 +166,38 @@ def test_material_is_pruned_to_the_most_recent_prs(tmp_path, monkeypatch):
 
     ctx = WorkflowContext()
     ctx.data["project_root"] = str(tmp_path / "repo")
-    root = pr_review_steps._material_root(ctx, 42)
+    root = pr_review_steps._records_root(ctx, 42)
 
     assert root.name == "repo-pr42"
-    assert len(list(base.iterdir())) == pr_review_steps.MATERIAL_KEPT_PRS
+    assert len(list(base.iterdir())) == pr_review_steps.RECORDS_KEPT_PRS
+
+
+@pytest.mark.unit
+def test_material_goes_inside_the_repository_and_is_excluded_from_git(tmp_path):
+    """A restricted session can only read its working directory: the material has to be in
+    it. Keeping it out of commits is `.git/info/exclude` plus the fact that `git commit -a`
+    never stages untracked files."""
+    import subprocess as sp
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    sp.run(["git", "init", "-q", "."], cwd=repo, check=True)
+
+    ctx = WorkflowContext()
+    ctx.data["project_root"] = str(repo)
+    assert pr_review_steps._material_root(ctx) == repo.resolve()
+
+    pr_review_steps._exclude_material(repo)
+    assert ".titan-review/" in (repo / ".git/info/exclude").read_text()
+
+    # Written twice, listed once.
+    pr_review_steps._exclude_material(repo)
+    assert (repo / ".git/info/exclude").read_text().count(".titan-review/") == 1
+
+    (repo / ".titan-review").mkdir()
+    (repo / ".titan-review" / "pr.md").write_text("material")
+    status = sp.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True)
+    assert status.stdout.strip() == ""
 
 
 @pytest.mark.unit
@@ -197,3 +225,34 @@ def test_material_is_written_against_HEAD_not_the_review_worktree_ref(
 
     assert pr_review_steps._write_judgement_material(ctx, tmp_path / "m", [sample_ui_comment_thread])
     assert captured["head_ref"] == "HEAD"
+
+
+@pytest.mark.unit
+def test_verdict_lines_keep_each_part_separate():
+    """One joined string does not wrap in the panel: the reason, the files and the callers
+    ran off the right edge of the screen. Each part is its own (heading, text) pair."""
+    from titan_plugin_github.models.review_models import CommentVerdict
+
+    verdict = CommentVerdict(
+        comment_id=1,
+        verdict=CommentVerdictType.APPLY,
+        reason="the other caller is unguarded",
+        files_affected=["a.py", "b.py"],
+        callers_to_check=["x.py:219"],
+        risk="thread resolution would warn",
+    )
+
+    lines, variant = pr_review_steps._verdict_lines(verdict)
+
+    assert [heading for heading, _ in lines] == [
+        "Change the code", "Files to change", "Also uses it — must keep working", "Risk",
+    ]
+    assert lines[0][1] == "the other caller is unguarded"
+    assert lines[1][1] == "a.py, b.py"
+    assert variant == "warning"
+
+
+@pytest.mark.unit
+def test_verdict_lines_without_a_verdict():
+    """A comment the session did not judge shows no panel at all."""
+    assert pr_review_steps._verdict_lines(None) == ([], "default")

@@ -81,7 +81,18 @@ def build_judgement_prompt(
     another checkout, and the material sits OUTSIDE it: this is the user's own branch, and
     anything written inside it would be swept into the next commit.
     """
-    from .review_material_operations import BASE_DIR, DIFFS_DIR, PR_FILE, WHOLE_DIFF_FILE
+    from .review_material_operations import BASE_DIR, DIFFS_DIR, MATERIAL_DIR, PR_FILE, WHOLE_DIFF_FILE
+
+    def rel(path: str) -> str:
+        """The name a session reads, relative to `material_dir`.
+
+        The constants are relative to a repository root, because the review writes them
+        inside its worktree. `material_dir` already IS that directory here, so using them
+        unchanged sent the session to `<material_dir>/.titan-review/pr.md` - a path that
+        does not exist, and nothing said so.
+        """
+        prefix = f"{MATERIAL_DIR}/"
+        return path[len(prefix):] if path.startswith(prefix) else path
 
     subagent_hint = (
         " On a PR with many comments you may split the reading across subagents; run them in "
@@ -97,10 +108,11 @@ def build_judgement_prompt(
         f"Everything else is in `{material_dir}`, outside the repository:\n"
         f"- `comments.md`: the pending comments, each with its `comment_id`. These are what "
         "you are judging.\n"
-        f"- `{PR_FILE}`: the PR description and every comment already on it, replies included.\n"
-        f"- `{WHOLE_DIFF_FILE}`: the whole diff. `{DIFFS_DIR}/<path>.diff` is each file's, "
-        "with every line marked [ADDED], [CONTEXT] or [DELETED].\n"
-        f"- `{BASE_DIR}/<path>`: each changed file as it was before the PR.\n\n"
+        f"- `{rel(PR_FILE)}`: the PR description and every comment already on it, replies "
+        "included.\n"
+        f"- `{rel(WHOLE_DIFF_FILE)}`: the whole diff. `{rel(DIFFS_DIR)}/<path>.diff` is each "
+        "file's, with every line marked [ADDED], [CONTEXT] or [DELETED].\n"
+        f"- `{rel(BASE_DIR)}/<path>`: each changed file as it was before the PR.\n\n"
         "For EACH comment, decide one of:\n"
         "- `apply`: the comment is right and the code should change.\n"
         "- `already_done`: the branch already does what it asks (a later commit, another "
@@ -147,7 +159,13 @@ def judgement_json_schema() -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "properties": {
-                        "comment_id": {"type": ["integer", "string"]},
+                        # One type, not `integer|string`: the CLI validates this schema in
+                        # Ajv strict mode, which rejects a union unless it includes `null`
+                        # ("use allowUnionTypes ... (strictTypes)"), and a rejected schema
+                        # makes the session answer `{"verdicts": []}`. A CLI without
+                        # structured output can still answer with a digit string, which
+                        # `to_verdict` accepts.
+                        "comment_id": {"type": "integer"},
                         "verdict": {
                             "type": "string",
                             "enum": [v.value for v in CommentVerdictType],

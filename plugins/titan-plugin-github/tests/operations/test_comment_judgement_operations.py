@@ -42,13 +42,24 @@ class TestRenderCommentsFile:
 class TestBuildJudgementPrompt:
     def test_names_the_repository_and_the_material(self):
         prompt = build_judgement_prompt(
-            276, "A title", "head", "base", "/home/u/repo", "/home/u/.titan/m/.titan-review", 4
+            276, "A title", "head", "base", "/home/u/repo", "/home/u/repo/.titan-review", 4
         )
 
         assert "/home/u/repo" in prompt
-        assert "/home/u/.titan/m/.titan-review" in prompt
+        assert "/home/u/repo/.titan-review" in prompt
         assert "comments.md" in prompt
         assert "4 review comment(s)" in prompt
+
+    def test_material_files_are_named_relative_to_the_material_directory(self):
+        """`material_dir` already IS `.titan-review`, so the constants' prefix would send the
+        session to `<material_dir>/.titan-review/pr.md`, which does not exist."""
+        prompt = build_judgement_prompt(
+            276, "t", "h", "b", "/repo", "/repo/.titan-review", 1
+        )
+
+        assert "`pr.md`" in prompt and "`pr.diff`" in prompt
+        assert ".titan-review/pr.md" not in prompt
+        assert ".titan-review/diffs" not in prompt
 
     def test_offers_the_four_verdicts(self):
         prompt = build_judgement_prompt(1, "t", "h", "b", "/r", "/m", 1)
@@ -94,6 +105,16 @@ class TestParseJudgementResponse:
                 assert code == "MISSING_VERDICTS_FIELD"
             case other:
                 pytest.fail(f"expected error, got {other}")
+
+    def test_comment_id_is_a_single_type(self):
+        """The CLI validates the schema in Ajv strict mode, which rejects `integer|string`
+        ("use allowUnionTypes ... strictTypes") and makes the session answer with nothing."""
+        props = judgement_json_schema()["properties"]["verdicts"]["items"]["properties"]
+
+        assert props["comment_id"] == {"type": "integer"}
+        for field in ("risk", "proposed_fix", "reply_draft"):
+            # Unions WITH null are what strict mode tolerates.
+            assert "null" in props[field]["type"]
 
     def test_schema_allows_only_the_known_verdicts(self):
         schema = judgement_json_schema()
