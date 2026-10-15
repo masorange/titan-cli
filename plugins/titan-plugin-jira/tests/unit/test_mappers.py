@@ -401,3 +401,22 @@ def test_adf_code_quotes_and_tables():
     ]}
 
     assert extract_text_from_adf(adf) == "    a = 1\n    b = 2\n\n> quoted\n\nKey | Value"
+
+
+def test_adf_task_and_decision_items_stay_on_one_line():
+    from titan_plugin_jira.models.formatting import extract_text_from_adf
+
+    def task(state, *inline):
+        return {"type": "taskItem", "attrs": {"state": state}, "content": list(inline)}
+
+    adf = {"type": "doc", "content": [
+        {"type": "taskList", "content": [
+            task("DONE", _t("Buy "), _t("milk")),
+            task("TODO", _t("Call "), {"type": "hardBreak"}, _t("Ana")),
+        ]},
+        {"type": "decisionList", "content": [
+            {"type": "decisionItem", "content": [_t("Ship it")]},
+        ]},
+    ]}
+
+    assert extract_text_from_adf(adf) == "☑ Buy milk\n\n☐ Call \nAna\n\nShip it"

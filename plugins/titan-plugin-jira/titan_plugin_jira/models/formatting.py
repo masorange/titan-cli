@@ -152,6 +152,11 @@ def extract_text_from_adf(adf: Any) -> str:
     return "\n".join(_adf_blocks(adf.get("content", []) if adf.get("type") == "doc" else [adf])).strip("\n")
 
 
+_INLINE_KINDS = {
+    "text", "hardBreak", "mention", "emoji", "inlineCard", "blockCard", "embedCard", "date", "status",
+}
+
+
 def _adf_inline(nodes: list) -> str:
     out = []
     for node in nodes or []:
@@ -228,8 +233,18 @@ def _adf_blocks(nodes: list, indent: str = "") -> List[str]:
             add(([indent + title] if title else []) + _adf_blocks(content, indent))
         elif kind in ("inlineCard", "blockCard", "embedCard", "mention", "emoji", "text"):
             add([indent + _adf_inline([node])])
+        elif kind in ("taskItem", "decisionItem"):
+            text = _adf_inline(content)
+            marker = {"DONE": "☑ ", "TODO": "☐ "}.get((node.get("attrs", {}) or {}).get("state"), "")
+            if text.strip():
+                out_lines = text.split("\n")
+                out_lines[0] = marker + out_lines[0]
+                add([indent + line for line in out_lines])
         elif content:
-            add(_adf_blocks(content, indent))
+            if all(child.get("type") in _INLINE_KINDS for child in content):
+                add([indent + line for line in _adf_inline(content).split("\n")])
+            else:
+                add(_adf_blocks(content, indent))
     return lines
 
 
