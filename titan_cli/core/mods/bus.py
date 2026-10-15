@@ -435,6 +435,8 @@ class ModBus:
         self.sections: Dict[str, Dict[str, bool]] = {}
         # name -> ModManifest of every mod found, loaded or not (filled by the loader)
         self.found: Dict[str, Any] = {}
+        # Names of the enabled plugins, to check `requires_plugins` against; None = not known.
+        self.enabled_plugins: Optional[frozenset] = None
         self.host: ModHost = _HeadlessHost()
         # The `app.start` the TUI dispatched, to replay for a mod loaded afterwards.
         self.started: Optional[Any] = None

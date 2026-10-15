@@ -58,7 +58,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from titan_cli.core.logging import get_logger
 from titan_cli.core.utils import project_source_scope_key
@@ -335,18 +335,33 @@ def load_mods(
     bus: ModBus,
     mods: Dict[str, ModManifest],
     mods_config: Optional[Dict[str, Dict[str, Any]]] = None,
+    *,
+    enabled_plugins: Optional[Collection[str]] = None,
 ) -> List[str]:
-    """Import each enabled mod and run its `register`. Returns the names that loaded."""
+    """
+    Import each enabled mod and run its `register`. Returns the names that loaded.
+
+    With `enabled_plugins`, a mod whose `requires_plugins` are not all among them fails
+    unimported; None means the set is unknown and nothing is checked.
+    """
     mods_config = mods_config or {}
+    if enabled_plugins is not None:
+        bus.enabled_plugins = frozenset(enabled_plugins)
     loaded: List[str] = []
     for name, manifest in mods.items():
         bus.found[name] = manifest
-        if _load_one(bus, name, manifest, mods_config.get(name, {})):
+        if _load_one(bus, name, manifest, mods_config.get(name, {}), bus.enabled_plugins):
             loaded.append(name)
     return loaded
 
 
-def reload_mod(bus: ModBus, name: str, mods_config: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+def reload_mod(
+    bus: ModBus,
+    name: str,
+    mods_config: Optional[Dict[str, Dict[str, Any]]] = None,
+    *,
+    enabled_plugins: Optional[Collection[str]] = None,
+) -> str:
     """
     Unload one mod and load it again with the current config, as if Titan had just started
     with it: switch it on or off, or apply changed options and sections.
@@ -355,7 +370,10 @@ def reload_mod(bus: ModBus, name: str, mods_config: Optional[Dict[str, Dict[str,
     (hooks, timers, keys, panes, badges, its dock tile) goes; a thread it left running
     can no longer reach Titan, and what it keeps in `m.state` is lost (`m.store` stays).
     Call it on the UI thread. Returns the mod's new state: loaded, disabled or failed.
+    `enabled_plugins` defaults to the set the bus was loaded with.
     """
+    if enabled_plugins is None:
+        enabled_plugins = bus.enabled_plugins
     previous = bus.found.get(name)
     if previous is None:
         raise KeyError(f"no mod named '{name}'")
@@ -367,17 +385,31 @@ def reload_mod(bus: ModBus, name: str, mods_config: Optional[Dict[str, Dict[str,
         logger.error("mod_reload_failed", mod=name, reason=str(e))
         return FAILED
     bus.found[name] = manifest
-    if _load_one(bus, name, manifest, (mods_config or {}).get(name, {})) and bus.started is not None:
+    if _load_one(bus, name, manifest, (mods_config or {}).get(name, {}), enabled_plugins) and bus.started is not None:
         # The mod missed Titan's own `app.start`: give it one of its own.
         bus.dispatch("app.start", bus.started, lambda e: None, mod=name)
     return bus.statuses[name].state
 
 
-def _load_one(bus: ModBus, name: str, manifest: ModManifest, config: Dict[str, Any]) -> bool:
+def _load_one(
+    bus: ModBus,
+    name: str,
+    manifest: ModManifest,
+    config: Dict[str, Any],
+    enabled_plugins: Optional[Collection[str]] = None,
+) -> bool:
     if config.get("enabled", True) is False:
         logger.info("mod_disabled", mod=name, source=manifest.source)
         bus.statuses[name] = ModStatus(name, DISABLED)
         return False
+    if enabled_plugins is not None:
+        missing = set(manifest.requires_plugins) - set(enabled_plugins)
+        if missing:
+            logger.warning("mod_plugins_missing", mod=name, missing=sorted(missing))
+            bus.statuses[name] = ModStatus(
+                name, FAILED, error=f"needs plugin(s) not enabled: {', '.join(sorted(missing))}"
+            )
+            return False
     options, dropped = resolve_options(manifest.options, config.get("options", {}))
     for option, reason in dropped:
         logger.warning("mod_option_dropped", mod=name, option=option, reason=reason)
@@ -408,8 +440,9 @@ def _load_one(bus: ModBus, name: str, manifest: ModManifest, config: Dict[str, A
 def build_mod_bus(
     plugin_mod_paths: Optional[Dict[str, Path]] = None,
     cli_mod_dirs: Sequence[str] = (),
+    enabled_plugins: Optional[Collection[str]] = None,
 ) -> ModBus:
     bus = ModBus()
     sources = mod_sources(plugin_mod_paths or {}, project_root(), dev_dirs=mod_dirs(cli_mod_dirs))
-    load_mods(bus, discover_mods(sources), read_mods_config())
+    load_mods(bus, discover_mods(sources), read_mods_config(), enabled_plugins=enabled_plugins)
     return bus

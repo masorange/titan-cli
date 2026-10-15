@@ -7,6 +7,7 @@ import pytest
 
 from titan_cli.core.mods import ModBus, StepCall, discover_mods, import_mod, load_mods, mod_sources
 from titan_cli.core.mods.loader import mod_dirs, read_mods_config
+from titan_cli.core.mods.status import FAILED
 from titan_cli.engine.results import Error, Success
 
 GUARD = """
@@ -583,3 +584,39 @@ def test_reloading_an_unknown_mod_is_an_error(tmp_path):
 
     with pytest.raises(KeyError):
         reload_mod(ModBus(), "ghost", {})
+
+
+GITHUB_MANIFEST = '[mod]\nname = "needs_gh"\nevents = ["step.call"]\nrequires_plugins = ["github"]\n'
+
+
+def test_mod_requiring_a_missing_plugin_fails_without_importing(tmp_path):
+    write_mod(tmp_path, "needs_gh", source="raise RuntimeError('must not run')\n", manifest=GITHUB_MANIFEST)
+    bus = ModBus()
+
+    loaded = load_mods(bus, discover_mods([("user", tmp_path)]), enabled_plugins=["git"])
+
+    assert loaded == []
+    assert bus.statuses["needs_gh"].state == FAILED
+    assert "github" in bus.statuses["needs_gh"].error
+
+
+def test_mod_requiring_an_enabled_plugin_loads(tmp_path):
+    write_mod(tmp_path, "needs_gh", manifest=GITHUB_MANIFEST)
+
+    assert load_mods(ModBus(), discover_mods([("user", tmp_path)]), enabled_plugins=["git", "github"]) == ["needs_gh"]
+
+
+def test_plugin_requirements_are_not_checked_when_enabled_plugins_is_unknown(tmp_path):
+    write_mod(tmp_path, "needs_gh", manifest=GITHUB_MANIFEST)
+
+    assert load_mods(ModBus(), discover_mods([("user", tmp_path)])) == ["needs_gh"]
+
+
+def test_reload_keeps_checking_the_plugins_the_bus_was_loaded_with(tmp_path):
+    from titan_cli.core.mods import reload_mod
+
+    write_mod(tmp_path, "needs_gh", manifest=GITHUB_MANIFEST)
+    bus = ModBus()
+    load_mods(bus, discover_mods([("user", tmp_path)]), enabled_plugins=["git"])
+
+    assert reload_mod(bus, "needs_gh", {}) == FAILED

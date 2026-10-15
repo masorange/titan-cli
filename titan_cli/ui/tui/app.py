@@ -81,7 +81,9 @@ class TitanApp(App):
 
         # Mods load once per app: their hooks wrap every workflow run from here on.
         registry = getattr(config, "registry", None)
-        self.mods = build_mod_bus(_plugin_mod_paths(config, registry), mod_dirs)
+        self.mods = build_mod_bus(
+            _plugin_mod_paths(config, registry), mod_dirs, enabled_plugins=_enabled_plugins(config, registry)
+        )
         self.mods_host = TitanModHost(self, self.mods, registry)
         self.mods.host = self.mods_host
 
@@ -489,14 +491,20 @@ class TitanApp(App):
             self.notify("🖱️  Copy Mode OFF - Mouse interactions restored", timeout=3)
 
 
+def _enabled_plugins(config, registry) -> Optional[list]:
+    """Names of the enabled plugins; None when they cannot be told."""
+    if registry is None:
+        return None
+    try:
+        return list(registry.list_enabled(config))
+    except Exception:
+        return None
+
+
 def _plugin_mod_paths(config, registry) -> dict:
     """Where each enabled plugin keeps the mods it ships."""
     paths = {}
-    try:
-        enabled = registry.list_enabled(config) if registry is not None else []
-    except Exception:
-        return paths
-    for name in enabled:
+    for name in _enabled_plugins(config, registry) or []:
         try:
             plugin = registry.get_plugin(name)
             path = plugin.mods_path if plugin is not None else None
