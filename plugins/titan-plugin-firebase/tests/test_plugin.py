@@ -168,3 +168,16 @@ def test_config_schema_declares_no_business_specific_vocabulary():
         for name in properties
         if any(word in name for word in ("yoigo", "prepago", "pattern"))
     ]
+
+
+def test_config_schema_hides_structured_fields_from_the_wizard():
+    # The wizard stores non-integer/boolean answers as strings, which would
+    # fail validation of dict/list fields and break plugin initialization.
+    properties = FirebasePlugin().get_config_schema()["properties"]
+    structured = [
+        name
+        for name, schema in properties.items()
+        if schema.get("type") in ("object", "array")
+    ]
+    assert set(structured) == {"condition_groups", "project_sets", "oauth_scopes"}
+    assert all(properties[name].get("ui_hidden") for name in structured)

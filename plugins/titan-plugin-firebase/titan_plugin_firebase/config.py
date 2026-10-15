@@ -57,14 +57,16 @@ class FirebasePluginConfig(BaseModel):
         description=(
             "Named Remote Config condition/value views, for example android or ios."
         ),
-        json_schema_extra={"config_scope": "project"},
+        # Structured: the config wizard only writes scalars, so edit in TOML.
+        json_schema_extra={"config_scope": "project", "ui_hidden": True},
     )
     project_sets: dict[str, "FirebaseProjectSetConfig"] = Field(
         default_factory=dict,
         description=(
             "Named Firebase project collections for project-scoped workflows."
         ),
-        json_schema_extra={"config_scope": "project"},
+        # Structured: the config wizard only writes scalars, so edit in TOML.
+        json_schema_extra={"config_scope": "project", "ui_hidden": True},
     )
     quota_project_id: Optional[str] = Field(
         None,
@@ -93,7 +95,8 @@ class FirebasePluginConfig(BaseModel):
             "cloud-platform covers Remote Config; the narrow scope is "
             "https://www.googleapis.com/auth/firebase.remoteconfig."
         ),
-        json_schema_extra={"config_scope": "global"},
+        # List: the config wizard only writes scalars, so edit in TOML.
+        json_schema_extra={"config_scope": "global", "ui_hidden": True},
     )
 
     @field_validator("api_base_url")

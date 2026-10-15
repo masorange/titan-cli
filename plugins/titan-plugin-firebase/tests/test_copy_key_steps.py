@@ -82,6 +82,11 @@ def _copy_ctx(ui_template, **data) -> WorkflowContext:
     ctx.data["firebase_remoteconfig_key_profiles"] = _copy_inventory(ui_template)
     ctx.data["firebase_remoteconfig_failed_projects"] = {}
     ctx.data.update(data)
+    if "target_project_ids" in data:
+        # Explicit IDs only preselect; the user confirms exactly those.
+        ctx.textual.ask_multiselect.side_effect = lambda _title, options: [
+            option.value for option in options if option.selected
+        ]
     return ctx
 
 
@@ -126,7 +131,9 @@ def test_copy_key_step_plans_explicit_missing_destinations(ui_template):
     assert plan[0].target.project_id == "mm-firebase-lebara"
     assert plan[0].value_type == T.JSON
     ctx.textual.ask_option.assert_not_called()
-    ctx.textual.ask_multiselect.assert_not_called()
+    # Explicit IDs preselect, but the user still confirms each project.
+    options = ctx.textual.ask_multiselect.call_args.args[1]
+    assert [(o.value, o.selected) for o in options] == [("mm-firebase-lebara", True)]
 
 
 def test_copy_key_step_prompts_for_the_missing_key_and_destinations(ui_template):

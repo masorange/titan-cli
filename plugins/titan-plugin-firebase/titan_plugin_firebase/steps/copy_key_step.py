@@ -254,20 +254,22 @@ def _choose_destinations(
                 "Los proyectos destino no son proyectos donde falte la clave: "
                 f"{', '.join(invalid_ids)}.",
             )
-        chosen = select_key_copy_entries(entries, requested_ids)
-    else:
-        if not ctx.textual:
-            return _fail(
-                ctx,
-                "Falta target_project_ids. Pásalos para confirmar destinos sin TUI.",
-            )
+    elif not ctx.textual:
+        return _fail(
+            ctx,
+            "Falta target_project_ids. Pásalos para confirmar destinos sin TUI.",
+        )
+
+    if ctx.textual:
+        # Explicit IDs only preselect: every project that will be written is
+        # still confirmed. Without a TUI the explicit IDs are the confirmation.
         selected = ctx.textual.ask_multiselect(
             "¿En qué proyectos creamos la clave?",
             [
                 SelectionOption(
                     value=entry.target.project_id,
                     label=f"{entry.target.reference()} · {entry.detail}",
-                    selected=False,
+                    selected=entry.target.project_id in requested_ids,
                 )
                 for entry in entries
             ],
@@ -275,6 +277,8 @@ def _choose_destinations(
         chosen = select_key_copy_entries(
             entries, [str(value) for value in selected or []]
         )
+    else:
+        chosen = select_key_copy_entries(entries, requested_ids)
 
     if not chosen:
         return _exit(ctx, "No se seleccionó ningún proyecto destino.")

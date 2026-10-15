@@ -71,6 +71,11 @@ def _create_ctx(**data) -> WorkflowContext:
     }
     ctx.data["firebase_remoteconfig_failed_projects"] = {}
     ctx.data.update(data)
+    if "target_project_ids" in data:
+        # Explicit IDs only preselect; the user confirms exactly those.
+        ctx.textual.ask_multiselect.side_effect = lambda _title, options: [
+            option.value for option in options if option.selected
+        ]
     return ctx
 
 
@@ -132,7 +137,10 @@ def test_create_key_plan_validates_only_missing_selected_projects():
     assert (
         ctx.firebase.create_remote_config_key.call_args.kwargs["validate_only"] is True
     )
-    ctx.textual.ask_multiselect.assert_not_called()
+    # Explicit IDs preselect, but the user still confirms each project.
+    ctx.textual.ask_multiselect.assert_called_once()
+    options = ctx.textual.ask_multiselect.call_args.args[1]
+    assert [(o.value, o.selected) for o in options] == [("mm-firebase-lebara", True)]
 
 
 def test_create_key_plan_exits_when_the_key_exists_everywhere():

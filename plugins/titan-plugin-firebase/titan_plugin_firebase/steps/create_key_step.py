@@ -132,7 +132,12 @@ def execute_firebase_remoteconfig_create_key_plan_step(
     if not ready:
         return _exit(ctx, f"Ningún proyecto puede crear la clave '{key}'.")
 
-    chosen = ready if requested_ids else _confirm_projects(ctx, ready)
+    # Explicit IDs only stand in for the confirmation when there is no TUI to
+    # ask; with one, every project that will be written is still confirmed.
+    if requested_ids and not ctx.textual:
+        chosen = ready
+    else:
+        chosen = _confirm_projects(ctx, ready, requested_ids)
     if not chosen:
         return _exit(ctx, "No se seleccionó ningún proyecto para publicar.")
 
@@ -364,6 +369,7 @@ def _validate_everywhere(
 def _confirm_projects(
     ctx: WorkflowContext,
     ready: list[UIRemoteConfigKeyCreatePlanEntry],
+    preselected: list[str] | None = None,
 ) -> list[UIRemoteConfigKeyCreatePlanEntry]:
     """Ask which validated projects should be published."""
     if not ctx.textual:
@@ -374,7 +380,7 @@ def _confirm_projects(
             SelectionOption(
                 value=entry.target.project_id,
                 label=f"{entry.target.reference()} · {entry.detail}",
-                selected=False,
+                selected=entry.target.project_id in (preselected or ()),
             )
             for entry in ready
         ],

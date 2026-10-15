@@ -228,9 +228,22 @@ def test_change_description_truncates_long_values(template_payload):
 
 
 def test_json_change_is_stored_compacted(template_payload):
-    change = build_change(template_payload, "legacy_untyped", '{ "b" : 2 }')
+    template_payload["parameters"]["typed_json"] = {
+        "defaultValue": {"value": '{"a": 1}'},
+        "valueType": "JSON",
+    }
+    change = build_change(template_payload, "typed_json", '{ "b" : 2 }')
     updated = apply_change(template_payload, change)
-    assert updated["parameters"]["legacy_untyped"]["defaultValue"]["value"] == '{"b":2}'
+    assert updated["parameters"]["typed_json"]["defaultValue"]["value"] == '{"b":2}'
+
+
+def test_untyped_parameter_input_is_stored_verbatim(template_payload):
+    template_payload["parameters"]["legacy_untyped"]["defaultValue"]["value"] = "true"
+
+    change = build_change(template_payload, "legacy_untyped", "1")
+    updated = apply_change(template_payload, change)
+
+    assert updated["parameters"]["legacy_untyped"]["defaultValue"]["value"] == "1"
 
 
 def test_parameter_payload_returns_a_copy(template_payload):
