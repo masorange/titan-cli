@@ -49,7 +49,10 @@ _STATUS_ERROR_CODES = {
     401: "AUTH_REJECTED",
     403: "PERMISSION_DENIED",
     404: "NOT_FOUND",
+    # The API definition documents 412 for a stale If-Match; the publishing
+    # guide says 409. Treat both as an ETag conflict.
     409: "ETAG_CONFLICT",
+    412: "ETAG_CONFLICT",
 }
 
 
@@ -59,7 +62,7 @@ def _api_error_to_client_error(exc: FirebaseApiError) -> ClientError:
     error_code = _STATUS_ERROR_CODES.get(status or 0, "API_ERROR")
     # A stale ETag and a missing project are expected outcomes a workflow
     # recovers from; only genuine failures deserve an error-level log.
-    log_level = "warning" if status in {404, 409} else "error"
+    log_level = "warning" if status in {404, 409, 412} else "error"
     return ClientError(
         error_message=str(exc),
         error_code=error_code,
