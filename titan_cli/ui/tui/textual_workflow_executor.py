@@ -219,15 +219,28 @@ class TextualWorkflowExecutor:
         result = self._mods.dispatch("workflow.run", event, run)
 
         # A mod that refused the workflow answered before anything was posted,
-        # and the screen only learns a run is over from these messages.
-        if not started and is_error(result):
-            self._post_message_sync(
-                self.WorkflowFailed(
-                    workflow_name=workflow.name,
-                    step_name="mods",
-                    error_message=result.message,
+        # and the screen only learns a run is over from these messages. Every
+        # branch here must end in one, or the screen is stuck on "running"
+        # and later launches get refused ("a workflow is running").
+        if not started:
+            if is_error(result):
+                self._post_message_sync(
+                    self.WorkflowFailed(
+                        workflow_name=workflow.name,
+                        step_name="mods",
+                        error_message=result.message,
+                    )
                 )
-            )
+            else:
+                # Skip/Success/anything else a hook answered with directly:
+                # not an error, so it must not be reported as one.
+                self._post_message_sync(
+                    self.WorkflowCompleted(
+                        workflow_name=workflow.name,
+                        message=result.message,
+                        is_nested=bool(ctx._workflow_stack),
+                    )
+                )
         return result
 
     def _execute_tagged(
