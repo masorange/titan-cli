@@ -521,18 +521,27 @@ class ModBus:
             registration = chain[index]
             called = False
             downstream: Any = None
+            downstream_error: Optional[Exception] = None
 
             def next_(rewritten: Any = current) -> Any:
-                nonlocal called, downstream
+                nonlocal called, downstream, downstream_error
                 if called:
                     raise RuntimeError("next() may be called only once per hook")
                 called = True
-                downstream = run(index + 1, rewritten)
+                try:
+                    downstream = run(index + 1, rewritten)
+                except Exception as exc:
+                    downstream_error = exc
+                    raise
                 return downstream
 
             try:
                 answer = registration.hook(self._apis[registration.mod], current, next_)
-            except Exception:
+            except Exception as exc:
+                if downstream_error is not None and exc is downstream_error:
+                    # Titan's own behaviour (or a lower hook) failed, not this
+                    # hook: keep the caller's error semantics.
+                    raise
                 logger.exception("mod_hook_failed", mod=registration.mod, mod_event=event)
                 return downstream if called else run(index + 1, current)
 

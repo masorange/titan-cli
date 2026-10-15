@@ -138,6 +138,30 @@ def test_hook_that_raises_after_next_does_not_run_the_step_twice():
     assert ran == [1]
 
 
+def test_downstream_failure_propagates_through_a_wrapping_hook(monkeypatch):
+    bus = ModBus()
+    on = bus.on_for("wrapper")
+    failures = []
+    monkeypatch.setattr(
+        "titan_cli.core.mods.bus.logger.exception", lambda *a, **k: failures.append((a, k))
+    )
+
+    @on("step.call")
+    def wrap(m, e, next):
+        return next(e)
+
+    error = RuntimeError("step failed")
+
+    def final(e):
+        raise error
+
+    with pytest.raises(RuntimeError) as raised:
+        bus.dispatch("step.call", step_event(), final)
+
+    assert raised.value is error
+    assert failures == []
+
+
 def test_hook_that_forgets_to_return_keeps_the_result():
     bus = ModBus()
     on = bus.on_for("forgetful")
