@@ -13,7 +13,7 @@ from textual.widget import Widget
 from titan_cli.messages import msg
 from titan_cli.ui.tui.colors import RichStyles
 
-from .collapsible_list import CollapsibleEntry, build_collapsible_list
+from .collapsible_list import CollapsibleEntry, build_collapsible_list, escape_markup
 
 
 # Fields that make an object recognizable when it appears inside a list. Without
@@ -231,6 +231,9 @@ def _identify(value: dict[Any, Any]) -> str:
 
 
 def _title(name: str, detail: str) -> str:
+    """Build an entry title; name and detail come from JSON, so escape markup."""
+    name = escape_markup(name)
+    detail = escape_markup(detail)
     return f"{name}   {detail}".rstrip() if detail else name
 
 
