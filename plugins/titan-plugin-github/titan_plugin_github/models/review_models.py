@@ -10,6 +10,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from .review_enums import (
+    CommentVerdictType,
     FileChangeStatus,
     FindingSeverity,
     ReviewActionSource,
@@ -194,3 +195,31 @@ __all__ = [
     "ThreadReviewContext",
     "ReviewActionProposal",
 ]
+
+
+class CommentVerdict(BaseModel):
+    """One judging session's answer about one pending review comment.
+
+    The session that writes this has read the whole PR and every pending comment at once;
+    the session that later makes the change is a fresh one that has not. No CLI adapter can
+    resume a session, so everything the first one worked out has to be written down here or
+    it is lost - which is why the verdict carries the files and callers, not just a verdict.
+    """
+
+    comment_id: int = Field(..., description="Id of the comment this judges")
+    verdict: CommentVerdictType = Field(..., description="What to do with the comment")
+    reason: str = Field(..., description="Why, checked against the code")
+    files_affected: list[str] = Field(
+        default_factory=list, description="Files a fix would have to change"
+    )
+    callers_to_check: list[str] = Field(
+        default_factory=list,
+        description="Other users of what the fix changes, which a fix must not break",
+    )
+    risk: Optional[str] = Field(default=None, description="What the change could break")
+    proposed_fix: Optional[str] = Field(
+        default=None, description="The change in prose, for an APPLY verdict"
+    )
+    reply_draft: Optional[str] = Field(
+        default=None, description="The reply to post when no change is made"
+    )

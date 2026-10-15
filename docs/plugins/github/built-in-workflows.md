@@ -59,12 +59,50 @@ Helps a contributor review pending PR comments, switch to the PR branch, apply c
 2. `github.fetch_pending_comments`
 3. `github.check_clean_state`
 4. `github.checkout_pr_branch`
-5. `github.review_comments`
-6. `after_review` hook
-7. `github.push_commits`
-8. `github.send_comment_replies`
-9. `github.request_review`
-10. `github.checkout_original_branch`
+5. `github.fetch_pr_review_bundle`
+6. `github.build_change_manifest`
+7. `github.judge_pr_comments`
+8. `github.review_comments`
+9. `after_review` hook
+10. `github.push_commits`
+11. `github.send_comment_replies`
+12. `github.request_review`
+13. `github.checkout_original_branch`
+
+### How a comment is judged
+
+Before anything is asked of you, one AI session reads the whole PR and decides about **every**
+pending comment at once, and says for each one whether to change the code (`apply`), whether
+the branch already does it (`already_done`), whether the comment is mistaken (`wrong`), or
+whether it needs a human decision (`needs_discussion`) — with the files a fix would touch and
+the **other places that use what would change**.
+
+That session reads the repository you are on, plus material Titan writes under
+`~/.titan/respond-comments/` (the diff per file, each file's version before the PR, the PR
+description and every comment). The material is kept outside the repository on purpose: the
+fixes are committed from your own checkout.
+
+Each verdict is shown with its reasoning, and you decide: let the AI make the change, change
+it yourself, post the drafted reply (opened for editing first), write your own, or skip. When
+the session cannot run — AI off for the `respond_pr_comment` task, no CLI, a failed call — the
+comments are shown without verdicts and the workflow behaves as it did before.
+
+An approved `apply` hands its verdict file to the interactive session that makes the change,
+so it starts with the callers and the risk already worked out instead of eleven lines of diff.
+
+### What the run records
+
+Every run writes what it did to
+`~/.titan/respond-comments/<repo>-pr<N>/.titan-review/runs/<run id>.json`: one row per comment
+with its verdict, what you chose, whether that agreed with the verdict, and **the commit it
+produced**. The same facts go to the log as `comment_decision` and `respond_comments_summary`,
+next to `comment_judgement_session` and `comment_judgement_summary` (CLI, model, cost,
+duration). It is written to disk as well because logs rotate.
+
+The point of the commit column: when a later review of the same PR reports a problem,
+`git blame` on that line gives a commit, and the record says which comment that commit was
+answering — so a fix that answered its comment and broke something else is traceable instead
+of being noticed by accident.
 
 ### Commit messages
 

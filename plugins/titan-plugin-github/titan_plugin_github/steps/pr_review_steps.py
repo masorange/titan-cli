@@ -7,17 +7,22 @@ to keep the main step functions clean and readable.
 import json
 import os
 import threading
+import time
 import traceback
+from pathlib import Path
 from typing import List, Dict, Optional
 from titan_cli.ai.router.declaration import declare_ai_usage
 from titan_cli.ai.router.enums import AIProviderType, AITask
 from titan_cli.ai.router.models import AIExecutionError, AIExecutionSuccess
+from titan_cli.core.interrupt import run_interruptible
 from titan_cli.core.logging import get_logger
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Exit, Skip
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.ui.tui.widgets import ChoiceOption, OptionItem
 from titan_plugin_github.widgets import CommentThread
 from ..models import UICommentThread
+from ..models.review_enums import CommentVerdictType
+from ..models.review_models import CommentVerdict
 from ..operations import (
     fetch_pr_threads,
     fetch_pr_general_comments,
@@ -25,12 +30,28 @@ from ..operations import (
     build_ai_review_context,
     build_ai_review_prompt,
     build_commit_message_context,
+    build_fix_session_prompt,
+    build_judgement_prompt,
     find_ai_response_file,
     create_commit_message,
-    reply_to_comment_batch,
+    judgement_json_schema,
+    parse_judgement_response,
     prepare_replies_for_sending,
+    render_comments_file,
+    render_verdict_file,
+    reply_to_comment_batch,
+    to_verdict,
+    verdict_file_path,
+    build_decision_row,
+    build_run_record,
+    run_record_path,
     build_pr_selection_description,
     build_pr_selection_title,
+)
+from ..operations.comment_judgement_operations import (
+    JUDGEMENT_EFFORT,
+    JUDGEMENT_MAX_BUDGET_USD,
+    JUDGEMENT_TIMEOUT_SECONDS,
 )
 from titan_plugin_git.operations import (
     build_ai_commit_prompt,
@@ -40,32 +61,434 @@ from titan_plugin_git.operations import (
 
 logger = get_logger(__name__)
 
+def _record_run(
+    ctx: WorkflowContext, decisions: List[dict], exited_early: bool = False
+) -> Optional[str]:
+    """Log this run's summary and save its record. Never allowed to break the workflow."""
+    try:
+        record = build_run_record(
+            _current_run_id(),
+            ctx.get("selected_pr_number"),
+            ctx.get("review_commit_sha"),
+            ctx.get("judgement_summary", {}) or {},
+            decisions,
+            exited_early=exited_early,
+        )
+        logger.info(
+            "respond_comments_summary",
+            **{
+                key: record[key]
+                for key in ("pr", "comments", "choices", "agreed", "overruled",
+                            "not_judged", "exited_early")
+            },
+        )
+        return _write_run_record(ctx, record)
+    except Exception as exc:  # pragma: no cover - telemetry must never break a run
+        logger.debug("respond_run_record_failed", error=str(exc))
+        return None
+
+
+def _current_run_id() -> Optional[str]:
+    """The run id every log line of this execution carries, so a record joins to the log."""
+    try:
+        import structlog
+
+        return structlog.contextvars.get_contextvars().get("run")
+    except Exception:  # pragma: no cover - telemetry must never break the workflow
+        return None
+
+
+def _write_run_record(ctx: WorkflowContext, record: dict) -> Optional[str]:
+    """Save the run's record next to its material. None when it could not be saved.
+
+    On disk and not only in the log because the log rotates: the review run that opened this
+    domain was one rotation away from being unavailable when it was needed for scoring.
+    """
+    from ..operations.review_material_operations import MATERIAL_DIR
+
+    pr_number = ctx.get("selected_pr_number")
+    if not pr_number:
+        return None
+    try:
+        target = _material_root(ctx, pr_number) / MATERIAL_DIR / run_record_path(record.get("run"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(record, indent=2, default=str))
+        return str(target)
+    except OSError as exc:
+        logger.warning("respond_run_record_not_written", error=str(exc))
+        return None
+
+
+MATERIAL_KEPT_PRS = 5
+"""How many PRs' material directories survive. Each one holds a copy of every changed file,
+so without a ceiling the directory grows with every PR ever answered."""
+
+
+def _material_root(ctx: WorkflowContext, pr_number: int) -> Path:
+    """Where this PR's material goes: under `~/.titan`, never inside the repository.
+
+    The review can write into its own throw-away worktree; this workflow works in the user's
+    own checkout and commits from it with `git commit -a`, so material written there would be
+    swept into the next fix's commit. `~/.titan` follows the precedent of the plugin cache.
+    """
+    slug = Path(ctx.get("project_root", ".")).resolve().name or "repo"
+    base = Path.home() / ".titan" / "respond-comments"
+    root = base / f"{slug}-pr{pr_number}"
+    _prune_material(base, keep=root)
+    return root
+
+
+def _prune_material(base: Path, keep: Path) -> None:
+    """Keep the most recent `MATERIAL_KEPT_PRS` directories, plus the one about to be used."""
+    import shutil
+
+    try:
+        if not base.is_dir():
+            return
+        existing = sorted(
+            (p for p in base.iterdir() if p.is_dir()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for stale in existing[MATERIAL_KEPT_PRS:]:
+            if stale != keep:
+                shutil.rmtree(stale, ignore_errors=True)
+    except OSError as exc:
+        logger.debug("respond_material_prune_failed", error=str(exc))
+
+
+def _write_judgement_material(
+    ctx: WorkflowContext,
+    root: Path,
+    threads: List[UICommentThread],
+) -> bool:
+    """Lay out the PR's material for the judging session. False when it could not be done."""
+    from .code_review_steps import write_review_material_at
+    from ..operations.review_material_operations import MATERIAL_DIR
+
+    manifest = ctx.get("change_manifest")
+    diff_manager = ctx.get("review_diff_manager")
+    if not manifest or diff_manager is None:
+        logger.warning("judgement_material_missing_bundle")
+        return False
+
+    root.mkdir(parents=True, exist_ok=True)
+    written = write_review_material_at(
+        ctx,
+        str(root),
+        manifest,
+        diff_manager,
+        [t for t in threads if not t.is_general_comment],
+        [t for t in threads if t.is_general_comment],
+    )
+    if written is None:
+        return False
+
+    try:
+        (root / MATERIAL_DIR / "comments.md").write_text(render_comments_file(threads))
+    except OSError as exc:
+        logger.warning("judgement_comments_file_not_written", error=str(exc))
+        return False
+    return True
+
+
+def _write_verdict_files(root: Path, verdicts: Dict[int, CommentVerdict], threads) -> Dict[int, str]:
+    """One file per verdict, and the path of each: this is how the fix session gets it.
+
+    No CLI adapter can resume a session, so the judging session's work reaches the fix only
+    as something written down.
+    """
+    from ..operations.review_material_operations import MATERIAL_DIR
+
+    by_id = {t.main_comment.id: t for t in threads if t.main_comment}
+    paths: Dict[int, str] = {}
+    for comment_id, verdict in verdicts.items():
+        thread = by_id.get(comment_id)
+        if thread is None:
+            continue
+        target = root / MATERIAL_DIR / verdict_file_path(comment_id)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(render_verdict_file(verdict, thread))
+            paths[comment_id] = str(target)
+        except OSError as exc:
+            logger.warning("verdict_file_not_written", comment_id=comment_id, error=str(exc))
+    return paths
+
+
+_VERDICT_LABELS = {
+    CommentVerdictType.APPLY: ("Change the code", "warning"),
+    CommentVerdictType.ALREADY_DONE: ("Already done", "success"),
+    CommentVerdictType.WRONG: ("Does not apply", "success"),
+    CommentVerdictType.NEEDS_DISCUSSION: ("Needs discussion", "default"),
+}
+
+
+@declare_ai_usage(
+    task=AITask.RESPOND_PR_COMMENT,
+    # One headless session reads the PR and answers about every comment at once. An
+    # interactive one cannot: nothing would be able to read its answer back.
+    executes=[AIProviderType.CLI_HEADLESS],
+    enforces=True,
+)
+def judge_pr_comments_step(ctx: WorkflowContext) -> WorkflowResult:
+    """
+    Decide, in one session over the whole PR, what each pending comment deserves.
+
+    Before this step the workflow asked the user comment by comment with no opinion of its
+    own, and each fix ran with eleven lines of diff for context - which is how a fix that
+    answered its comment broke the other caller of what it changed. Here one session reads
+    the PR once, sees every pending comment together, and returns a verdict per comment with
+    the files and callers a fix would have to respect.
+
+    Nothing is applied from here: the verdicts are shown in the next step, where the user
+    accepts, edits or rejects each one.
+
+    Inputs (from ctx.data):
+        selected_pr_number (int)
+        pending_comment_threads (List[UICommentThread])
+        change_manifest, review_diff_manager (from the review bundle steps)
+
+    Outputs (saved to ctx.data):
+        comment_verdicts (Dict[int, CommentVerdict]): by comment id
+        verdict_files (Dict[int, str]): absolute path of each verdict's file
+        judgement_material_dir (str): where the material was written
+
+    Returns:
+        Success: with the verdicts, or with none when the session could not run - the
+            workflow then behaves as it did before, asking the user with no verdict.
+        Error: Textual UI unavailable.
+    """
+    if not ctx.textual:
+        return Error("Textual UI context is not available for this step.")
+
+    from .code_review_steps import (
+        announce_review_adapter,
+        cli_failure_reason,
+        resolve_review_adapter,
+        review_tool_options,
+    )
+
+    ctx.textual.begin_step("Judge Comments")
+
+    threads: List[UICommentThread] = ctx.get("pending_comment_threads", []) or []
+    pr_number = ctx.get("selected_pr_number")
+    nothing = Success("No verdicts", metadata={"comment_verdicts": {}, "verdict_files": {}})
+
+    if not threads or not pr_number:
+        ctx.textual.dim_text("No comments to judge")
+        ctx.textual.end_step("skip")
+        return nothing
+
+    adapter, route_note, ai_off = resolve_review_adapter(ctx, judge_pr_comments_step)
+    if not adapter:
+        reason = "AI is off for this task" if ai_off else (route_note or "no CLI available")
+        ctx.textual.warning_text(f"{reason} — every comment is shown without a verdict")
+        ctx.textual.end_step("skip")
+        return nothing
+
+    announce_review_adapter(ctx, adapter)
+
+    root = _material_root(ctx, pr_number)
+    with ctx.textual.loading("Preparing the PR's material…"):
+        prepared = _write_judgement_material(ctx, root, threads)
+    if not prepared:
+        ctx.textual.warning_text(
+            "The PR's material could not be written — every comment is shown without a verdict"
+        )
+        ctx.textual.end_step("skip")
+        return nothing
+
+    from ..operations.review_material_operations import MATERIAL_DIR
+
+    pr = ctx.get("review_pr")
+    prompt = build_judgement_prompt(
+        pr_number,
+        ctx.get("selected_pr_title", "") or (getattr(pr, "title", "") or ""),
+        ctx.get("selected_pr_head_branch", "") or (getattr(pr, "head_branch", "") or ""),
+        getattr(pr, "base_branch", "") or "",
+        str(Path(ctx.get("project_root", ".")).resolve()),
+        str(root / MATERIAL_DIR),
+        len(threads),
+        use_subagents=adapter.supports_subagents,
+    )
+
+    structured = adapter.supports_structured_output
+    options = review_tool_options(adapter)
+    options["max_budget_usd"] = JUDGEMENT_MAX_BUDGET_USD
+    if options.get("effort"):
+        options["effort"] = JUDGEMENT_EFFORT
+    cli = adapter.cli_name.value
+
+    started_at = time.monotonic()
+    with ctx.textual.loading(f"{cli.capitalize()} is judging {len(threads)} comment(s)…"):
+        response = run_interruptible(
+            lambda: adapter.execute(
+                prompt,
+                cwd=str(Path(ctx.get("project_root", ".")).resolve()),
+                timeout=JUDGEMENT_TIMEOUT_SECONDS,
+                json_schema=judgement_json_schema() if structured else None,
+                **options,
+            )
+        )
+    logger.info(
+        "comment_judgement_session",
+        cli=cli,
+        comments=len(threads),
+        duration_seconds=round(time.monotonic() - started_at, 3),
+        exit_code=response.exit_code,
+        timed_out=response.exit_code == 124,
+        structured_output=structured,
+    )
+
+    if not response.succeeded:
+        ctx.textual.warning_text(
+            f"{cli_failure_reason(response, cli)} — every comment is shown without a verdict"
+        )
+        ctx.textual.end_step("skip")
+        return nothing
+
+    match parse_judgement_response(response.stdout, structured=structured):
+        case ClientSuccess(data=list() as raw):
+            pass
+        case _:
+            ctx.textual.warning_text(
+                "The session's answer could not be read — every comment is shown without a verdict"
+            )
+            ctx.textual.end_step("skip")
+            return nothing
+
+    known_ids = {t.main_comment.id for t in threads if t.main_comment}
+    verdicts: Dict[int, CommentVerdict] = {}
+    for item in raw:
+        verdict = to_verdict(item, known_ids)
+        if verdict:
+            verdicts[verdict.comment_id] = verdict
+
+    dropped = len(raw) - len(verdicts)
+    missing = len(known_ids) - len(verdicts)
+    logger.info(
+        "comment_verdicts_parsed",
+        returned=len(raw),
+        kept=len(verdicts),
+        dropped=dropped,
+        unanswered=missing,
+    )
+
+    verdict_files = _write_verdict_files(root, verdicts, threads)
+
+    counts: Dict[str, int] = {}
+    for verdict in verdicts.values():
+        counts[verdict.verdict.value] = counts.get(verdict.verdict.value, 0) + 1
+    summary = ", ".join(
+        f"{counts[kind.value]} {_VERDICT_LABELS[kind][0].lower()}"
+        for kind in CommentVerdictType
+        if counts.get(kind.value)
+    )
+    ctx.textual.success_text(f"✓ {len(verdicts)} of {len(known_ids)} judged: {summary}")
+    if missing > 0:
+        # Not a failure: the comment is simply shown without a verdict, as before.
+        ctx.textual.warning_text(f"{missing} comment(s) came back without a verdict")
+
+    # The same summary the review logs, so a judging session's cost reads like any other
+    # session's and lands in the same place.
+    from ..operations.ai_cost_operations import summarize_ai_calls
+    from .code_review_steps import REVIEW_AI_CALLS_KEY
+
+    cost = summarize_ai_calls(ctx.data.get(REVIEW_AI_CALLS_KEY, []) or [])
+    logger.info(
+        "comment_judgement_summary",
+        cli=cli,
+        model=getattr(adapter, "pinned_model", None),
+        comments=len(known_ids),
+        judged=len(verdicts),
+        unanswered=missing,
+        cost_usd=cost.cost_usd,
+        duration_seconds=cost.duration_seconds,
+        **{f"verdict_{kind}": count for kind, count in counts.items()},
+    )
+
+    ctx.textual.end_step("success")
+    return Success(
+        f"Judged {len(verdicts)} comment(s)",
+        metadata={
+            "comment_verdicts": verdicts,
+            "verdict_files": verdict_files,
+            "judgement_material_dir": str(root),
+            "judgement_summary": {
+                "cli": cli,
+                "model": getattr(adapter, "pinned_model", None),
+                "comments": len(known_ids),
+                "judged": len(verdicts),
+                "unanswered": missing,
+                "cost_usd": cost.cost_usd,
+                "duration_seconds": cost.duration_seconds,
+                "verdicts": counts,
+            },
+        },
+    )
+
+
+def _show_verdict(ctx: WorkflowContext, verdict: Optional[CommentVerdict]) -> None:
+    """Put the judging session's answer on screen, so the user decides with it in hand."""
+    if verdict is None:
+        return
+
+    label, panel_type = _VERDICT_LABELS[verdict.verdict]
+    lines = [f"{label} — {verdict.reason}"]
+    if verdict.files_affected:
+        lines.append(f"Files: {', '.join(verdict.files_affected)}")
+    if verdict.callers_to_check:
+        lines.append(f"Also uses it: {', '.join(verdict.callers_to_check)}")
+    if verdict.risk:
+        lines.append(f"Risk: {verdict.risk}")
+    ctx.textual.text("")
+    ctx.textual.panel("\n".join(lines), panel_type=panel_type, show_icon=False)
+
+
 def _show_thread_and_get_action(
     ctx: WorkflowContext,
     pr_thread: UICommentThread,
     thread_idx: int,
-    total_threads: int
+    total_threads: int,
+    verdict: Optional[CommentVerdict] = None,
 ) -> str:
     """
-    Display a comment thread and get user's action choice.
+    Display a comment thread, its verdict when there is one, and get the user's choice.
+
+    The verdict only orders the options and puts its reasoning on screen: the decision stays
+    the user's, which is why "Use this reply" opens the draft for editing rather than posting
+    it, and every other action remains available whatever the session concluded.
 
     Args:
         ctx: Workflow context
         pr_thread: The PR review thread (UI model)
         thread_idx: Current thread index (0-based)
         total_threads: Total number of threads
+        verdict: What the judging session decided about this comment, when it ran
 
     Returns:
-        User's choice: "ai_review", "reply", "skip", "resolve", or "exit"
+        User's choice: "ai_review", "use_reply", "reply", "skip", "resolve", or "exit"
     """
+    wants_change = verdict is None or verdict.verdict == CommentVerdictType.APPLY
+    has_draft = bool(verdict and verdict.reply_draft)
 
-    # Prepare action options
-    options = [
-        ChoiceOption(value="ai_review", label="AI Review", variant="primary"),
-        ChoiceOption(value="change_manually", label="Change", variant="default"),
-        ChoiceOption(value="reply", label="Reply", variant="default"),
-        ChoiceOption(value="skip", label="Skip", variant="default"),
-    ]
+    # Prepare action options, most likely first: the verdict decides which that is.
+    options = []
+    if has_draft and not wants_change:
+        options.append(ChoiceOption(value="use_reply", label="Use this reply", variant="primary"))
+    options.append(
+        ChoiceOption(
+            value="ai_review",
+            label="AI Review",
+            variant="primary" if wants_change else "default",
+        )
+    )
+    options.append(ChoiceOption(value="change_manually", label="Change", variant="default"))
+    if has_draft and wants_change:
+        options.append(ChoiceOption(value="use_reply", label="Use this reply", variant="default"))
+    options.append(ChoiceOption(value="reply", label="Reply", variant="default"))
+    options.append(ChoiceOption(value="skip", label="Skip", variant="default"))
 
     # "Resolve" only applies to inline review threads, not general PR comments
     if not pr_thread.is_general_comment:
@@ -94,6 +517,7 @@ def _show_thread_and_get_action(
     )
 
     ctx.textual.text("")
+    _show_verdict(ctx, verdict)
     ctx.textual.mount(thread_widget)
 
     # Wait for user selection
@@ -111,6 +535,7 @@ def _show_thread_and_get_action(
             action_labels = {
                 "ai_review": "✓ AI Review",
                 "change_manually": "✎ Changed",
+                "use_reply": "→ Reply",
                 "reply": "→ Reply",
                 "skip": "— Skip",
                 "resolve": "✓ Resolved",
@@ -119,6 +544,7 @@ def _show_thread_and_get_action(
             action_variants = {
                 "ai_review": "success",
                 "change_manually": "success",
+                "use_reply": "default",
                 "reply": "default",
                 "skip": "default",
                 "resolve": "success",
@@ -290,18 +716,52 @@ def _handle_manual_reply(
         return False
 
 
+def _handle_use_reply(
+    ctx: WorkflowContext,
+    pr_thread: UICommentThread,
+    verdict: CommentVerdict,
+    pending_responses: Dict[int, str],
+) -> bool:
+    """
+    Queue the drafted reply, after the user has had a chance to rewrite it.
+
+    The draft is opened for editing rather than posted: a verdict the user disagrees with
+    must not be able to speak in their name on their own PR.
+    """
+    ctx.textual.text("")
+    reply_text = ctx.textual.ask_multiline(
+        "Reply (edit it if you want):",
+        default=verdict.reply_draft or "",
+    )
+
+    if reply_text and reply_text.strip():
+        pending_responses[pr_thread.main_comment.id] = {"text": reply_text, "source": "ai"}
+        ctx.textual.success_text("✓ Reply queued for review")
+        return True
+
+    ctx.textual.warning_text("Empty reply, skipping")
+    return False
+
+
 def _handle_ai_review(
     ctx: WorkflowContext,
     pr_thread: UICommentThread,
     pr_title: str,
     comment_commits: Dict[int, str],
     pending_responses: Dict[int, str],
-    response_files: List[str]
+    response_files: List[str],
+    verdict_path: Optional[str] = None,
 ) -> bool:
     """
     Handle AI review for a comment thread.
 
     Works directly on the current branch (no worktree).
+
+    With a verdict file the session is told to MAKE the change: deciding whether it was
+    worth making already happened, over the whole PR and with the user's approval, and the
+    analysis that goes with it (files, callers, risk) is in that file. Without one - the
+    judging session did not run, or said nothing about this comment - it gets the old
+    prompt, which evaluates the comment from the thread and the hunk around it.
 
     Args:
         ctx: Workflow context
@@ -310,6 +770,7 @@ def _handle_ai_review(
         comment_commits: Dict to track commits (will be updated)
         pending_responses: Dict to track responses (will be updated)
         response_files: List to track temp files (will be updated)
+        verdict_path: Path of this comment's verdict file, when there is one
 
     Returns:
         True if processed successfully, False if failed
@@ -336,6 +797,14 @@ def _handle_ai_review(
         from titan_cli.engine.steps.ai_assistant_step import execute_ai_assistant_step
         from titan_cli.core.workflows.models import WorkflowStepModel
 
+        if verdict_path:
+            prompt_template = build_fix_session_prompt(verdict_path, response_file)
+            # The verdict file holds the comment and the analysis, so the JSON context the
+            # old prompt carries would only repeat it.
+            ctx.data["pr_review_context"] = f"Verdict: {verdict_path}"
+        else:
+            prompt_template = build_ai_review_prompt(response_file)
+
         ai_step = WorkflowStepModel(
             id="ai_review_helper",
             plugin="core",
@@ -343,7 +812,7 @@ def _handle_ai_review(
             name="AI Code Review",
             params={
                 "context_key": "pr_review_context",
-                "prompt_template": build_ai_review_prompt(response_file),
+                "prompt_template": prompt_template,
                 "ask_confirmation": False,
                 "pre_launch_warning": "When you're done using the AI CLI, press Ctrl+C twice to exit and return to Titan.",
             }
@@ -582,7 +1051,7 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         selected_pr_number (int): The PR number
 
     Outputs (saved to ctx.data):
-        review_threads (List[UICommentThread]): Unresolved review threads
+        pending_comment_threads (List[UICommentThread]): General comments and unresolved review threads, in the order they are shown
 
     Returns:
         Success: Threads fetched
@@ -608,6 +1077,9 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
             review_threads = fetch_pr_threads(ctx.github, pr_number, include_resolved=False)
             general_comments = fetch_pr_general_comments(ctx.github, pr_number)
 
+        # Published under its own key, not `review_threads`: the review bundle steps this
+        # workflow now runs write that one with the inline threads alone, and the loop must
+        # not lose the general comments to it.
         all_threads = general_comments + review_threads
 
         if not all_threads:
@@ -623,7 +1095,7 @@ def fetch_pending_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.success_text(f"Found {', '.join(parts)}")
 
         metadata = {
-            "review_threads": all_threads,
+            "pending_comment_threads": all_threads,
             "total_pending": len(all_threads),
         }
 
@@ -783,7 +1255,10 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
     Requires (from ctx.data):
         selected_pr_number (int): The PR number
-        review_threads (List[UICommentThread]): Unresolved threads
+        pending_comment_threads (List[UICommentThread]): Unresolved threads
+
+    Optional (from ctx.data, when the judging step ran):
+        comment_verdicts (Dict[int, CommentVerdict]), verdict_files (Dict[int, str])
 
     Returns:
         Success: All threads processed
@@ -797,8 +1272,10 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     response_files = []  # Track temp files for cleanup (must be before try for finally)
     try:
         pr_number = ctx.get("selected_pr_number")
-        review_threads: List[UICommentThread] = ctx.get("review_threads", [])
+        review_threads: List[UICommentThread] = ctx.get("pending_comment_threads", [])
         pr_title = ctx.get("selected_pr_title", "")
+        verdicts: Dict[int, CommentVerdict] = ctx.get("comment_verdicts", {}) or {}
+        verdict_files: Dict[int, str] = ctx.get("verdict_files", {}) or {}
 
         if not pr_number or not review_threads:
             ctx.textual.end_step("error")
@@ -807,6 +1284,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         # Track state
         comment_commits = {}
         pending_responses = {}
+        decisions: List[dict] = []
         general_comment_ids = {
             t.main_comment.id
             for t in review_threads
@@ -817,10 +1295,15 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
 
         # Loop through all review threads
         for thread_idx, pr_thread in enumerate(review_threads):
-            choice = _show_thread_and_get_action(ctx, pr_thread, thread_idx, len(review_threads))
+            comment_id = pr_thread.main_comment.id if pr_thread.main_comment else None
+            verdict = verdicts.get(comment_id)
+            choice = _show_thread_and_get_action(
+                ctx, pr_thread, thread_idx, len(review_threads), verdict
+            )
 
             if choice == "exit":
                 ctx.textual.warning_text(f"Exiting review. Processed {processed_count}, skipped {skipped_count}")
+                record_path = _record_run(ctx, decisions, exited_early=True)
                 ctx.textual.end_step("success")
                 return Success(
                     "Review exited early",
@@ -831,6 +1314,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                         "comment_commits": comment_commits,
                         "pending_responses": pending_responses,
                         "general_comment_ids": list(general_comment_ids),
+                        "run_record": record_path,
                     }
                 )
 
@@ -849,10 +1333,17 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                 else:
                     skipped_count += 1
 
+            elif choice == "use_reply" and verdict:
+                if _handle_use_reply(ctx, pr_thread, verdict, pending_responses):
+                    processed_count += 1
+                else:
+                    skipped_count += 1
+
             elif choice == "ai_review":
                 if _handle_ai_review(
                     ctx, pr_thread, pr_title,
-                    comment_commits, pending_responses, response_files
+                    comment_commits, pending_responses, response_files,
+                    verdict_path=verdict_files.get(comment_id),
                 ):
                     processed_count += 1
                 else:
@@ -863,6 +1354,25 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
                     processed_count += 1
                 else:
                     skipped_count += 1
+
+            # One row per comment, with the commit it produced: that link is what lets a
+            # later review's findings be attributed to the comment they came from, which
+            # until now meant reading every thread by hand.
+            row = build_decision_row(
+                pr_thread,
+                verdict,
+                choice,
+                comment_commits.get(comment_id),
+                replied=comment_id in pending_responses,
+            )
+            decisions.append(row)
+            logger.info("comment_decision", **{
+                key: row[key]
+                for key in ("comment_id", "path", "verdict", "choice",
+                            "agreed_with_verdict", "commit", "replied")
+            })
+
+        record_path = _record_run(ctx, decisions)
 
         ctx.textual.text("")
         ctx.textual.success_text(
@@ -877,6 +1387,7 @@ def review_comments_step(ctx: WorkflowContext) -> WorkflowResult:
         return Success(
             f"Reviewed {len(review_threads)} comment thread(s)",
             metadata={
+                "run_record": record_path,
                 "processed_count": processed_count,
                 "skipped_count": skipped_count,
                 "total_threads": len(review_threads),

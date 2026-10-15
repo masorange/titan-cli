@@ -54,3 +54,17 @@ class ReviewActionSource(StrEnum):
 
     NEW_FINDING = "new_finding"
     THREAD_FOLLOWUP = "thread_followup"
+
+
+class CommentVerdictType(StrEnum):
+    """What a judging session decided about one pending review comment.
+
+    `APPLY` is the only verdict that leads to a code change; the other three are answered
+    with a reply. They are kept apart because they are different claims: the change is
+    already in the branch, the comment is wrong about the code, or deciding needs a human.
+    """
+
+    APPLY = "apply"
+    ALREADY_DONE = "already_done"
+    WRONG = "wrong"
+    NEEDS_DISCUSSION = "needs_discussion"

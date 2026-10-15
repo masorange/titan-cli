@@ -22,6 +22,24 @@ from .comment_operations import (
     prepare_replies_for_sending,
 )
 
+from .comment_judgement_operations import (
+    build_fix_session_prompt,
+    build_judgement_prompt,
+    judgement_json_schema,
+    parse_judgement_response,
+    render_comments_file,
+    render_verdict_file,
+    to_verdict,
+    verdict_file_path,
+)
+
+from .respond_tracking_operations import (
+    build_decision_row,
+    build_run_record,
+    run_record_path,
+    verdict_agreement,
+)
+
 from .pr_operations import (
     fetch_pr_threads,
     fetch_pr_general_comments,
@@ -71,6 +89,18 @@ __all__ = [
     # Comment operations
     "build_ai_review_context",
     "build_commit_message_context",
+    "build_decision_row",
+    "build_run_record",
+    "run_record_path",
+    "verdict_agreement",
+    "build_fix_session_prompt",
+    "build_judgement_prompt",
+    "judgement_json_schema",
+    "parse_judgement_response",
+    "render_comments_file",
+    "render_verdict_file",
+    "to_verdict",
+    "verdict_file_path",
     "build_ai_review_prompt",
     "find_ai_response_file",
     "create_commit_message",

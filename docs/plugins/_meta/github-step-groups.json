@@ -39,6 +39,7 @@
         {"name": "fetch_pending_comments", "summary": "Load unresolved PR comments into workflow context."},
         {"name": "check_clean_state", "summary": "Ensure the current branch state is safe before checkout."},
         {"name": "checkout_pr_branch", "summary": "Switch to the PR branch while preserving original branch context."},
+        {"name": "judge_pr_comments", "summary": "Judge every pending comment in one AI session over the whole PR."},
         {"name": "review_comments", "summary": "Guide the user through comment resolution and local changes."},
         {"name": "push_commits", "summary": "Push local follow-up commits back to the PR branch."},
         {"name": "send_comment_replies", "summary": "Submit replies for the reviewed comments."},
