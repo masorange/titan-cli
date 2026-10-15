@@ -123,7 +123,7 @@ Every hook receives the same `m` for its mod.
 | `m.ui.home_card(title, text, on_click)` | A card on the home screen; `None` removes it |
 | `m.ui.toast(text, severity)` | `information`, `warning` or `error` |
 | `m.ui.copy(text, what)` | Copy to the clipboard and say so |
-| `m.state` | `get` / `set` / `update(key, fn)`: in-memory values; every change repaints the mod's panes |
+| `m.state` | `get(key, default)` / `set` / `update(key, fn, default)`: in-memory values (`default` stands in for a missing key); every change repaints the mod's panes |
 | `m.store` | `get` / `set`: small JSON values that survive the session (`~/.local/state/titan/mods/<mod>.json`) |
 | `m.clock.every(seconds, fn, immediately=True)` | Run `fn` periodically on a background thread; a run still going is not doubled |
 | `m.run(fn)` | Run `fn` once on a background thread |
@@ -166,7 +166,7 @@ Box(
 |---|---|
 | `Text(*parts, color, bold, dim, wrap)` | Parts are strings, `Link`s or nested `Text` spans. Truncates with an ellipsis unless `wrap=True`. |
 | `Link(label, url)` | Opens an http(s) URL. URLs in any text are links even when wrapped. |
-| `Box(*children, border, row, indent, gap)` | Vertical group; `border` is a colour name; `row=True` lays children out left to right. |
+| `Box(*children, border, row, indent, gap)` | Vertical group; `border` is a colour name; `row=True` puts children on one line: the first at the left, the rest pushed to the right (a title with a switch beside it). |
 | `Button(label, on_press, dim, variant)` | With a `variant` (`primary`, `default`, `success`, `warning`, `error`) it is Titan's own button, for something that does work; without one it reads as a line of the pane, right for a fold or picker. |
 
 Colours are semantic: `primary`, `accent`, `success`, `warning`, `error`, `info`, `subtle`. Lists are flattened and falsy children (`None`, `False`, `""`, `0`, `[]`) dropped, so conditionals and comprehensions read naturally.
