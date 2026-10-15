@@ -1,11 +1,11 @@
 """
 git: a side pane with the current branch, its upstream and the latest commits.
 
-Split from the dev `git` mod (harness/mods/README.md): pull requests, the merge
-queue and CI check diagnosis moved to the `github` mod shipped by
-titan-plugin-github, since they read the github plugin, not this one. Data
-comes from the git plugin client on a background timer; drawing reads only
-`m.state`, so it never waits on the network.
+Pull requests, the merge queue and CI check diagnosis live in the `github`
+mod shipped by titan-plugin-github, since they read the github plugin, not
+this one. Data comes from the git plugin client on a background timer;
+drawing reads only `m.state`, so it never waits on the network. See
+docs/concepts/writing-mods.md.
 """
 from pathlib import Path
 

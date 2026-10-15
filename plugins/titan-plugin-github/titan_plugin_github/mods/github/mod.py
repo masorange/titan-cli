@@ -2,11 +2,10 @@
 github: a side pane with review requests (each with a button that reviews
 it), your PRs, the merge queue and CI check diagnosis.
 
-Split from the dev `git` mod (harness/mods/README.md): the branch/commits
-section moved to the `git` mod shipped by titan-plugin-git, since it reads
-the git plugin, not this one. Data comes from the github plugin client on
-background timers; drawing reads only `m.state`, so it never waits on the
-network.
+The branch/commits section lives in the `git` mod shipped by
+titan-plugin-git, since it reads the git plugin, not this one. Data comes
+from the github plugin client on background timers; drawing reads only
+`m.state`, so it never waits on the network. See docs/concepts/writing-mods.md.
 """
 from pathlib import Path
 
