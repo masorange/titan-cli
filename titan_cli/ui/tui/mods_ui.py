@@ -382,16 +382,20 @@ class TitanModHost:
 
     def ai_routings(self) -> list:
         """A task row for every loaded mod whose manifest declares `ai_task`, for the AI screen."""
+        executor = self._ai_executor()
+        if executor is None:
+            return []
         return [
-            self._task_routing(name, manifest.ai_task)
+            self._task_routing(name, manifest.ai_task, executor)
             for name, manifest in self._bus.manifests.items()
             if manifest.ai_task
         ]
 
-    def _task_routing(self, mod: str, title: str):
+    def _task_routing(self, mod: str, title: str, executor=None):
         """This mod's task as the AI screen's task rows see one."""
         from titan_cli.ui.tui.screens.ai_routing import TaskRouting
 
+        executor = executor or self._ai_executor()
         ai_config = self._ai_config()
         prefs = getattr(ai_config, "preferences", None)
         pin = prefs.tasks.get(f"mods.{mod}") if prefs is not None else None
@@ -400,7 +404,7 @@ class TitanModHost:
             task=policy.task,
             label=title,
             executes=list(policy.executes),
-            resolution=self._ai_executor().resolve(policy=policy),
+            resolution=executor.resolve(policy=policy),
             has_preference=pin is not None,
             pinned_cli=pin.cli if pin else None,
             pinned_connection=pin.connection if pin else None,
