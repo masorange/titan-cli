@@ -101,15 +101,51 @@ def resolve_credentials(
     return credentials
 
 
+def _register_token(credentials) -> None:
+    """Register the credential's current access token for redaction."""
+    token = getattr(credentials, "token", None)
+    if isinstance(token, str) and token:
+        from titan_cli.core.security import register_secret
+
+        register_secret(token)
+
+
+def _redact_on_refresh(credentials) -> bool:
+    """
+    Register every token the credential mints, not only the first.
+
+    `AuthorizedSession` lives for the whole process and refreshes the token
+    (about hourly) through `credentials.refresh`, so the refresh itself is
+    wrapped. Idempotent. Returns False if the credential can't be wrapped.
+    """
+    if getattr(credentials, "_titan_redacts_refresh", False):
+        return True
+
+    original_refresh = credentials.refresh
+
+    def refresh(request):
+        original_refresh(request)
+        _register_token(credentials)
+
+    try:
+        credentials.refresh = refresh
+        credentials._titan_redacts_refresh = True
+    except AttributeError:
+        return False
+    return True
+
+
 def refresh_credentials(credentials) -> None:
     """
     Mint an access token so an expired ADC session fails here, not mid-write.
 
-    The token is registered for redaction and never returned.
+    The token is registered for redaction and never returned, and so is every
+    token the credential refreshes to later.
     """
     from google.auth.exceptions import RefreshError, TransportError
     from google.auth.transport.requests import Request
 
+    wrapped = _redact_on_refresh(credentials)
     try:
         credentials.refresh(Request())
     except (RefreshError, TransportError) as exc:
@@ -118,11 +154,8 @@ def refresh_credentials(credentials) -> None:
             f"Vuelve a ejecutar: {ADC_LOGIN_HINT}. Detalle: {exc}"
         ) from exc
 
-    token = getattr(credentials, "token", None)
-    if isinstance(token, str) and token:
-        from titan_cli.core.security import register_secret
-
-        register_secret(token)
+    if not wrapped:
+        _register_token(credentials)
 
 
 def build_session(credentials):

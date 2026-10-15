@@ -120,6 +120,19 @@ def test_refresh_registers_the_token_for_redaction(monkeypatch):
     assert registered == ["ya29.fake-token-value"]
 
 
+def test_later_token_refreshes_are_registered_for_redaction(monkeypatch):
+    registered = []
+    monkeypatch.setattr("titan_cli.core.security.register_secret", registered.append)
+    credentials = FakeUserCredentials()
+    adc_auth.refresh_credentials(credentials)
+
+    # AuthorizedSession refreshes through the credential about an hour later.
+    credentials.refresh(object())
+
+    assert credentials.refreshed == 2
+    assert registered == ["ya29.fake-token-value", "ya29.fake-token-value"]
+
+
 def test_refresh_failure_tells_the_user_to_log_in_again(monkeypatch):
     from google.auth.exceptions import RefreshError
 
