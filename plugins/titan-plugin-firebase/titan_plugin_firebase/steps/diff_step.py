@@ -16,12 +16,15 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
         firebase_change (UIRemoteConfigChange): From firebase_remoteconfig_set_value.
         firebase_project_id (str): Target project.
         firebase_target_label (Optional[str]): Display label for the project.
+        dry_run (bool, optional): Only show the change; skip the confirmation,
+            since the publish step will just validate and publish nothing.
 
     Outputs (saved to ctx.data):
-        firebase_change_confirmed (bool): Always True when the step succeeds.
+        firebase_change_confirmed (bool): True when the user confirmed the
+            change. Not set in dry-run mode.
 
     Returns:
-        Success: If the user confirms the change.
+        Success: If the user confirms the change (or dry_run is active).
         Exit: If the change is a no-op, or the user declines.
         Error: If there is no pending change to show.
     """
@@ -69,6 +72,14 @@ def execute_firebase_remoteconfig_diff_step(ctx: WorkflowContext) -> WorkflowRes
             ctx.textual.warning_text(message)
             ctx.textual.end_step("skipped")
         return Exit(message)
+
+    if ctx.get("dry_run"):
+        if ctx.textual:
+            ctx.textual.dim_text(
+                "dry_run activo: se validará el cambio sin publicarlo."
+            )
+            ctx.textual.end_step("success")
+        return Success(f"Cambio listo para validar en {change.key}")
 
     if ctx.textual:
         confirmed = ctx.textual.ask_confirm(

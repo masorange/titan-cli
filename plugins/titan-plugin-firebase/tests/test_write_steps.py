@@ -217,6 +217,16 @@ def test_diff_exits_when_the_user_declines():
     assert isinstance(result, Exit)
 
 
+def test_diff_skips_the_prompt_in_dry_run():
+    ctx = _ctx()
+    ctx.data.update({"firebase_change": _change(), "dry_run": True})
+
+    result = execute_firebase_remoteconfig_diff_step(ctx)
+
+    assert isinstance(result, Success)
+    ctx.textual.ask_confirm.assert_not_called()
+
+
 def test_diff_exits_on_a_noop_without_asking():
     ctx = _ctx()
     ctx.data["firebase_change"] = _change(old_raw_value="true", new_raw_value="true")
