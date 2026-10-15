@@ -180,6 +180,10 @@ def _write_judgement_material(
         diff_manager,
         [t for t in threads if not t.is_general_comment],
         [t for t in threads if t.is_general_comment],
+        # The PR branch is checked out here, so the head is HEAD. The review's
+        # `refs/titan/review/pr-N` does not exist in this workflow: nothing creates it
+        # without the worktree step.
+        head_ref="HEAD",
     )
     if written is None:
         return False

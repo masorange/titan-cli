@@ -1032,6 +1032,7 @@ def test_review_material_is_written_into_the_worktree(tmp_path):
             return ClientSuccess(data=None)
 
         def get_merge_base(self, a, b):
+            self.merge_base_args = (a, b)
             return self.merge_base
 
         def get_file_at_ref(self, ref, path):
@@ -1051,6 +1052,19 @@ def test_review_material_is_written_into_the_worktree(tmp_path):
     assert "2 [ADDED] new" in (tmp_path / ".titan-review/diffs/a.py.diff").read_text()
     assert "[ADDED] added" in (tmp_path / ".titan-review/pr.diff").read_text()
     assert "mb123" in (tmp_path / ".titan-review/pr.md").read_text()
+
+    # The review's head lives in the ref its worktree step fetched.
+    assert ctx.git.merge_base_args == ("refs/titan/review/pr-9", "refs/titan/review/pr-9-base")
+
+    # Respond to PR Comments has no worktree step, so that ref does not exist: it stands on
+    # the PR branch and says so. Defaulting to the review's ref cost a whole judging run
+    # ("Not a valid object name refs/titan/review/pr-278").
+    ctx_head = SimpleNamespace(git=FakeGit(), textual=textual, data={})
+    assert code_review_steps.write_review_material_at(
+        ctx_head, str(tmp_path), manifest, DiffContextManager.from_diff(diff), [], [],
+        head_ref="HEAD",
+    ) == {"a.py": True, "n.py": False}
+    assert ctx_head.git.merge_base_args == ("HEAD", "refs/titan/review/pr-9-base")
 
     ctx_failing = SimpleNamespace(git=FakeGit(ClientError(error_message="no base")), textual=textual, data={})
     assert code_review_steps.write_review_material_at(

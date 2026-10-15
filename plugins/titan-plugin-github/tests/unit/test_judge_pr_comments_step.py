@@ -6,6 +6,7 @@ tests pin, next to the happy path's contract (verdicts by comment id, verdict fi
 """
 
 import json
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -169,3 +170,30 @@ def test_material_is_pruned_to_the_most_recent_prs(tmp_path, monkeypatch):
 
     assert root.name == "repo-pr42"
     assert len(list(base.iterdir())) == pr_review_steps.MATERIAL_KEPT_PRS
+
+
+@pytest.mark.unit
+def test_material_is_written_against_HEAD_not_the_review_worktree_ref(
+    monkeypatch, tmp_path, sample_ui_comment_thread
+):
+    """The regression of run fe141507: this workflow has no worktree step, so
+    `refs/titan/review/pr-N` does not exist and the merge base has to be taken from HEAD.
+    Taking the review's default made the judging session start with no material at all,
+    silently: the step reports "No verdicts" and the run carries on without it."""
+    captured = {}
+
+    def fake_write(ctx, root, manifest, diff_manager, threads, general, head_ref=None):
+        captured["head_ref"] = head_ref
+        # The real one lays the directory out; comments.md is written into it afterwards.
+        (Path(root) / ".titan-review").mkdir(parents=True, exist_ok=True)
+        return {"a.py": True}
+
+    monkeypatch.setattr(
+        "titan_plugin_github.steps.code_review_steps.write_review_material_at", fake_write
+    )
+    ctx = _ctx(tmp_path, [sample_ui_comment_thread])
+    ctx.data["change_manifest"] = Mock()
+    ctx.data["review_diff_manager"] = Mock()
+
+    assert pr_review_steps._write_judgement_material(ctx, tmp_path / "m", [sample_ui_comment_thread])
+    assert captured["head_ref"] == "HEAD"

@@ -1445,6 +1445,7 @@ def write_review_material_at(
     diff_manager,
     threads: list,
     general_comments: list,
+    head_ref: Optional[str] = None,
 ) -> Optional[dict]:
     """Write a PR's material under `root_path`; map each changed path to whether its base
     version exists. None when it could not be written.
@@ -1456,6 +1457,13 @@ def write_review_material_at(
     its material. Respond to PR Comments passes a directory OUTSIDE the repository instead:
     it works in the user's own checkout, which it also commits from, and material inside that
     tree would be swept into the commit.
+
+    `head_ref` is where the PR head is in THIS repository, and it has to be told because it
+    is not the same in both workflows. The review's is `refs/titan/review/pr-N`, which its
+    worktree step fetched; Respond to PR Comments has no worktree step, is already standing
+    on the PR branch, and passes `HEAD`. Defaulting to the review's ref silently cost a whole
+    run: with no worktree step to create it, `get_merge_base` failed with "Not a valid object
+    name refs/titan/review/pr-278" and the judging session got no material at all.
     """
     from ..operations.review_material_operations import (
         PR_FILE,
@@ -1472,7 +1480,7 @@ def write_review_material_at(
     pr = manifest.pr
     if not ctx.git or not pr or diff_manager is None:
         return None
-    head_ref = review_head_ref(pr.number)
+    head = head_ref or review_head_ref(pr.number)
     base_ref = review_base_ref(pr.number)
     match ctx.git.fetch_refspec(ctx.git.default_remote, f"+refs/heads/{pr.base}:{base_ref}"):
         case ClientError(error_message=err):
@@ -1480,7 +1488,7 @@ def write_review_material_at(
             return None
         case _:
             pass
-    match ctx.git.get_merge_base(head_ref, base_ref):
+    match ctx.git.get_merge_base(head, base_ref):
         case ClientSuccess(data=merge_base):
             pass
         case ClientError(error_message=err):
