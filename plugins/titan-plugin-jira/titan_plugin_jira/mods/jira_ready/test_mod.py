@@ -128,10 +128,22 @@ def test_the_fix_version_picker_ticks_the_current_one_and_pressing_another_repla
 
     assert labels(picker) == ["☑ 2.0", "☐ 3.0", "✕ Clear"]
     assert "▾ Fix version" in labels(buttons)
+    picker.children[1].on_press()
+    act.set_fix.assert_not_called()
     picker.children[2].on_press()
     assert act.set_fix.call_args.args[1].id == "30"
     picker.children[3].on_press()
     assert act.set_fix.call_args.args[1] is None
+
+
+def test_the_fix_version_picker_warns_that_pressing_one_replaces_every_current_version():
+    many = issue()
+    many.fix_versions.extend(["2.1", "2.2"])
+    done = mod.Versions("done", [version("2.1"), version("2.2"), version("3.0")])
+
+    picker = mod.fix_version_section(many, done, True, None, actions())
+
+    assert picker.children[1].parts == ("Pressing one replaces all 2 current versions",)
 
 
 def test_the_released_switch_sits_beside_the_title_and_swaps_the_list():

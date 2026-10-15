@@ -317,7 +317,7 @@ def fix_version_section(issue: UIJiraIssue, versions: Optional[Versions], is_ope
                         fixing: Optional[str], act: CardActions, released: bool = False) -> Optional[Box]:
     """
     The project's versions, released or not as the switch says; the issue's current ones are
-    ticked and pressing another one replaces them.
+    ticked; pressing an unticked one replaces them, pressing a ticked one does nothing.
     """
     if not is_open:
         return None
@@ -332,13 +332,15 @@ def fix_version_section(issue: UIJiraIssue, versions: Optional[Versions], is_ope
 
     def option(version: UIJiraVersion) -> Button:
         mark = "☑" if version.name in current else "☐"
-        return Button(f"{mark} {version.name}", lambda: None if busy else act.set_fix(issue, version),
+        return Button(f"{mark} {version.name}",
+                      lambda: None if busy or version.name in current else act.set_fix(issue, version),
                       dim=busy or version.name not in current)
 
     shown = fix_version_options(versions.items, released)
     return Box(
         Box(Text("Fix version", dim=True), Button(f"{'◉' if released else '○'} Released", act.toggle_released, dim=True),
             row=True),
+        len(current) > 1 and Text(f"Pressing one replaces all {len(current)} current versions", dim=True, wrap=True),
         *(option(v) for v in shown),
         not shown and Text("No released versions" if released else "No unreleased versions", dim=True),
         current and Button("✕ Clear", lambda: None if busy else act.set_fix(issue, None), dim=True),
