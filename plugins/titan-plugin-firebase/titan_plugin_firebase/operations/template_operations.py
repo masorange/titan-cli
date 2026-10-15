@@ -237,7 +237,7 @@ def add_parameter_to_payload(
         parameters = {}
     if not isinstance(parameters, dict):
         raise TemplateEditError("La plantilla tiene un bloque parameters inválido.")
-    if key in parameters:
+    if _find_parameter(updated, key) is not _MISSING:
         raise TemplateEditError(
             f"El parámetro '{key}' ya existe en la plantilla destino."
         )
@@ -299,15 +299,31 @@ def build_parameter_payload(
     return parameter
 
 
+_MISSING: Any = object()
+
+
+def _find_parameter(payload: dict[str, Any], key: str) -> Any:
+    """Find a parameter at the top level or inside any parameter group."""
+    parameters = payload.get("parameters")
+    if isinstance(parameters, dict) and key in parameters:
+        return parameters[key]
+    groups = payload.get("parameterGroups")
+    if isinstance(groups, dict):
+        for group in groups.values():
+            grouped = group.get("parameters") if isinstance(group, dict) else None
+            if isinstance(grouped, dict) and key in grouped:
+                return grouped[key]
+    return _MISSING
+
+
 def _parameter(payload: dict[str, Any], key: str) -> dict[str, Any]:
     """Return one parameter dict, or explain that it is not there."""
-    parameters = payload.get("parameters")
-    if not isinstance(parameters, dict) or key not in parameters:
+    parameter = _find_parameter(payload, key)
+    if parameter is _MISSING:
         raise TemplateEditError(
             f"El parámetro '{key}' no existe en la plantilla. Créalo en la "
             "consola de Firebase antes de escribir sobre él."
         )
-    parameter = parameters[key]
     if not isinstance(parameter, dict):
         raise TemplateEditError(
             f"El parámetro '{key}' tiene un formato inesperado en la plantilla."

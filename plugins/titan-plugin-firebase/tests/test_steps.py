@@ -381,7 +381,7 @@ def test_get_publishes_etag_and_template(ui_template):
     assert isinstance(result, Success)
     assert result.metadata["firebase_remoteconfig_etag"] == "etag-1"
     assert result.metadata["firebase_remoteconfig_version"] == "42"
-    assert result.metadata["firebase_remoteconfig_template"].parameter_count == 3
+    assert result.metadata["firebase_remoteconfig_template"].parameter_count == 4
 
 
 def test_get_errors_without_a_project():
@@ -420,9 +420,10 @@ def test_list_keys_publishes_the_complete_key_inventory(ui_template):
     assert result.metadata["firebase_remoteconfig_keys"] == [
         "feature_enabled",
         "legacy_untyped",
+        "onboarding_title",
         "welcome_text",
     ]
-    assert result.metadata["firebase_remoteconfig_key_count"] == 3
+    assert result.metadata["firebase_remoteconfig_key_count"] == 4
     assert result.metadata["firebase_remoteconfig_key_values"]["feature_enabled"] == {
         "key": "feature_enabled",
         "value_type": "BOOLEAN",
@@ -473,7 +474,7 @@ def test_list_keys_works_without_tui(ui_template):
     result = execute_firebase_remoteconfig_list_keys_step(ctx)
 
     assert isinstance(result, Success)
-    assert result.metadata["firebase_remoteconfig_key_count"] == 3
+    assert result.metadata["firebase_remoteconfig_key_count"] == 4
 
 
 def test_list_keys_allows_empty_templates(ui_template):

@@ -346,3 +346,20 @@ def test_build_parameter_payload_rejects_unknown_types():
 def test_build_parameter_payload_rejects_invalid_values():
     with pytest.raises(RemoteConfigValueError):
         build_parameter_payload(T.BOOLEAN, "quizá")
+
+
+def test_grouped_parameter_is_resolved_and_edited_in_place(template_payload):
+    change = build_change(template_payload, "onboarding_title", "hola")
+
+    updated = apply_change(template_payload, change)
+
+    grouped = updated["parameterGroups"]["onboarding"]["parameters"]
+    assert grouped["onboarding_title"]["defaultValue"]["value"] == "hola"
+    assert "onboarding_title" not in updated["parameters"]
+
+
+def test_add_parameter_rejects_key_that_lives_in_a_group(template_payload):
+    source = parameter_payload(template_payload, "onboarding_title")
+
+    with pytest.raises(TemplateEditError, match="ya existe"):
+        add_parameter_to_payload(template_payload, "onboarding_title", source)

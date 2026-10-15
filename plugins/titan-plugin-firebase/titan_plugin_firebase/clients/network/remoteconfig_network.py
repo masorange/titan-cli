@@ -145,7 +145,7 @@ class RemoteConfigNetwork:
             "firebase_remoteconfig_get_ok",
             project_id=normalized,
             etag=etag,
-            parameter_count=len(template.parameters),
+            parameter_count=len(template.all_parameters()),
             condition_count=len(template.conditions),
             duration_ms=duration_ms,
         )

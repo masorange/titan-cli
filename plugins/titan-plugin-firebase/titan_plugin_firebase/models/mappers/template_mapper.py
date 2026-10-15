@@ -125,7 +125,7 @@ def map_template(
         etag=etag,
         parameters=[
             map_parameter(key, parameter)
-            for key, parameter in sorted(template.parameters.items())
+            for key, parameter in sorted(template.all_parameters().items())
         ],
         conditions=[map_condition(condition) for condition in template.conditions],
         version=map_version(template.version),

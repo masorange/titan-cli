@@ -10,6 +10,7 @@ def test_parameters_are_sorted_by_key(ui_template):
     assert [p.key for p in ui_template.parameters] == [
         "feature_enabled",
         "legacy_untyped",
+        "onboarding_title",
         "welcome_text",
     ]
 

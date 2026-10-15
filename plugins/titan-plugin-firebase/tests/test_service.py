@@ -17,7 +17,7 @@ def test_get_template_returns_ui_model(make_network, make_response, template_pay
     assert isinstance(result, ClientSuccess)
     assert result.data.project_id == "mm-firebase-yoigo"
     assert result.data.etag == "etag-1"
-    assert result.data.parameter_count == 3
+    assert result.data.parameter_count == 4
 
 
 def test_etag_conflict_is_a_warning_level_error(make_network, make_response):

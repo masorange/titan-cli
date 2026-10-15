@@ -629,8 +629,10 @@ def test_select_targets_errors_without_a_project_list_or_tui():
 def _template_with_feature_as_string(ui_template):
     feature = ui_template.parameter("feature_enabled")
     welcome = ui_template.parameter("welcome_text")
+    onboarding = ui_template.parameter("onboarding_title")
     assert feature is not None
     assert welcome is not None
+    assert onboarding is not None
     return replace(
         ui_template,
         project_id="mm-guuk-firebase-prod",
@@ -640,6 +642,7 @@ def _template_with_feature_as_string(ui_template):
                 value_type=T.STRING,
                 declared_value_type=T.STRING,
             ),
+            onboarding,
             welcome,
         ],
     )
@@ -658,15 +661,20 @@ def test_key_inventory_finds_missing_keys_and_type_conflicts(ui_template):
     assert inventory.keys == [
         "feature_enabled",
         "legacy_untyped",
+        "onboarding_title",
         "welcome_text",
     ]
-    assert inventory.common_keys == ["feature_enabled", "welcome_text"]
+    assert inventory.common_keys == [
+        "feature_enabled",
+        "onboarding_title",
+        "welcome_text",
+    ]
     assert inventory.missing_keys["mm-guuk-firebase-prod"] == ["legacy_untyped"]
     assert inventory.type_conflicts == {
         "feature_enabled": ["BOOLEAN", "STRING"],
     }
     assert inventory.value_types == ["BOOLEAN", "JSON", "STRING"]
-    assert inventory.bulk_safe_keys == ["welcome_text"]
+    assert inventory.bulk_safe_keys == ["onboarding_title", "welcome_text"]
     assert inventory.bulk_blocked_keys == {
         "feature_enabled": ["type_conflict"],
         "legacy_untyped": ["missing"],
@@ -894,6 +902,7 @@ def test_key_comparison_items_merge_inventory_and_values_by_key(ui_template):
     assert [item.key for item in items] == [
         "feature_enabled",
         "legacy_untyped",
+        "onboarding_title",
         "welcome_text",
     ]
     feature = items[0]
@@ -1072,10 +1081,12 @@ def test_fanout_list_keys_reads_every_project_and_reports_inventory(ui_template)
     assert result.metadata["firebase_remoteconfig_keys"] == [
         "feature_enabled",
         "legacy_untyped",
+        "onboarding_title",
         "welcome_text",
     ]
     assert result.metadata["firebase_remoteconfig_common_keys"] == [
         "feature_enabled",
+        "onboarding_title",
         "welcome_text",
     ]
     assert result.metadata["firebase_remoteconfig_missing_keys"] == {
@@ -1086,6 +1097,7 @@ def test_fanout_list_keys_reads_every_project_and_reports_inventory(ui_template)
         "feature_enabled": ["BOOLEAN", "STRING"],
     }
     assert result.metadata["firebase_remoteconfig_bulk_safe_keys"] == [
+        "onboarding_title",
         "welcome_text",
     ]
     assert result.metadata["firebase_remoteconfig_bulk_blocked_keys"] == {
@@ -1173,13 +1185,13 @@ def test_fanout_list_keys_reads_every_project_and_reports_inventory(ui_template)
     ]
     ctx.textual.table.assert_not_called()
     ctx.textual.dim_text.assert_any_call(
-        "2/2 proyectos leidos · 3 claves unicas · 2 comunes · "
+        "2/2 proyectos leidos · 4 claves unicas · 3 comunes · "
         "1 conflicto de tipo"
     )
     ctx.textual.dim_text.assert_any_call("Claves y valores")
     ctx.textual.collapsible_list.assert_called_once()
     value_entries = ctx.textual.collapsible_list.call_args.args[0]
-    assert len(value_entries) == 3
+    assert len(value_entries) == 4
     assert value_entries[0].title == "feature_enabled  [Bool / String]"
     assert value_entries[0].right == "2/2 · conflicto de tipo"
     assert value_entries[0].style == "warning"
@@ -1269,7 +1281,7 @@ def test_fanout_list_keys_keeps_partial_read_failures(ui_template):
         "mm-firebase-yoigo": "403",
     }
     assert result.metadata["firebase_remoteconfig_project_key_counts"] == {
-        "mm-guuk-firebase-prod": 3,
+        "mm-guuk-firebase-prod": 4,
     }
     ctx.textual.warning_text.assert_called_once()
     assert ctx.textual.table.call_args.kwargs["title"] == "Estado de lectura"

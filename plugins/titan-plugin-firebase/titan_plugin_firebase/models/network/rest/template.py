@@ -165,6 +165,24 @@ class NetworkRemoteConfigTemplate(BaseModel):
     )
     version: Optional[NetworkVersion] = Field(None)
 
+    def all_parameters(self) -> dict[str, NetworkParameter]:
+        """
+        Every parameter in the template, top-level and grouped.
+
+        Remote Config stores grouped parameters under
+        `parameterGroups[group].parameters`, never in the top-level block.
+        """
+        merged = dict(self.parameters)
+        for group in self.parameter_groups.values():
+            grouped = group.get("parameters") if isinstance(group, dict) else None
+            if not isinstance(grouped, dict):
+                continue
+            for key, raw in grouped.items():
+                if key in merged or not isinstance(raw, dict):
+                    continue
+                merged[key] = NetworkParameter.model_validate(raw)
+        return merged
+
     def to_payload(self) -> dict[str, Any]:
         """Serialize back to the exact JSON shape the REST API expects."""
         return self.model_dump(by_alias=True, exclude_none=True)

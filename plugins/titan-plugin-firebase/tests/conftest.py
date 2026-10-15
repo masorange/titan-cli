@@ -180,7 +180,14 @@ _TEMPLATE_PAYLOAD = {
         },
     },
     "parameterGroups": {
-        "onboarding": {"parameters": {"welcome_text": {}}},
+        "onboarding": {
+            "parameters": {
+                "onboarding_title": {
+                    "defaultValue": {"value": "bienvenido"},
+                    "valueType": "STRING",
+                },
+            },
+        },
     },
     "version": {
         "versionNumber": "42",
