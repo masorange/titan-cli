@@ -5,9 +5,7 @@ from __future__ import annotations
 from titan_cli.engine import Error, Success, WorkflowContext, WorkflowResult
 from titan_cli.ui.tui.widgets import OptionItem
 
-# Sentinel for "the parameter's default value", which is not a condition but is
-# one of the choices a write target can take.
-DEFAULT_TARGET = "__default__"
+from .prompts import DEFAULT_TARGET, normalize_preselection
 
 
 def execute_firebase_remoteconfig_conditions_step(
@@ -66,7 +64,7 @@ def execute_firebase_remoteconfig_conditions_step(
 
     preselected = ctx.get("condition") or ctx.get("firebase_condition")
     if preselected is not None:
-        condition_name = _normalize_preselection(str(preselected))
+        condition_name = normalize_preselection(preselected)
         if condition_name is not None and not any(
             condition.name == condition_name for condition in template.conditions
         ):
@@ -117,18 +115,6 @@ def execute_firebase_remoteconfig_conditions_step(
         return Error(message)
 
     return _success(ctx, None if selected == DEFAULT_TARGET else str(selected))
-
-
-def _normalize_preselection(value: str) -> str | None:
-    """Map the textual forms of "the default value" to None."""
-    normalized = value.strip()
-    if not normalized or normalized.lower() in {
-        "default",
-        "defaultvalue",
-        DEFAULT_TARGET,
-    }:
-        return None
-    return normalized
 
 
 def _success(ctx: WorkflowContext, condition_name: str | None) -> WorkflowResult:

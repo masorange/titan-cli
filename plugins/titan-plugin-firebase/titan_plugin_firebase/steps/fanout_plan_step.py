@@ -24,6 +24,7 @@ from .prompts import (
     ask_value,
     blank_to_none,
     display_for_target,
+    normalize_preselection,
 )
 
 
@@ -84,9 +85,12 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     value = blank_to_none(ctx.get("value")) or blank_to_none(
         ctx.get("firebase_new_value")
     )
-    condition = blank_to_none(ctx.get("condition")) or blank_to_none(
+    preselected = blank_to_none(ctx.get("condition")) or blank_to_none(
         ctx.get("firebase_condition")
     )
+    # "default" is an answer (the default value), not a missing condition.
+    condition_given = preselected is not None
+    condition = normalize_preselection(preselected) if condition_given else None
 
     if key is not None:
         safety_error = _bulk_safety_error(ctx, str(key))
@@ -97,7 +101,7 @@ def execute_firebase_remoteconfig_fanout_plan_step(
         # The parameters, their types and the conditions live in the projects,
         # so the first target's template is what the prompts are built from.
         # Every other project is validated against it afterwards.
-        asked = _ask_change(ctx, targets[0], key, condition)
+        asked = _ask_change(ctx, targets[0], key, condition, condition_given)
         if isinstance(asked, str):
             return _fail(ctx, asked)
         key, value, condition = asked
@@ -145,7 +149,7 @@ def execute_firebase_remoteconfig_fanout_plan_step(
     )
 
 
-def _ask_change(ctx, reference_target, key, condition):
+def _ask_change(ctx, reference_target, key, condition, condition_given):
     """
     Ask for the parameter, the target value and the new value interactively.
 
@@ -168,7 +172,7 @@ def _ask_change(ctx, reference_target, key, condition):
             )
 
     template = result.data
-    if condition is None:
+    if condition is None and not condition_given:
         condition, answered = ask_condition(ctx, template)
         if not answered:
             return "No se seleccionó ningún destino"

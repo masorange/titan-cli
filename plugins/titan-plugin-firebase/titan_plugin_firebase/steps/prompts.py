@@ -35,6 +35,18 @@ def blank_to_none(value: Any) -> Optional[str]:
     return text or None
 
 
+def normalize_preselection(value: Any) -> Optional[str]:
+    """Map the textual forms of "the default value" to None."""
+    normalized = str(value).strip()
+    if not normalized or normalized.lower() in {
+        "default",
+        "defaultvalue",
+        DEFAULT_TARGET,
+    }:
+        return None
+    return normalized
+
+
 def normalize_value_type(raw: Any) -> RemoteConfigValueType:
     """Normalize a value type coming from workflow data."""
     from ..models.values import normalize_value_type as normalize_model_value_type
