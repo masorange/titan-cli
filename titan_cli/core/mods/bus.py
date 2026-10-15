@@ -126,13 +126,13 @@ class AIAnswer:
 
 class _HeadlessHost:
     def dock(self, mod: str, slot: Optional[DockSlot]) -> None:
-        logger.debug("mod_dock", mod=mod, label=slot.label if slot else None)
+        logger.debug("mod_dock", mod=mod, has_slot=slot is not None)
 
     def home_card(self, mod: str, slot: Optional["HomeCardSlot"]) -> None:
-        logger.debug("mod_home_card", mod=mod, title=slot.title if slot else None)
+        logger.debug("mod_home_card", mod=mod, has_card=slot is not None)
 
     def toast(self, mod: str, text: str, severity: str) -> None:
-        logger.debug("mod_toast", mod=mod, text=text, severity=severity)
+        logger.debug("mod_toast", mod=mod, length=len(text), severity=severity)
 
     def copy(self, mod: str, text: str, what: str) -> None:
         logger.debug("mod_copy_ignored", mod=mod, what=what)
@@ -141,7 +141,7 @@ class _HeadlessHost:
         logger.debug("mod_pane_opened", mod=mod, pane=pane)
 
     def badge(self, mod: str, pane: str, text: Optional[str], severity: Optional[str]) -> None:
-        logger.debug("mod_badge", mod=mod, pane=pane, text=text)
+        logger.debug("mod_badge", mod=mod, pane=pane, has_badge=text is not None)
 
     def repaint(self, mod: str) -> None:
         pass
