@@ -554,6 +554,8 @@ class UIFanoutOutcome:
             return self.error
         if self.published is None:
             return "sin publicar"
+        if self.published.validated_only:
+            return "validado"
         version = self.published.version_number or "?"
         if self.published.retried_after_conflict:
             return f"versión {version} (reintentada por ETag)"
