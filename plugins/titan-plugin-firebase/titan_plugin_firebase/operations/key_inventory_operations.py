@@ -697,7 +697,9 @@ def _parameter_value_slots(
 ) -> list[tuple[str, UIRemoteConfigValue]]:
     """Return the value slots selected for display."""
     slots: list[tuple[str, UIRemoteConfigValue]] = []
-    if condition_group is None or condition_group.include_default:
+    if parameter.default_value is not None and (
+        condition_group is None or condition_group.include_default
+    ):
         slots.append(("default", parameter.default_value))
     for condition_name in sorted(parameter.conditional_values):
         if condition_group is None or _condition_matches_group(

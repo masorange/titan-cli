@@ -118,7 +118,14 @@ def build_change(
 
     _ensure_value_slot_is_editable(payload, key, condition)
     value_type = effective_value_type_for(payload, key)
-    serialized = serialize_value(new_value, value_type)
+    # An inferred type is only a guess about the current value. Without a
+    # declared `valueType` the input is stored verbatim, so "1" is not
+    # rewritten to "true" on a parameter that merely holds "true" today.
+    declared = normalize_value_type(_parameter(payload, key).get("valueType"))
+    serialized = serialize_value(
+        new_value,
+        value_type if declared.is_known else RemoteConfigValueType.UNKNOWN,
+    )
     old_value, inherited = current_raw_value(payload, key, condition)
 
     return UIRemoteConfigChange(
