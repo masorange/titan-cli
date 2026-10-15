@@ -155,14 +155,6 @@ def build_query_not_found_message(
     return error_msg
 
 
-__all__ = [
-    "substitute_jql_variables",
-    "format_jql_with_project",
-    "merge_query_collections",
-    "build_query_not_found_message",
-]
-
-
 def jql_string(value: str) -> str:
     """`value` as a quoted JQL string, its quotes and backslashes escaped."""
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
@@ -197,3 +189,15 @@ def components_condition(names: Sequence[str]) -> str:
     if not names:
         return ""
     return f"component in ({', '.join(jql_string(n) for n in names)})"
+
+
+__all__ = [
+    "substitute_jql_variables",
+    "format_jql_with_project",
+    "merge_query_collections",
+    "build_query_not_found_message",
+    "jql_string",
+    "build_issue_jql",
+    "strip_order_by",
+    "components_condition",
+]
