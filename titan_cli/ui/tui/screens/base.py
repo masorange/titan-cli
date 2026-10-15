@@ -134,6 +134,14 @@ class BaseScreen(Screen):
                 pass
             self.refresh_dock()
 
+        # The mods host only repaints the top screen's panel (see ModsHost._repaint_now);
+        # a screen underneath otherwise keeps whatever it last drew until remounted.
+        try:
+            panel = self.query_one(ModSidePanel)
+        except Exception:
+            return  # this screen has no panel
+        panel.refresh_panes()
+
     def on_header_widget_back_pressed(self, message: HeaderWidget.BackPressed) -> None:
         """Handle back button press from header."""
         self.action_go_back()

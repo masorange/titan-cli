@@ -504,8 +504,8 @@ class AIConfigScreen(BaseScreen):
 
     def on_screen_resume(self) -> None:
         """Reload when returning from a wizard or modal."""
+        super().on_screen_resume()
         self.load_sections()
-        self.refresh_dock()
 
     def load_sections(self) -> None:
         """
