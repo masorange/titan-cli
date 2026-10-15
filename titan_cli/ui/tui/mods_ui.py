@@ -167,7 +167,10 @@ class TitanModHost:
             if self._repaint_pending:
                 return
             self._repaint_pending = True
-        self._on_app_thread(lambda: self._app.call_later(self._repaint_now))
+        if not self._on_app_thread(lambda: self._app.call_later(self._repaint_now)):
+            # Dropped call: _repaint_now will never clear the flag.
+            with self._lock:
+                self._repaint_pending = False
 
     def _repaint_now(self) -> None:
         from titan_cli.ui.tui.widgets.mod_side_panel import ModSidePanel
@@ -508,13 +511,16 @@ class TitanModHost:
 
     # -- threading ----------------------------------------------------------
 
-    def _on_app_thread(self, fn: Callable[[], None]) -> None:
+    def _on_app_thread(self, fn: Callable[[], None]) -> bool:
+        """Run ``fn`` on the app thread; False when the call was dropped."""
         if getattr(self._app, "_thread_id", None) == threading.get_ident():
             fn()
-            return
+            return True
         if not self._app.is_running:
-            return
+            return False
         try:
             self._app.call_from_thread(fn)
         except Exception:
             logger.debug("mod_ui_call_dropped", exc_info=True)
+            return False
+        return True
