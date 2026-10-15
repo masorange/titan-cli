@@ -316,6 +316,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         not, so it is reused unless it is known to be stale.
         """
         super().on_screen_resume()
+        self.refresh_mod_cards()
 
         if self._discovery_dirty:
             # The set of workflows itself may have changed (a plugin was enabled or
