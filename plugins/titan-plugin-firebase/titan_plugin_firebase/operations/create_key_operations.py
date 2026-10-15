@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Iterable, Mapping
 
 from ..models.targets import FirebaseProjectTarget
@@ -17,13 +18,18 @@ from ..models.view import (
     UIRemoteConfigKeyCreateRequest,
 )
 
+# New lines, or commas that start another `name=` entry.
+_CONDITION_SEPARATOR = re.compile(r"\n|,(?=\s*[^=,\n]+=)")
+
 
 def parse_condition_value_map(raw: Any) -> dict[str, str]:
     """
     Parse optional condition values from workflow data.
 
     A mapping is accepted directly. Strings can be a JSON object or a compact
-    `condition=value` list split by commas or new lines.
+    `condition=value` list split by new lines or by commas followed by another
+    `name=`. Commas inside a value are kept, but a value that itself contains
+    `, name=` is ambiguous and must use the JSON object form.
     """
     if raw is None:
         return {}
@@ -45,7 +51,7 @@ def parse_condition_value_map(raw: Any) -> dict[str, str]:
         return parse_condition_value_map(parsed)
 
     values: dict[str, str] = {}
-    for chunk in text.replace("\n", ",").split(","):
+    for chunk in _CONDITION_SEPARATOR.split(text):
         item = chunk.strip()
         if not item:
             continue
