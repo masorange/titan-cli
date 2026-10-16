@@ -17,6 +17,7 @@ from .jql_operations import (
     build_issue_jql,
     components_condition,
     jql_string,
+    search_condition,
     strip_order_by,
 )
 
@@ -61,6 +62,7 @@ __all__ = [
     "build_issue_jql",
     "components_condition",
     "jql_string",
+    "search_condition",
     "strip_order_by",
     # Issue formatting operations
     "truncate_summary",

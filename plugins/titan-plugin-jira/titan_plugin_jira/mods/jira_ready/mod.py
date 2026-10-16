@@ -1,29 +1,32 @@
 """
-jira_ready: a side pane with Jira issues, narrowed by a status and by filters
-picked from two drop-downs in the pane itself. Both read Jira: the statuses
-of the project, its components, and the saved filters you starred, plus
-"Mine". Nothing has to be picked: no status means any status, no filter
-means every issue. Opening an issue shows its summary, assignee, status and
-folded description, and lets you plan it (the plan workflow opens on it,
-skipping its issue prompt), take it (assigned to you and moved to the
-working status) or move it to any status Jira allows from where it is.
+jira_ready: a side pane with Jira issues, narrowed by one or more projects, a
+status, filters and free text, picked from drop-downs and a search box in the
+pane itself. All but search read Jira: every project you can see, the statuses
+and components of the project (when exactly one is picked), and the saved
+filters you starred, plus "Mine". Nothing has to be picked: no project means
+every one you can see, no status means any status, no filter means every
+issue. Opening an issue shows its summary, assignee, status and folded
+description, and lets you plan it (the plan workflow opens on it, skipping its
+issue prompt), take it (assigned to you and moved to the working status) or
+move it to any status Jira allows from where it is.
 
 Everything Jira-specific (the JQL, taking an issue, the description and name
 formatting, the issue URL) comes from the jira plugin; this file only polls
 and draws. Reads run on a background thread; drawing reads only `m.state`,
-so it never waits on the network. The chosen status and filters live in
-`m.store`, so they survive a restart.
+so it never waits on the network. The chosen projects, status, filters and
+confirmed search live in `m.store`, so they survive a restart.
 """
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
-from titan_cli.core.mods import Box, Button, Link, Text
+from titan_cli.core.mods import Box, Button, Input, Link, Text
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.models import (
     UIJiraComment,
     UIJiraComponent,
     UIJiraFilter,
     UIJiraIssue,
+    UIJiraProject,
     UIJiraStatus,
     UIJiraTransition,
     UIJiraVersion,
@@ -36,6 +39,7 @@ from titan_plugin_jira.operations import (
     display_lines,
     format_person_name,
     issue_description_lines,
+    search_condition,
     strip_order_by,
     take_issue,
 )
@@ -48,6 +52,8 @@ PREVIEW_LINES = 2
 COMMENT_LINES = 60
 SUMMARY_TOKENS = 900
 SHOW_ALL = 99  # below Jira's 100-result search cap, so the +1 probe can still detect truncation
+ORDER_BY = "key ASC"  # Jira sorts an issue key by its number, not as text: PROJ-2 before PROJ-10
+MAX_PROJECT_OPTIONS = 30  # a Jira instance can have hundreds of projects; rendering them all freezes Titan
 MINE = "mine"
 MINE_JQL = "assignee = currentUser()"
 CATEGORY_ORDER = {"To Do": 0, "In Progress": 1, "Done": 2}
@@ -59,6 +65,7 @@ class Choices:
     statuses: List[UIJiraStatus] = field(default_factory=list)
     components: List[UIJiraComponent] = field(default_factory=list)
     filters: List[UIJiraFilter] = field(default_factory=list)
+    projects: List[UIJiraProject] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -130,13 +137,20 @@ def filter_id(f: UIJiraFilter) -> str:
     return f"filter:{f.id}"
 
 
-def project_of(jira, options) -> str:
-    """The mod's `project` option, else the jira plugin's default_project, else none."""
-    return options["project"] or (jira.project_key if jira else "") or ""
+def default_projects(jira, options) -> List[str]:
+    """The mod's `project` option (comma-separated keys), else the jira plugin's
+    default_project, else none (every project the user can see)."""
+    configured = [p.strip() for p in options["project"].split(",") if p.strip()]
+    if configured:
+        return configured
+    return [jira.project_key] if jira and jira.project_key else []
 
 
-def read_choices(jira, project: str) -> Choices:
-    """Statuses and components need a project; the starred filters do not. A failed read offers nothing."""
+def read_choices(jira, projects: List[str]) -> Choices:
+    """Statuses and components need at least one project - with several, every
+    project's own are merged (by name, so the same status offered by two projects
+    appears once). The starred filters and the project list itself need none.
+    A failed read offers nothing."""
     def data(result):
         match result:
             case ClientSuccess(data=items):
@@ -144,19 +158,27 @@ def read_choices(jira, project: str) -> Choices:
             case _:
                 return []
 
-    statuses = data(jira.list_statuses(project)) if project else []
-    statuses = sorted(statuses, key=lambda s: CATEGORY_ORDER.get(s.category, 1))
-    components = data(jira.list_components(project)) if project else []
-    return Choices(statuses, components, data(jira.list_favourite_filters()))
+    def merged(fetch):
+        by_name = {}
+        for p in projects:
+            for item in data(fetch(p)):
+                by_name.setdefault(item.name, item)
+        return list(by_name.values())
+
+    statuses = sorted(merged(jira.list_statuses), key=lambda s: CATEGORY_ORDER.get(s.category, 1))
+    components = merged(jira.list_components)
+    all_projects = sorted(data(jira.list_projects()), key=lambda p: p.key)
+    return Choices(statuses, components, data(jira.list_favourite_filters()), all_projects)
 
 
-def chosen_status(m) -> Optional[str]:
-    """The picked status while Jira still offers it; None (any status) otherwise."""
-    status = m.store.get("status")
+def active_statuses(m) -> List[str]:
+    """The picked statuses still on offer (all of them while the offer is still loading)."""
+    picked = list(m.store.get("statuses") or [])
     choices: Optional[Choices] = m.state.get("choices")
-    if choices is not None and status not in {s.name for s in choices.statuses}:
-        return None
-    return status
+    if choices is None:
+        return picked
+    offered = {s.name for s in choices.statuses}
+    return [s for s in picked if s in offered]
 
 
 def active_filters(m) -> List[str]:
@@ -169,7 +191,17 @@ def active_filters(m) -> List[str]:
     return [f for f in picked if f in offered]
 
 
-def conditions(filters: List[str], choices: Optional[Choices]) -> List[str]:
+def active_projects(m) -> List[str]:
+    """The picked projects still on offer (all of them while the offer is still loading)."""
+    picked = list(m.store.get("projects") or [])
+    choices: Optional[Choices] = m.state.get("choices")
+    if choices is None:
+        return picked
+    offered = {p.key for p in choices.projects}
+    return [p for p in picked if p in offered]
+
+
+def conditions(filters: List[str], choices: Optional[Choices], query: str = "", projects: Sequence[str] = ()) -> List[str]:
     """The JQL of the active filters: components OR-ed together, everything else AND-ed."""
     saved = {filter_id(f): f.jql for f in (choices.filters if choices else [])}
     out = [MINE_JQL] if MINE in filters else []
@@ -177,24 +209,29 @@ def conditions(filters: List[str], choices: Optional[Choices]) -> List[str]:
     if components:
         out.append(components)
     out += [strip_order_by(saved[f]) for f in filters if f in saved and strip_order_by(saved[f])]
+    search = search_condition(query, projects)
+    if search:
+        out.append(search)
     return out
 
 
-def read_ready(jira, options, status: Optional[str], filters: List[str], choices: Optional[Choices],
-               limit: Optional[int] = None) -> Ready:
+def read_ready(jira, options, statuses: List[str], filters: List[str], choices: Optional[Choices],
+               projects: List[str] = (), search: str = "", limit: Optional[int] = None) -> Ready:
     """The first `limit` issues (the `shown` option unless "Show all" raised it); one extra is read to know if more remain."""
     limit = limit or options["shown"]
     if jira is None:
         return Ready("", [], error="Jira is not available here: enable and configure the jira plugin")
-    project = project_of(jira, options)
-    query = build_issue_jql(status, project, conditions(filters, choices))
+    scope = ", ".join(projects)
+    if search.strip():
+        statuses, filters = [], []  # a search looks through the whole of the chosen projects
+    query = build_issue_jql(list(statuses), list(projects), conditions(filters, choices, search, projects), order_by=ORDER_BY)
     match jira.search_issues(query, max_results=limit + 1, fields=FIELDS):
         case ClientSuccess(data=found):
             issues = found[:limit]
-            return Ready(query, issues, project, urls={i.key: jira.issue_url(i.key) for i in issues},
+            return Ready(query, issues, scope, urls={i.key: jira.issue_url(i.key) for i in issues},
                          more=len(found) > limit)
         case ClientError(error_message=message):
-            return Ready(query, [], project, error=message)
+            return Ready(query, [], scope, error=message)
 
 
 def issue_line(issue: UIJiraIssue, selected: bool, select) -> Button:
@@ -407,6 +444,11 @@ def filter_names(filters: List[str], choices: Optional[Choices]) -> List[str]:
     return names
 
 
+def section(title, color: str, *body) -> Box:
+    """A titled, bordered group - the same shape the github mod uses for its own sections."""
+    return Box(title if isinstance(title, Text) else Text(title, bold=True, color=color), *body, border=color)
+
+
 def dropdown(label: str, summary: str, is_open: bool, toggle, *options) -> Box:
     """A line with what is picked; pressing it unfolds the options under it."""
     return Box(
@@ -415,17 +457,56 @@ def dropdown(label: str, summary: str, is_open: bool, toggle, *options) -> Box:
     )
 
 
-def status_control(status: Optional[str], choices: Optional[Choices], is_open: bool, toggle, pick_status) -> Box:
-    def option(name: Optional[str], label: str) -> Button:
-        on = name == status
-        return Button(f"{'●' if on else '○'} {label}", lambda: pick_status(name), dim=not on)
+def status_control(statuses: List[str], choices: Optional[Choices], is_open: bool, toggle, toggle_status) -> Box:
+    def option(name: str, label: str) -> Button:
+        on = name in statuses
+        return Button(f"{'☑' if on else '☐'} {label}", lambda: toggle_status(name), dim=not on)
 
-    statuses = choices.statuses if choices else []
+    available = choices.statuses if choices else []
     return dropdown(
-        "Status", status or "Any", is_open, toggle,
-        option(None, "Any"),
-        *(option(s.name, f"{s.icon} {s.name}") for s in statuses),
-        choices is not None and not statuses and Text("No statuses without a project", dim=True),
+        "Status", ", ".join(statuses) if statuses else "Any", is_open, toggle,
+        *(option(s.name, f"{s.icon} {s.name}") for s in available),
+        choices is not None and not available and Text("No statuses: pick at least one project", dim=True),
+    )
+
+
+def matching_projects(available: List[UIJiraProject], filter_text: str) -> List[UIJiraProject]:
+    needle = filter_text.strip().lower()
+    if not needle:
+        return available
+    return [p for p in available if needle in p.key.lower() or needle in p.name.lower()]
+
+
+def projects_control(projects: List[str], choices: Optional[Choices], is_open: bool, toggle,
+                     draft: str, change_draft, submit_draft, toggle_project,
+                     browse_open: bool, toggle_browse, filter_text: str, change_filter,
+                     show_count: int, show_more_projects) -> Box:
+    """Folded like Status and Filters. Open, it offers typing the keys you know
+    (comma-separated); "Browse" is the fallback when you don't - Jira can have
+    hundreds of projects, so it only ever draws `show_count` of them, narrowed
+    first by a text filter, with "Show more" raising that by `MAX_PROJECT_OPTIONS`."""
+    def option(key: str, label: str) -> Button:
+        on = key in projects
+        return Button(f"{'☑' if on else '☐'} {label}", lambda: toggle_project(key), dim=not on)
+
+    available = choices.projects if choices else []
+    matches = matching_projects(available, filter_text)
+    shown = matches[:show_count]
+    more = len(matches) > len(shown)
+    browse = f"{'▾' if browse_open else '▸'} Browse" + (f" ({len(available)})" if available else "")
+    return dropdown(
+        "Projects", ", ".join(projects) if projects else "All", is_open, toggle,
+        Input(draft, "Key1, Key2… (empty = all)", change_draft, submit_draft),
+        Button(browse, toggle_browse, dim=True),
+        browse_open and Box(
+            len(available) > MAX_PROJECT_OPTIONS and Input(filter_text, "Filter…", change_filter),
+            *(option(p.key, f"{p.key} · {p.name}") for p in shown),
+            more and Button("＋ Show more", show_more_projects, variant="default"),
+            choices is None and Text("Loading…", dim=True),
+            choices is not None and available and not matches and Text("No project matches", dim=True),
+            choices is not None and not available and Text("No projects found", dim=True),
+            indent=2,
+        ),
     )
 
 
@@ -448,68 +529,113 @@ def filters_control(filters: List[str], choices: Optional[Choices], is_open: boo
     )
 
 
-def draw(m, options, pick_status, toggle_filter, open_control, show_more, act: CardActions):
-    status, filters = chosen_status(m), active_filters(m)
-    choices: Optional[Choices] = m.state.get("choices")
-    shown = m.state.get("open_control")
-    controls = [
-        status_control(status, choices, shown == "status", lambda: open_control("status"), pick_status),
-        filters_control(filters, choices, shown == "filters", lambda: open_control("filters"), toggle_filter),
-    ]
-
-    ready: Optional[Ready] = m.state.get("ready")
-    if ready is None:
-        body = [Text("Loading…", dim=True)]
-    elif ready.error:
-        body = [Text(ready.error, color="error", wrap=True)]
-    elif not ready.issues:
-        body = [Text(f"Nothing in {status}" if status else "No issues", dim=True)]
-    else:
-        selected = m.state.get("selected")
-        comments = m.state.get("comments") or {}
-        summaries = m.state.get("summaries") or {}
-        transitions = m.state.get("transitions") or {}
-        versions = m.state.get("versions") or {}
-        body = [
-            issue_card(i, ready.urls.get(i.key, ""), options, m.state.get("taking"), m.state.get("unfolded") == i.key,
-                       comments.get(i.key), m.state.get("comments_open") == i.key, summaries.get(i.key),
-                       m.state.get("ai_label"), act, transitions.get(i.key), m.state.get("move_open") == i.key,
-                       m.state.get("moving"), versions.get(project_key(i.key)), m.state.get("fix_open") == i.key,
-                       m.state.get("fixing"), bool(m.state.get("fix_released")))
-            if i.key == selected else issue_line(i, False, act.select)
-            for i in ready.issues
-        ]
-    if ready is not None and not ready.error:
-        count = " · loading…" if m.state.get("loading") else f" · {len(ready.issues)}{'+' if ready.more else ''}"
-        scope = Text(f"{ready.project or 'All projects'}{count}", dim=True)
-    else:
-        scope = None
-    more = ready is not None and not ready.error and ready.more and not m.state.get("loading")
-    at_cap = (m.state.get("limit") or 0) >= SHOW_ALL
+def search_control(draft: str, confirmed: str, change_search, submit_search, clear_search) -> Box:
+    """A one-line search box: typing only updates the shown draft; Enter confirms it
+    and narrows the list alongside Status and Filters."""
     return Box(
-        Box(scope, *controls),
         Box(
-            *body,
-            more and not at_cap and Button("＋ Show all", show_more, variant="default"),
-            more and at_cap and Text(f"Showing the first {SHOW_ALL}: narrow it with a status or a filter", dim=True, wrap=True),
-            gap=1,
+            Text("🔍"),
+            Input(draft, "Number, key or text…", change_search, submit_search),
+            confirmed and Button("✕ Clear", clear_search, dim=True),
+            row=True,
         ),
-        gap=1,
+        confirmed and Text("Search ignores Status and Filters", dim=True),
     )
 
 
+def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
+        toggle_project_browse, change_project_filter, show_more_projects, change_search, submit_search,
+        clear_search, open_control, show_more, act: CardActions):
+    statuses, filters, projects = active_statuses(m), active_filters(m), active_projects(m)
+    confirmed = m.store.get("search", "")
+    search_draft = m.state.get("search_draft", confirmed)
+    projects_draft = m.state.get("projects_draft", ", ".join(projects))
+    project_filter = m.state.get("project_filter", "")
+    project_show_count = m.state.get("project_show_count") or MAX_PROJECT_OPTIONS
+    choices: Optional[Choices] = m.state.get("choices")
+    shown = m.state.get("open_control")
+
+    projects_section = section(
+        "📁 Projects", "info",
+        projects_control(projects, choices, shown == "projects", lambda: open_control("projects"),
+                         projects_draft, change_projects_draft, submit_projects, toggle_project,
+                         bool(m.state.get("project_browse_open")), toggle_project_browse,
+                         project_filter, change_project_filter, project_show_count, show_more_projects),
+    )
+    filters_section = section(
+        "⏚ Filters", "info",
+        status_control(statuses, choices, shown == "status", lambda: open_control("status"), toggle_status),
+        filters_control(filters, choices, shown == "filters", lambda: open_control("filters"), toggle_filter),
+        search_control(search_draft, confirmed, change_search, submit_search, clear_search),
+    )
+
+    ready: Optional[Ready] = m.state.get("ready")
+    if ready is None:
+        results_section = section(Text("🎫 Issues", bold=True, color="info"), "info", Text("Loading…", dim=True))
+    elif ready.error:
+        title = Text(Text("🎫 Issues", bold=True, color="error"), Text(f" {ready.project or 'All projects'}", dim=True))
+        results_section = section(title, "error", Text(ready.error, color="error", wrap=True))
+    else:
+        count = " · loading…" if m.state.get("loading") else f" · {len(ready.issues)}{'+' if ready.more else ''}"
+        title = Text(Text("🎫 Issues", bold=True, color="info"), Text(f" {ready.project or 'All projects'}{count}", dim=True))
+        if not ready.issues:
+            results_section = section(title, "info", Text(f"Nothing in {', '.join(statuses)}" if statuses else "No issues", dim=True))
+        else:
+            selected = m.state.get("selected")
+            comments = m.state.get("comments") or {}
+            summaries = m.state.get("summaries") or {}
+            transitions = m.state.get("transitions") or {}
+            versions = m.state.get("versions") or {}
+            more = ready.more and not m.state.get("loading")
+            at_cap = (m.state.get("limit") or 0) >= SHOW_ALL
+            results_section = section(
+                title, "info",
+                Box(
+                    *(
+                        issue_card(i, ready.urls.get(i.key, ""), options, m.state.get("taking"),
+                                   m.state.get("unfolded") == i.key, comments.get(i.key),
+                                   m.state.get("comments_open") == i.key, summaries.get(i.key),
+                                   m.state.get("ai_label"), act, transitions.get(i.key),
+                                   m.state.get("move_open") == i.key, m.state.get("moving"),
+                                   versions.get(project_key(i.key)), m.state.get("fix_open") == i.key,
+                                   m.state.get("fixing"), bool(m.state.get("fix_released")))
+                        if i.key == selected else issue_line(i, False, act.select)
+                        for i in ready.issues
+                    ),
+                    more and not at_cap and Button("＋ Show all", show_more, variant="default"),
+                    more and at_cap and Text(f"Showing the first {SHOW_ALL}: narrow it with a status or a filter", dim=True, wrap=True),
+                    gap=1,
+                ),
+            )
+    return Box(projects_section, filters_section, results_section, gap=1)
+
+
 def register(on, options):
-    def refresh(m):
+    def refresh_choices(m):
+        """Statuses, components, projects and starred filters: one call per project
+        plus two flat ones. Only worth repeating when the chosen projects change, or
+        on the periodic timer - never on every status/filter/search tweak."""
         jira = m.client("jira")
+        if jira is not None and m.store.get("projects") is None:
+            m.store.set("projects", default_projects(jira, options))
         if jira is not None:
-            m.state.set("choices", read_choices(jira, project_of(jira, options)))
-        status, filters, limit = chosen_status(m), active_filters(m), m.state.get("limit")
+            m.state.set("choices", read_choices(jira, active_projects(m)))
+
+    def refresh_issues(m):
+        jira = m.client("jira")
+        statuses, filters, projects = active_statuses(m), active_filters(m), active_projects(m)
+        search, limit = m.store.get("search", ""), m.state.get("limit")
         m.state.set("loading", True)
-        result = read_ready(jira, options, status, filters, m.state.get("choices"), limit)
+        result = read_ready(jira, options, statuses, filters, m.state.get("choices"), projects, search, limit)
         # A slower search started before the last change must not overwrite a newer one.
-        if (status, filters, limit) == (chosen_status(m), active_filters(m), m.state.get("limit")):
+        current = (statuses, filters, active_projects(m), m.store.get("search", ""), m.state.get("limit"))
+        if (statuses, filters, projects, search, limit) == current:
             m.state.set("ready", result)
             m.state.set("loading", False)
+
+    def refresh(m):
+        refresh_choices(m)
+        refresh_issues(m)
 
     def load_comments(m, key) -> List[UIJiraComment]:
         """Read `key`'s comments into state; off the UI thread. The ones read, or none on failure."""
@@ -592,14 +718,19 @@ def register(on, options):
     @on("ui.render", match={"component": "Pane", "pane": PANE})
     def render(m, e, next):
         def search():
+            m.run(lambda: refresh_issues(m))
+
+        def reload():
+            """Like `search`, but also re-reads statuses/components/projects: for the
+            handlers that change which projects are chosen."""
             m.run(lambda: refresh(m))
 
         def open_control(name):
             m.state.set("open_control", None if m.state.get("open_control") == name else name)
 
-        def pick_status(status):
-            m.store.set("status", status)
-            m.state.set("open_control", None)
+        def toggle_status(name):
+            on_now = active_statuses(m)
+            m.store.set("statuses", [s for s in on_now if s != name] if name in on_now else [*on_now, name])
             m.state.set("limit", None)
             search()
 
@@ -610,6 +741,48 @@ def register(on, options):
         def toggle_filter(fid):
             on_now = active_filters(m)
             m.store.set("filters", [f for f in on_now if f != fid] if fid in on_now else [*on_now, fid])
+            m.state.set("limit", None)
+            search()
+
+        def toggle_project(key):
+            on_now = active_projects(m)
+            updated = [p for p in on_now if p != key] if key in on_now else [*on_now, key]
+            m.store.set("projects", updated)
+            m.state.set("projects_draft", ", ".join(updated))
+            m.state.set("limit", None)
+            reload()
+
+        def change_projects_draft(value):
+            m.state.set("projects_draft", value)
+
+        def submit_projects(value):
+            keys = [p.strip() for p in value.split(",") if p.strip()]
+            m.store.set("projects", keys)
+            m.state.set("projects_draft", ", ".join(keys))
+            m.state.set("limit", None)
+            reload()
+
+        def toggle_project_browse():
+            m.state.set("project_browse_open", not m.state.get("project_browse_open"))
+
+        def change_project_filter(value):
+            m.state.set("project_filter", value)
+            m.state.set("project_show_count", MAX_PROJECT_OPTIONS)
+
+        def show_more_projects():
+            m.state.set("project_show_count", (m.state.get("project_show_count") or MAX_PROJECT_OPTIONS) + MAX_PROJECT_OPTIONS)
+
+        def change_search(value):
+            m.state.set("search_draft", value)
+
+        def submit_search(value):
+            m.store.set("search", value.strip())
+            m.state.set("limit", None)
+            search()
+
+        def clear_search():
+            m.store.set("search", "")
+            m.state.set("search_draft", "")
             m.state.set("limit", None)
             search()
 
@@ -716,4 +889,6 @@ def register(on, options):
 
         act = CardActions(select, fold, plan, take, toggle_comments,
                           lambda issue: m.run(lambda: summarize(m, issue)), copy_summary, pick_ai, toggle_move, move, toggle_fix, set_fix, toggle_released)
-        return draw(m, options, pick_status, toggle_filter, open_control, show_more, act)
+        return draw(m, options, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
+                   toggle_project_browse, change_project_filter, show_more_projects, change_search, submit_search,
+                   clear_search, open_control, show_more, act)

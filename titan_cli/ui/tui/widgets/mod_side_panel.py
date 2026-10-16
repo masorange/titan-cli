@@ -21,10 +21,11 @@ from rich.text import Text as RichText
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widget import Widget
+from textual.widgets import Input as TextualInput
 from textual.widgets import Static
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods.elements import Box, Button, Link, Text
+from titan_cli.core.mods.elements import Box, Button, Input, Link, Text
 from titan_cli.ui.tui import colors
 from titan_cli.ui.tui.widgets.button import Button as TitanButton
 
@@ -130,6 +131,12 @@ class _Row(Horizontal):
     _Row > Static:last-of-type {
         text-align: right;
     }
+    _Row.-with-input > Static,
+    _Row.-with-input > Static:last-of-type {
+        width: auto;
+        text-align: left;
+        margin-right: 1;
+    }
     """
 
 
@@ -226,6 +233,58 @@ class _ModButton(TitanButton):
             logger.exception("mod_button_failed", label=self._button.label)
 
 
+class _ModInput(Widget, can_focus=True, can_focus_children=True):
+    """A one-line text field, backed by Textual's own `Input`; runs the mod's `on_change`
+    on every keystroke and `on_submit` (if any) on Enter."""
+
+    # Textual's own Input has a 3-row bordered box with its own, more specific rules;
+    # `!important` beats those so it fits the pane's one-line-per-control rhythm.
+    DEFAULT_CSS = """
+    _ModInput {
+        width: 1fr;
+        height: 1;
+    }
+    _ModInput > Input {
+        border: none !important;
+        height: 1 !important;
+        padding: 0 !important;
+        background: $surface-lighten-1;
+    }
+    """
+
+    def __init__(self, element: Input):
+        super().__init__()
+        self._element = element
+
+    def compose(self) -> ComposeResult:
+        yield TextualInput(value=self._element.value, placeholder=self._element.placeholder)
+
+    def set_element(self, element: Input) -> None:
+        """Take a redrawn input's handlers; only reset the shown value when it actually
+        changed from outside (an own keystroke already matches, so the cursor stays put)."""
+        self._element = element
+        field = self.query_one(TextualInput)
+        if field.value != element.value:
+            field.value = element.value
+        field.placeholder = element.placeholder
+
+    def on_input_changed(self, event: TextualInput.Changed) -> None:
+        event.stop()
+        try:
+            self._element.on_change(event.value)
+        except Exception:
+            logger.exception("mod_input_failed")
+
+    def on_input_submitted(self, event: TextualInput.Submitted) -> None:
+        event.stop()
+        if self._element.on_submit is None:
+            return
+        try:
+            self._element.on_submit(event.value)
+        except Exception:
+            logger.exception("mod_input_failed")
+
+
 def _spread(texts: List[Text], width: int) -> RichText:
     """A row of texts on one line: the first at the left, the rest pushed to the right."""
     left = to_rich(texts[0])
@@ -240,6 +299,8 @@ def kind(element: Any) -> type:
     """The widget class `build` makes for an element: a widget of that class can be patched to it."""
     if isinstance(element, Button):
         return _ModButton if element.variant else _Pressable
+    if isinstance(element, Input):
+        return _ModInput
     if isinstance(element, Box):
         if _is_spread(element):
             return _Line
@@ -268,6 +329,8 @@ def _inner_width(box: Box, width: int) -> int:
 def _style_box(widget: Widget, box: Box, children: List[Widget]) -> None:
     """Inline styles for a box; a style the box does not ask for is cleared, so the CSS shows through."""
     if isinstance(widget, _Row):
+        # A row with a text field is a label/field line, not a title-and-value spread.
+        widget.set_class(any(isinstance(c, Input) for c in box.children), "-with-input")
         return
     if box.indent:
         widget.styles.padding = (0, 0, 0, box.indent)
@@ -290,7 +353,7 @@ def _style_box(widget: Widget, box: Box, children: List[Widget]) -> None:
 def build(element: Any, width: int) -> Widget:
     """Turn one element of a mod's tree into a widget `width` columns wide."""
     cls = kind(element)
-    if cls in (_Pressable, _ModButton):
+    if cls in (_Pressable, _ModButton, _ModInput):
         return cls(element)
     if cls is _Line:
         return _Line(_line_text(element, width))
@@ -320,6 +383,8 @@ def patch(widget: Widget, element: Any, width: int) -> bool:
         return False
     if cls in (_Pressable, _ModButton):
         widget.set_button(element)
+    elif cls is _ModInput:
+        widget.set_element(element)
     elif cls is _Line:
         widget.update(_line_text(element, width))
     else:

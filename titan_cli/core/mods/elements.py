@@ -16,7 +16,7 @@ flattened, so conditionals and comprehensions read naturally:
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple, Union
 
-Child = Union["Text", "Box", "Button", "Link", str, None, bool]
+Child = Union["Text", "Box", "Button", "Input", "Link", str, None, bool]
 
 
 def _children(children) -> tuple:
@@ -96,3 +96,17 @@ class Button:
     on_press: Callable[[], None]
     dim: bool = False
     variant: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Input:
+    """
+    A one-line text field. `on_change` runs on every keystroke, on the UI thread: keep
+    it to `m.state`, never a network or disk call. `on_submit`, when given, runs when
+    the user presses Enter.
+    """
+
+    value: str
+    placeholder: str = ""
+    on_change: Callable[[str], None] = lambda value: None
+    on_submit: Optional[Callable[[str], None]] = None

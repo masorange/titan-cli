@@ -11,8 +11,8 @@ ai_task = "Jira issue summary"
 
 [options.project]
 type = "string"
-title = "Project key"
-description = "Project to search; empty uses the jira plugin's default_project, and every project you can see when that is unset too."
+title = "Project keys"
+description = "Comma-separated project keys to search (e.g. \"ECAPP, ESHOP\"); empty uses the jira plugin's default_project, and every project you can see when that is unset too. Only seeds the pane's Projects dropdown the first time it runs - pick there after that."
 default = ""
 
 [options.shown]

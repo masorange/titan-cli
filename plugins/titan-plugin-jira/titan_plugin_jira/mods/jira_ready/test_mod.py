@@ -14,6 +14,7 @@ from titan_plugin_jira.models import (
     UIJiraComponent,
     UIJiraFilter,
     UIJiraIssue,
+    UIJiraProject,
     UIJiraStatus,
     UIJiraTransition,
     UIJiraVersion,
@@ -246,20 +247,43 @@ def status(name, category="To Do"):
     return UIJiraStatus(id=name, name=name, description="", category=category, icon="🟡")
 
 
+def project(key, name=""):
+    return UIJiraProject(id=key, key=key, name=name or key, description="", project_type="software",
+                         lead_name="", issue_types=[])
+
+
 CHOICES = mod.Choices(
     statuses=[status("Ready to Dev"), status("Done", "Done")],
     components=[UIJiraComponent("1", "Android", ""), UIJiraComponent("2", "iOS", "")],
     filters=[UIJiraFilter("10023", "Sprint", "sprint in openSprints() ORDER BY Rank", "")],
+    projects=[project("ECAPP"), project("ESHOP")],
 )
+
+
+def test_default_projects_prefers_the_option_then_the_plugins_default_then_none():
+    assert mod.default_projects(Mock(project_key="PROJ"), {"project": "ECAPP, ESHOP"}) == ["ECAPP", "ESHOP"]
+    assert mod.default_projects(Mock(project_key="PROJ"), {"project": ""}) == ["PROJ"]
+    assert mod.default_projects(Mock(project_key=""), {"project": ""}) == []
+    assert mod.default_projects(None, {"project": ""}) == []
 
 
 def test_no_filter_adds_no_condition_and_no_status_means_any():
     jira = Mock(project_key="PROJ")
     jira.search_issues.return_value = ClientSuccess(data=[])
 
-    ready = mod.read_ready(jira, {"project": "", "shown": 10}, None, [], CHOICES)
+    ready = mod.read_ready(jira, {"project": "", "shown": 10}, [], [], CHOICES, ["PROJ"])
 
-    assert ready.query == 'project = "PROJ" ORDER BY priority DESC, updated DESC'
+    assert ready.query == 'project = "PROJ" ORDER BY key ASC'
+
+
+def test_several_projects_are_or_ed():
+    jira = Mock(project_key="PROJ")
+    jira.search_issues.return_value = ClientSuccess(data=[])
+
+    ready = mod.read_ready(jira, {"project": "", "shown": 10}, [], [], CHOICES, ["ECAPP", "ESHOP"])
+
+    assert ready.query == 'project in ("ECAPP", "ESHOP") ORDER BY key ASC'
+    assert ready.project == "ECAPP, ESHOP"
 
 
 def test_components_are_or_ed_and_the_rest_and_ed_without_their_order():
@@ -276,30 +300,72 @@ def test_a_saved_filter_no_longer_starred_drops_out():
     assert mod.conditions(["filter:999"], CHOICES) == []
 
 
+def test_a_search_query_complements_filters_as_an_exact_key_or_free_text():
+    assert mod.conditions(["mine"], CHOICES, "ECAPP-2268") == [
+        "assignee = currentUser()",
+        'key = "ECAPP-2268"',
+    ]
+    assert mod.conditions([], CHOICES, "login crash") == ['text ~ "login crash*"']
+    assert mod.conditions([], CHOICES, "  ") == []
+
+
+def test_a_bare_number_is_searched_across_the_selected_projects():
+    assert mod.conditions([], CHOICES, "2268", ["ECAPP", "ESHOP"]) == ['key in ("ECAPP-2268", "ESHOP-2268")']
+    assert mod.conditions([], CHOICES, "ESHOPP-2268", ["ECAPP", "ESHOP"]) == ['key in ("ECAPP-2268", "ESHOP-2268")']
+
+
 def test_choices_come_from_jira_ordered_by_category_and_a_failed_read_offers_nothing():
     jira = Mock()
     jira.list_statuses.return_value = ClientSuccess(data=[status("Done", "Done"), status("Doing", "In Progress"), status("Todo")])
     jira.list_components.return_value = ClientError(error_message="403")
     jira.list_favourite_filters.return_value = ClientSuccess(data=CHOICES.filters)
 
-    choices = mod.read_choices(jira, "PROJ")
+    choices = mod.read_choices(jira, ["PROJ"])
 
     assert [s.name for s in choices.statuses] == ["Todo", "Doing", "Done"]
     assert choices.components == [] and choices.filters == CHOICES.filters
+
+
+def test_projects_are_offered_alphabetically():
+    jira = Mock()
+    jira.list_favourite_filters.return_value = ClientSuccess(data=[])
+    jira.list_projects.return_value = ClientSuccess(data=[project("ESHOP"), project("ECAPP")])
+
+    choices = mod.read_choices(jira, [])
+
+    assert [p.key for p in choices.projects] == ["ECAPP", "ESHOP"]
+
+
+def test_several_projects_merge_their_statuses_and_components_deduped_by_name():
+    def statuses_for(key):
+        return ClientSuccess(data=[status("To Do"), status(f"{key} only")])
+
+    def components_for(key):
+        return ClientSuccess(data=[UIJiraComponent("1", "Shared", ""), UIJiraComponent("2", f"{key} only", "")])
+
+    jira = Mock()
+    jira.list_statuses.side_effect = statuses_for
+    jira.list_components.side_effect = components_for
+    jira.list_favourite_filters.return_value = ClientSuccess(data=[])
+
+    choices = mod.read_choices(jira, ["ECAPP", "ESHOP"])
+
+    assert sorted(s.name for s in choices.statuses) == ["ECAPP only", "ESHOP only", "To Do"]
+    assert sorted(c.name for c in choices.components) == ["ECAPP only", "ESHOP only", "Shared"]
 
 
 def test_without_a_project_only_starred_filters_are_offered():
     jira = Mock()
     jira.list_favourite_filters.return_value = ClientSuccess(data=[])
 
-    choices = mod.read_choices(jira, "")
+    choices = mod.read_choices(jira, [])
 
     jira.list_statuses.assert_not_called()
     assert choices.statuses == []
 
 
 def test_closed_drop_downs_say_what_is_picked():
-    status_line = mod.status_control(None, CHOICES, False, Mock(), Mock())
+    status_line = mod.status_control([], CHOICES, False, Mock(), Mock())
     filters_line = mod.filters_control(["mine", "component:iOS", "filter:10023"], CHOICES, False, Mock(), Mock())
 
     assert status_line.children[0].label == "Status   ▸ Any"
@@ -307,14 +373,14 @@ def test_closed_drop_downs_say_what_is_picked():
     assert len(status_line.children) == 1  # closed: no options
 
 
-def test_the_open_status_drop_down_offers_any_then_jiras_statuses():
-    pick = Mock()
-    box = mod.status_control("Done", CHOICES, True, Mock(), pick)
+def test_the_open_status_drop_down_offers_jiras_statuses_as_checkboxes():
+    toggle = Mock()
+    box = mod.status_control(["Done"], CHOICES, True, Mock(), toggle)
 
     options = box.children[1].children
-    assert [o.label for o in options if isinstance(o, Button)] == ["○ Any", "○ 🟡 Ready to Dev", "● 🟡 Done"]
+    assert [o.label for o in options if isinstance(o, Button)] == ["☐ 🟡 Ready to Dev", "☑ 🟡 Done"]
     options[0].on_press()
-    pick.assert_called_once_with(None)
+    toggle.assert_called_once_with("Ready to Dev")
 
 
 def test_the_open_filters_drop_down_groups_components_and_starred_filters():
@@ -461,13 +527,13 @@ def test_one_issue_beyond_the_limit_is_read_to_know_there_is_more():
     jira.issue_url.return_value = "u"
     jira.search_issues.return_value = ClientSuccess(data=[issue() for _ in range(4)])
 
-    ready = mod.read_ready(jira, {"project": "", "shown": 3}, None, [], CHOICES)
+    ready = mod.read_ready(jira, {"project": "", "shown": 3}, [], [], CHOICES)
 
     assert jira.search_issues.call_args.kwargs["max_results"] == 4
     assert len(ready.issues) == 3 and ready.more
 
     jira.search_issues.return_value = ClientSuccess(data=[issue() for _ in range(3)])
-    assert not mod.read_ready(jira, {"project": "", "shown": 3}, None, [], CHOICES).more
+    assert not mod.read_ready(jira, {"project": "", "shown": 3}, [], [], CHOICES).more
 
 
 def test_show_all_reads_everything_jira_returns_in_one_search_and_a_filter_resets_it():
@@ -529,3 +595,23 @@ def test_a_refresh_keeps_the_list_on_screen_so_the_pane_does_not_jump_to_the_top
 
     shown = " ".join(texts(tree))
     assert "PROJ-1" in shown and "PROJ · loading…" in shown and "Loading…" not in shown.replace("loading…", "")
+
+
+def test_matching_projects_filters_by_key_or_name_case_insensitively():
+    projects = [project("ECAPP", "App Android"), project("ESHOP", "Tienda")]
+
+    assert mod.matching_projects(projects, "") == projects
+    assert mod.matching_projects(projects, "ecapp") == [projects[0]]
+    assert mod.matching_projects(projects, "tienda") == [projects[1]]
+    assert mod.matching_projects(projects, "nope") == []
+
+
+def test_a_search_ignores_status_and_filters_and_looks_through_the_whole_projects():
+    jira = Mock(project_key="PROJ")
+    jira.search_issues.return_value = ClientSuccess(data=[])
+
+    ready = mod.read_ready(jira, {"project": "", "shown": 10}, ["Done"], ["mine", "component:iOS"], CHOICES,
+                           ["ECAPP", "ESHOP"], "2268")
+
+    assert ready.query == ('project in ("ECAPP", "ESHOP") AND (key in ("ECAPP-2268", "ESHOP-2268")) '
+                           'ORDER BY key ASC')
