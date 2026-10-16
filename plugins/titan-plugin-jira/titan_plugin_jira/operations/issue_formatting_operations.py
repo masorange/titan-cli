@@ -174,15 +174,6 @@ def build_issue_table_data(
     return headers, rows
 
 
-__all__ = [
-    "truncate_summary",
-    "format_issue_field",
-    "build_issue_table_row",
-    "get_issue_table_headers",
-    "build_issue_table_data",
-]
-
-
 def format_person_name(name: Optional[str]) -> str:
     """A person's name for display: names Jira holds in capitals are title-cased, others kept."""
     if not name:
@@ -214,3 +205,15 @@ def issue_description_lines(issue: UIJiraIssue, max_lines: Optional[int] = None)
     if (issue.description or "").strip() == NO_DESCRIPTION:
         return []
     return display_lines(issue.description, max_lines)
+
+
+__all__ = [
+    "truncate_summary",
+    "format_issue_field",
+    "build_issue_table_row",
+    "get_issue_table_headers",
+    "build_issue_table_data",
+    "format_person_name",
+    "display_lines",
+    "issue_description_lines",
+]
