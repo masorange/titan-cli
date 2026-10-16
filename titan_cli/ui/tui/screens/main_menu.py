@@ -213,7 +213,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             hint.display = not has_favorites
             yield hint
 
-            # Mods' own cards (mod-019 spike): one per mod that called `m.ui.home_card`,
+            # Mods' own cards: one per mod that called `m.ui.home_card`,
             # independent of what it shows on the dock or in its side panel pane. The
             # section is composed either way and hidden when empty, same as the hint
             # above, so refresh_mod_cards() only ever toggles and refills it.
@@ -281,7 +281,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         self.run_worker(self._check_plugin_updates(), exclusive=False)
 
     def on_resize(self) -> None:
-        """Reflow the columns. The set of cards is deliberately untouched (D-003)."""
+        """Reflow the columns. The set of cards is deliberately untouched."""
         self._reflow_grid()
 
     def _column_count(self, width: int) -> int:

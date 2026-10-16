@@ -66,7 +66,7 @@ def pin_task_instance(
     to undo a pin without the row's Clear taking the provider kind with it.
 
     One handler for both transports: which one a task takes is decided by what
-    currently resolves (D-006).
+    currently resolves.
     """
     from .model_picker import open_model_picker_for_cli, open_model_picker_for_connection
 
@@ -127,7 +127,7 @@ def pin_task_instance(
             if result.clear_model:
                 config.clear_task_ai_model(task)
             elif result.model:
-                # D-010: a model pin carries its instance, so pin that too when the
+                # A model pin carries its instance, so pin that too when the
                 # task was following the default.
                 if not result.instance and not routing.pinned_instance:
                     set_instance(task, effective_instance(config, routing), provider=provider)

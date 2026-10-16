@@ -2,7 +2,7 @@
 Mod Home Card Widget
 
 A mod's own card on the home screen, beside the quick-launch workflows
-(`m.ui.home_card`, mod-019 spike): its icon, title and text, launched by
+(`m.ui.home_card`): its icon, title and text, launched by
 Enter or a click like a `WorkflowCard`, but with no number key - home cards
 are not quick-launch slots, so they don't compete for them.
 """
