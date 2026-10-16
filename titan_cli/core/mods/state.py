@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict
 class ModState:
     def __init__(self, on_change: Callable[[], None]):
         self._values: Dict[str, Any] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._on_change = on_change
 
     def get(self, key: str, default: Any = None) -> Any:
