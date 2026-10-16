@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 from titan_cli.core.plugins.runtime import PluginRuntimeManager
@@ -8,10 +9,11 @@ def test_get_runtime_paths_returns_expected_layout(tmp_path: Path):
 
     paths = manager.get_runtime_paths("sample", "a" * 40)
 
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
     assert paths.cache_dir == tmp_path / "sample" / ("a" * 40)
     assert paths.source_dir == paths.cache_dir / "src"
     assert paths.venv_dir == paths.cache_dir / "venv"
-    assert paths.site_packages == paths.venv_dir / "lib" / "python3.12" / "site-packages"
+    assert paths.site_packages == paths.venv_dir / "lib" / version / "site-packages"
 
 
 def test_ensure_stable_runtime_reuses_existing_runtime(tmp_path: Path, mocker):

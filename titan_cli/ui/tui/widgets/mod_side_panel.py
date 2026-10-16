@@ -251,6 +251,29 @@ def _is_spread(box: Box) -> bool:
     return box.row and bool(box.children) and all(isinstance(c, Text) for c in box.children)
 
 
+def _pane_width(body: Widget, panel_width: int) -> int:
+    """The columns a pane really has to draw in.
+
+    Measured off the scroll container rather than derived from the panel's width,
+    because the arithmetic cannot see the scrollbar: it appears only once a pane
+    overflows, takes two more columns when it does, and every row laid out to the
+    computed width then lost its last characters to an ellipsis with the panel
+    looking half empty. The subtraction stays as the fallback for the first paint,
+    before the widget has been given a size.
+
+    The scrollbar's columns are reserved even while it is hidden. A pane is drawn
+    once per state change, not once per scrollbar: laying out to the full width and
+    losing two columns the moment the content overflows is the bug above, arriving
+    one repaint later. Reserving them costs two columns on a pane that fits and
+    keeps every pane the same width as it grows.
+    """
+    measured = body.scrollable_content_region.width
+    if measured > 0:
+        gutter = 0 if body.show_vertical_scrollbar else body.scrollbar_size_vertical
+        return max(10, measured - gutter)
+    return max(10, panel_width - RAIL_WIDTH - 3 - body.scrollbar_size_vertical)
+
+
 def _line_text(element: Any, width: int) -> RichText:
     if isinstance(element, Text):
         return to_rich(element)
@@ -512,7 +535,7 @@ class ModSidePanel(Horizontal):
         header.update(RichText(f"▸ {title}  (F4)", no_wrap=True, overflow="ellipsis"))
 
         body = self.query_one("#mod-panel-body", VerticalScroll)
-        width = max(10, host.width - RAIL_WIDTH - 3)
+        width = _pane_width(body, host.width)
         try:
             tree = host.render(pane, width)
         except Exception:
