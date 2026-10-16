@@ -1,0 +1,44 @@
+name: "Set Firebase Remote Config Value"
+description: "Change one Remote Config parameter (boolean, string, JSON or number) in one Firebase project"
+params:
+  dry_run: false
+steps:
+  - id: firebase_auth_check
+    name: "Verify Google credentials"
+    plugin: firebase
+    step: firebase_auth_check
+
+  - id: firebase_select_target
+    name: "Select Firebase project"
+    plugin: firebase
+    step: firebase_select_target
+
+  - id: firebase_remoteconfig_get
+    name: "Read Remote Config"
+    plugin: firebase
+    step: firebase_remoteconfig_get
+
+  - id: firebase_remoteconfig_conditions
+    name: "Choose default value or condition"
+    plugin: firebase
+    step: firebase_remoteconfig_conditions
+
+  - id: firebase_remoteconfig_select_key
+    name: "Select parameter"
+    plugin: firebase
+    step: firebase_remoteconfig_select_key
+
+  - id: firebase_remoteconfig_set_value
+    name: "Enter new value"
+    plugin: firebase
+    step: firebase_remoteconfig_set_value
+
+  - id: firebase_remoteconfig_diff
+    name: "Review and confirm"
+    plugin: firebase
+    step: firebase_remoteconfig_diff
+
+  - id: firebase_remoteconfig_publish
+    name: "Publish"
+    plugin: firebase
+    step: firebase_remoteconfig_publish

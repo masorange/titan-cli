@@ -45,6 +45,7 @@ class WorkflowContext:
     git: Optional[Any] = None
     github: Optional[Any] = None
     jira: Optional[Any] = None
+    firebase: Optional[Any] = None
     slack: Optional[Any] = None
     docker: Optional[Any] = None
 
