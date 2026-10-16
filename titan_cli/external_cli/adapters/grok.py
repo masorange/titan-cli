@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
+from titan_cli.core import interrupt
 from .base import (
     CliModel,
     HeadlessResponse,
@@ -178,7 +179,7 @@ class GrokHeadlessAdapter:
         cmd += ["--prompt-file", str(prompt_file)]
 
         try:
-            result = subprocess.run(
+            result = interrupt.run_tracked(
                 cmd,
                 capture_output=True,
                 text=True,

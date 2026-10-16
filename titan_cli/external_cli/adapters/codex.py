@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
+from titan_cli.core import interrupt
 from .base import CliModel, CliUsage, HeadlessResponse, SupportedCLI, as_int
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -141,7 +142,7 @@ class CodexHeadlessAdapter:
         # prompt runs ~115k characters -- over the limit once it carries non-ASCII text.
         cmd.append("-")
         try:
-            result = subprocess.run(
+            result = interrupt.run_tracked(
                 cmd,
                 input=prompt,
                 capture_output=True,

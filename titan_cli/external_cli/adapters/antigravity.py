@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
+from titan_cli.core import interrupt
 from .base import (
     CliModel,
     CliUsage,
@@ -139,7 +140,7 @@ class AntigravityHeadlessAdapter:
             {"event": "user", "message": {"content": _HEADLESS_PREAMBLE + prompt}}
         )
         try:
-            result = subprocess.run(
+            result = interrupt.run_tracked(
                 cmd,
                 input=stream_input + "\n",
                 capture_output=True,

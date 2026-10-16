@@ -17,7 +17,9 @@ from titan_cli.ui.tui.icons import Icons
 
 from titan_cli.core.interrupt import (
     WorkflowAborted,
+    cancel_requested,
     clear_abort_check,
+    request_cancel,
     set_abort_check,
 )
 from titan_cli.core.workflows import ParsedWorkflow
@@ -253,6 +255,7 @@ class WorkflowExecutionScreen(BaseScreen):
                 "workflow_aborted_on_app_exit",
                 workflow=getattr(self.workflow, "name", None) or self.workflow_name,
                 workflow_slug=self.workflow_name,
+                cancelled_by_user=cancel_requested(),
             )
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
             self._output(f"\n[red]{Icons.ERROR} Workflow failed: {e}[/red]")
@@ -407,6 +410,10 @@ class WorkflowExecutionScreen(BaseScreen):
                 workflow=getattr(self.workflow, "name", None) or self.workflow_name,
                 run=getattr(self._executor, "run_id", None),
             )
+            # Worker.cancel() cannot stop a thread parked in an AI call, so also
+            # kill the headless subprocess and make the thread raise on its next
+            # poll; otherwise the abandoned run keeps spending until it finishes.
+            request_cancel()
             # Try to cancel, but don't wait for it to finish
             # The worker thread may be blocked, so we just move on
             try:
