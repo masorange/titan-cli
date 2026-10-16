@@ -545,6 +545,11 @@ class ModBus:
                     # hook: keep the caller's error semantics.
                     raise
                 logger.exception("mod_hook_failed", mod=registration.mod, mod_event=event)
+                if downstream_error is not None:
+                    # The hook caught the downstream failure and raised another
+                    # one: `downstream` is None, so returning it would turn a
+                    # failed step into a silent success.
+                    raise downstream_error from None
                 return downstream if called else run(index + 1, current)
 
             if answer is None:

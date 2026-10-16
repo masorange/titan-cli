@@ -74,3 +74,31 @@ def test_undeclared_option_is_dropped():
 def test_malformed_declaration_is_rejected(table):
     with pytest.raises(ValueError):
         parse_option_specs(table)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"type": "choice", "default": "a", "values": "abc"},
+        {"type": "choice", "default": "a", "values": ["a", "a"]},
+        {"type": "choice", "default": 1, "values": [1, "a"]},
+        {"type": "choice", "default": 1, "values": [1, True]},
+        {"type": "int", "default": 1, "min": 5, "max": 2},
+        {"type": "float", "default": 1.0, "min": float("nan")},
+        {"type": "float", "default": 1.0, "max": float("inf")},
+        {"type": "float", "default": float("inf")},
+        {"type": "int", "default": 1, "min": "low"},
+    ],
+)
+def test_malformed_option_declarations_are_rejected(raw):
+    with pytest.raises(ValueError):
+        parse_option_specs({"x": raw})
+
+
+def test_a_bool_does_not_pass_for_a_number_choice():
+    specs = parse_option_specs({"n": {"type": "choice", "default": 1, "values": [1, 2]}})
+
+    values, dropped = resolve_options(specs, {"n": True})
+
+    assert values["n"] == 1
+    assert [name for name, _ in dropped] == ["n"]

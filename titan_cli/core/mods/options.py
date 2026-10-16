@@ -19,6 +19,7 @@ does not fit its declaration, or an option the manifest never declared, is dropp
 and reported, never handed to the mod.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -54,7 +55,8 @@ class OptionSpec:
                 raise ValueError(f"expected a list of strings, got {value!r}")
             return list(value)
         if self.type == "choice":
-            if value not in self.values:
+            # `in` alone lets True pass for 1 and 1.0 for 1.
+            if type(value) not in {type(v) for v in self.values} or value not in self.values:
                 raise ValueError(f"{value!r} is not one of {list(self.values)}")
             return value
         # int / float: a bool is an int in Python, but never a number here.
@@ -62,11 +64,34 @@ class OptionSpec:
             raise ValueError(f"expected a number, got {value!r}")
         if self.type == "int" and not isinstance(value, int):
             raise ValueError(f"expected a whole number, got {value!r}")
+        if not math.isfinite(value):
+            raise ValueError(f"expected a finite number, got {value!r}")
         if self.min is not None and value < self.min:
             raise ValueError(f"{value!r} is below the minimum {self.min}")
         if self.max is not None and value > self.max:
             raise ValueError(f"{value!r} is above the maximum {self.max}")
         return float(value) if self.type == "float" else value
+
+
+def _check_choice_values(name: str, values: Tuple[Any, ...]) -> None:
+    first = type(values[0])
+    if first not in (str, int, float, bool) or any(type(v) is not first for v in values):
+        raise ValueError(f"option '{name}': values must all be strings, or all whole numbers, numbers or booleans")
+    if len(set(values)) != len(values):
+        raise ValueError(f"option '{name}': values must be unique")
+
+
+def _check_bounds(name: str, raw: Mapping[str, Any]) -> None:
+    bounds = {}
+    for key in ("min", "max"):
+        if key not in raw:
+            continue
+        bound = raw[key]
+        if isinstance(bound, bool) or not isinstance(bound, (int, float)) or not math.isfinite(bound):
+            raise ValueError(f"option '{name}': {key} must be a finite number")
+        bounds[key] = bound
+    if len(bounds) == 2 and bounds["min"] > bounds["max"]:
+        raise ValueError(f"option '{name}': min is above max")
 
 
 def parse_option_specs(table: Mapping[str, Any]) -> Dict[str, OptionSpec]:
@@ -85,13 +110,19 @@ def parse_option_specs(table: Mapping[str, Any]) -> Dict[str, OptionSpec]:
             raise ValueError(f"option '{name}': type must be one of {list(TYPES)}, got {kind!r}")
         if "default" not in raw:
             raise ValueError(f"option '{name}': default is required")
-        values = tuple(raw.get("values", ()))
+        raw_values = raw.get("values", ())
+        if not isinstance(raw_values, (list, tuple)):
+            raise ValueError(f"option '{name}': values must be a list")
+        values = tuple(raw_values)
         if kind == "choice" and not values:
             raise ValueError(f"option '{name}': a choice needs a non-empty values list")
         if kind != "choice" and values:
             raise ValueError(f"option '{name}': values only applies to type 'choice'")
         if kind not in ("int", "float") and ("min" in raw or "max" in raw):
             raise ValueError(f"option '{name}': min and max only apply to int and float")
+        if values:
+            _check_choice_values(name, values)
+        _check_bounds(name, raw)
         spec = OptionSpec(
             name=name,
             type=kind,

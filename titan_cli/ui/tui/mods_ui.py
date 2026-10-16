@@ -124,22 +124,30 @@ class TitanModHost:
 
     # -- the side panel ---------------------------------------------------
 
+    def pane_snapshot(self) -> Tuple[Dict[str, Tuple[str, str, str]], Dict[str, Tuple[str, Optional[str]]]]:
+        """Copies of the panes and badges, safe to iterate while mods change them from other threads."""
+        with self._lock:
+            return dict(self.panes), dict(self.badges)
+
     def open_pane(self, mod: str, pane: str, title: str, icon: Optional[str] = None) -> None:
-        self.panes[pane] = (mod, title, icon or title[:1].upper() or "?")
-        if self.active is None:
-            self.active = pane
+        with self._lock:
+            self.panes[pane] = (mod, title, icon or title[:1].upper() or "?")
+            if self.active is None:
+                self.active = pane
         self.repaint(mod)
 
     def badge(self, mod: str, pane: str, text: Optional[str], severity: Optional[str]) -> None:
         """A mark under a pane's rail icon; only the mod that opened the pane may set it."""
-        owner = self.panes.get(pane, (None,))[0]
+        with self._lock:
+            owner = self.panes.get(pane, (None,))[0]
+            if owner == mod:
+                if text:
+                    self.badges[pane] = (text, severity)
+                else:
+                    self.badges.pop(pane, None)
         if owner != mod:
             logger.warning("mod_badge_foreign_pane", mod=mod, pane=pane, owner=owner)
             return
-        if text:
-            self.badges[pane] = (text, severity)
-        else:
-            self.badges.pop(pane, None)
         self.repaint(mod)
 
     def toggle_collapsed(self) -> None:
@@ -345,11 +353,12 @@ class TitanModHost:
                 self._app._bindings.key_to_bindings.pop(key, None)
             except Exception:
                 logger.debug("mod_key_unbind_failed", mod=mod, key=key, exc_info=True)
-        for pane in [pane for pane, (owner, _, _) in self.panes.items() if owner == mod]:
-            del self.panes[pane]
-            self.badges.pop(pane, None)
-            if self.active == pane:
-                self.active = next(iter(self.panes), None)
+        with self._lock:
+            for pane in [pane for pane, (owner, _, _) in self.panes.items() if owner == mod]:
+                del self.panes[pane]
+                self.badges.pop(pane, None)
+                if self.active == pane:
+                    self.active = next(iter(self.panes), None)
         self._dock.pop(mod, None)
         self._paint_dock()
         self._home_cards.pop(mod, None)

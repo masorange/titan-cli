@@ -209,6 +209,8 @@ class ModsScreen(BaseScreen):
         except Exception as e:
             logger.exception("mod_setting_save_failed", mod=name)
             self.notify(f"Could not save: {e}", severity="error")
+            # The switch already moved: put it back to what is really stored.
+            self._refresh(name)
             return
         self._refresh(name)
 
@@ -240,5 +242,6 @@ class ModsScreen(BaseScreen):
         except Exception as e:
             logger.exception("mod_setting_save_failed", mod=entry.name)
             self.notify(f"Could not save: {e}", severity="error")
+            self._refresh(entry.name)
             return
         self._refresh(entry.name)

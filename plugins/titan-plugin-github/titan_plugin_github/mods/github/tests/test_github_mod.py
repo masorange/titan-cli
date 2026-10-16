@@ -327,3 +327,27 @@ def test_a_section_turned_on_while_running_refreshes_at_once_and_off_ones_do_not
     assert len(runs) == 1
     runs[0]()
     assert state.get("prs") is not None
+
+
+def test_a_failed_queue_read_is_drawn_not_hidden(mod, flatten):
+    m = ModBus().api("github")
+    m.state.set("queue", mod.models.Queue(error="GraphQL failed"))
+
+    lines = flatten(mod.draw.draw(m, 44, {"diagnosis_jobs": 3}))
+
+    assert "▾ Merge queue · unavailable" in lines or "▸ Merge queue · unavailable" in lines
+    assert "GraphQL failed" in lines
+
+
+def test_a_second_diagnosis_press_before_the_repaint_starts_nothing(mod, pr):
+    runs = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None)
+    m = bus.api("github")
+    m.run = lambda fn: runs.append(fn)
+
+    mod.diagnosis.start_diagnosis(m, 2, {"diagnosis_jobs": 3})
+    mod.diagnosis.start_diagnosis(m, 2, {"diagnosis_jobs": 3})
+
+    assert len(runs) == 1
+    assert m.state.get("diagnoses")["2"].status == "running"

@@ -620,3 +620,39 @@ def test_reload_keeps_checking_the_plugins_the_bus_was_loaded_with(tmp_path):
     load_mods(bus, discover_mods([("user", tmp_path)]), enabled_plugins=["git"])
 
     assert reload_mod(bus, "needs_gh", {}) == FAILED
+
+
+def test_a_mod_that_calls_sys_exit_is_left_out_without_stopping_the_rest(tmp_path):
+    write_mod(tmp_path, "a_exits_at_import", source="import sys\nsys.exit(2)\n")
+    write_mod(tmp_path, "b_exits_in_register", source="import sys\ndef register(on, options):\n    sys.exit(3)\n")
+    write_mod(tmp_path, "c_good")
+
+    bus = ModBus()
+
+    assert load_mods(bus, discover_mods([("user", tmp_path)])) == ["c_good"]
+    assert bus.statuses["a_exits_at_import"].state == FAILED
+
+
+def test_a_dropped_option_is_logged_without_its_value(tmp_path, monkeypatch):
+    manifest = '[mod]\nname = "tok"\nversion = "1"\nevents = ["step.call"]\n\n[options.api_token]\ntype = "int"\ndefault = 1\n'
+    write_mod(tmp_path, "tok", manifest=manifest)
+    logged = []
+    monkeypatch.setattr("titan_cli.core.mods.loader.logger.warning", lambda *a, **k: logged.append((a, k)))
+
+    load_mods(ModBus(), discover_mods([("user", tmp_path)]), {"tok": {"options": {"api_token": "hunter2"}}})
+
+    assert any(a == ("mod_option_dropped",) for a, _ in logged)
+    assert "hunter2" not in repr(logged)
+
+
+def test_a_mod_replacing_another_of_the_same_name_is_logged(tmp_path, monkeypatch):
+    first, second = tmp_path / "a", tmp_path / "b"
+    write_mod(first, "git")
+    write_mod(second, "git")
+    logged = []
+    monkeypatch.setattr("titan_cli.core.mods.loader.logger.warning", lambda *a, **k: logged.append((a, k)))
+
+    found = discover_mods([("titan", first), ("project", second)])
+
+    assert found["git"].source == "project"
+    assert [k["replaces"] for a, k in logged if a == ("mod_overrides_mod",)] == ["titan"]

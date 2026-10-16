@@ -11,6 +11,7 @@ from titan_plugin_jira.operations.jql_operations import (
     build_query_not_found_message,
     build_issue_jql,
     search_condition,
+    strip_order_by,
 )
 
 
@@ -205,7 +206,10 @@ class TestSearchCondition:
         assert search_condition("ECAPP-2268") == 'key = "ECAPP-2268"'
 
     def test_free_text_matches_with_trailing_wildcard(self):
-        assert search_condition("login crash") == 'text ~ "login crash*"'
+        assert search_condition("login crash") == 'text ~ "login* crash*"'
+
+    def test_text_search_operators_are_escaped(self):
+        assert search_condition("a:b (c)") == 'text ~ "a\\\\:b* \\\\(c\\\\)*"'
 
     def test_strips_surrounding_whitespace(self):
         assert search_condition("  ECAPP-2268  ") == 'key = "ECAPP-2268"'
@@ -256,3 +260,10 @@ class TestBuildIssueJqlStatus:
     def test_combines_with_project(self):
         assert build_issue_jql(status=["To Do", "Done"], project="ECAPP", order_by="") == \
             'project = "ECAPP" AND status in ("To Do", "Done")'
+
+
+class TestStripOrderByQuotes:
+    def test_order_by_inside_a_quoted_string_is_kept(self):
+        assert strip_order_by('summary ~ "order by" ORDER BY Rank') == 'summary ~ "order by"'
+        assert strip_order_by("summary ~ 'a order by b'") == "summary ~ 'a order by b'"
+        assert strip_order_by('summary ~ "say \\"order by\\" now"') == 'summary ~ "say \\"order by\\" now"'

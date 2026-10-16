@@ -7,7 +7,7 @@ Used by mappers to convert raw API data into UI-friendly strings.
 All functions are pure - no side effects, easily testable.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 
@@ -35,6 +35,9 @@ def format_jira_date(iso_date: Optional[str]) -> str:
         return "Unknown"
 
     try:
+        # ADF `date` nodes carry epoch milliseconds as a digit string.
+        if iso_date.isdigit():
+            return datetime.fromtimestamp(int(iso_date) / 1000, tz=timezone.utc).strftime("%d/%m/%Y %H:%M:%S")
         # Handle different ISO formats (with/without milliseconds, with Z or offset)
         # Remove milliseconds if present
         if "." in iso_date:
@@ -44,7 +47,7 @@ def format_jira_date(iso_date: Optional[str]) -> str:
         # Parse and format
         dt = datetime.fromisoformat(iso_date)
         return dt.strftime("%d/%m/%Y %H:%M:%S")
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError, OverflowError, OSError):
         return "Unknown"
 
 

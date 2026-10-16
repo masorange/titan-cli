@@ -56,11 +56,13 @@ class TextualWorkflowExecutor:
 
     class WorkflowCompleted(Message):
         """Emitted when workflow completes successfully."""
-        def __init__(self, workflow_name: str, message: str, is_nested: bool = False) -> None:
+        def __init__(self, workflow_name: str, message: str, is_nested: bool = False, skipped: bool = False) -> None:
             super().__init__()
             self.workflow_name = workflow_name
             self.message = message
             self.is_nested = is_nested
+            # A mod answered the run without executing it (hook Skip/Success).
+            self.skipped = skipped
 
     class WorkflowFailed(Message):
         """Emitted when workflow fails."""
@@ -233,12 +235,13 @@ class TextualWorkflowExecutor:
                 )
             else:
                 # Skip/Success/anything else a hook answered with directly:
-                # not an error, so it must not be reported as one.
+                # not an error, so it must not be reported as one - nor as a run.
                 self._post_message_sync(
                     self.WorkflowCompleted(
                         workflow_name=workflow.name,
                         message=result.message,
                         is_nested=bool(ctx._workflow_stack),
+                        skipped=True,
                     )
                 )
         return result

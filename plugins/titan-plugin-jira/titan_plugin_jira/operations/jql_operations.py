@@ -187,9 +187,19 @@ def build_issue_jql(
     return " ".join(part for part in (jql, f"ORDER BY {order_by}" if order_by else "") if part)
 
 
+# A quoted string is skipped whole, so an "order by" inside a value is not a clause.
+_QUOTED_OR_ORDER_BY = re.compile(
+    r"""(?P<quoted>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<order>\bORDER\s+BY\b)""",
+    re.IGNORECASE,
+)
+
+
 def strip_order_by(jql: str) -> str:
     """`jql` without its ORDER BY clause, so it can be one condition of another query."""
-    return re.split(r"\s*\bORDER\s+BY\b", jql, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+    for match in _QUOTED_OR_ORDER_BY.finditer(jql):
+        if match.group("order"):
+            return jql[: match.start()].strip()
+    return jql.strip()
 
 
 def components_condition(names: Sequence[str]) -> str:
@@ -203,6 +213,14 @@ _ISSUE_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9]*-\d+$")
 _ISSUE_NUMBER = re.compile(r"^[A-Za-z]*-?(\d+)$")  # a bare number, or any prefix (typo'd or not) before it
 
 
+_TEXT_SEARCH_RESERVED = re.compile(r'([+\-&|!(){}\[\]^~*?\\:])')
+
+
+def _text_term(term: str) -> str:
+    """`term` with Jira's text-search operators escaped, so it is searched as typed."""
+    return _TEXT_SEARCH_RESERVED.sub(r"\\\1", term)
+
+
 def search_condition(query: str, projects: Sequence[str] = ()) -> str:
     """
     JQL for free-text `query`. Just a number, or a number with any letters/dash in
@@ -210,7 +228,7 @@ def search_condition(query: str, projects: Sequence[str] = ()) -> str:
     of `projects` - so typing "2268" or "ESHOPP-2268" with ECAPP and ESHOP picked
     finds ECAPP-2268 and/or ESHOP-2268 without needing the right prefix. A well-formed
     key with no project picked matches exactly; anything else matches summary,
-    description and comments. Empty when `query` is blank.
+    description and comments, each word as a prefix. Empty when `query` is blank.
     """
     query = query.strip()
     if not query:
@@ -221,7 +239,7 @@ def search_condition(query: str, projects: Sequence[str] = ()) -> str:
         return _scope_condition("key", keys)
     if _ISSUE_KEY.match(query):
         return f"key = {jql_string(query)}"
-    return f"text ~ {jql_string(query + '*')}"
+    return f"text ~ {jql_string(' '.join(_text_term(t) + '*' for t in query.split()))}"
 
 
 __all__ = [

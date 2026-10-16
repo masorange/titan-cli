@@ -400,3 +400,21 @@ def test_unloading_a_mod_takes_its_timers_keys_panes_badges_and_dock_tile_off_th
     assert list(host._keys) == ["f6"] and list(bindings) == ["f6"]
     assert list(host.panes) == ["other"] and host.active == "other" and host.badges == {}
     assert host.dock_slots() == []
+
+
+def test_pane_snapshot_is_a_copy_the_mods_cannot_change_under_the_reader():
+    from types import SimpleNamespace
+
+    from titan_cli.core.mods import ModBus
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    app = SimpleNamespace(is_running=False)
+    host = TitanModHost(app, ModBus())
+    host._on_app_thread = lambda fn: True
+    host.open_pane("m", "git", "Git")
+
+    panes, badges = host.pane_snapshot()
+    host.open_pane("m", "other", "Other")
+
+    assert list(panes) == ["git"] and badges == {}
+    assert list(host.panes) == ["git", "other"]

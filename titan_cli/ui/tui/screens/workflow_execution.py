@@ -635,7 +635,11 @@ class WorkflowExecutionContent(Widget):
             try:
                 # with open("/tmp/titan_debug.log", "a") as f:
                 #     f.write(f"[{time.time():.3f}] SCREEN: About to call notify\n")
-                self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
+                if message.skipped:
+                    reason = f": {message.message}" if message.message else ""
+                    self.app.notify(f"Workflow skipped by a mod{reason}", severity="warning", timeout=8)
+                else:
+                    self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
                 # with open("/tmp/titan_debug.log", "a") as f:
                 #     f.write(f"[{time.time():.3f}] SCREEN: notify called successfully\n")
             except Exception:
@@ -658,4 +662,9 @@ class WorkflowExecutionContent(Widget):
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
             # Steps handle their own error display via ctx.textual
             # Just show a simple notification without duplicating the error message
-            self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)
+            if message.step_name == "mods":
+                # No step ran, so no step printed the reason: a mod refused the run.
+                reason = f": {message.error_message}" if message.error_message else ""
+                self.app.notify(f"❌ Workflow refused by a mod{reason}", severity="error", timeout=10)
+            else:
+                self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)

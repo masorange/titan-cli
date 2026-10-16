@@ -3,7 +3,7 @@ import re
 from ..network.commit import NetworkGitCommit
 from ..view.commit import UIGitCommit
 
-from ...operations.commit_operations import split_squash_pr_suffix
+from ..formatting import split_squash_pr_suffix
 
 def from_network_commit(network_commit: NetworkGitCommit) -> UIGitCommit:
     """

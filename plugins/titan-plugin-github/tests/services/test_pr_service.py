@@ -631,6 +631,26 @@ def test_get_actions_job_log_keeps_the_end(pr_service, mock_gh_network):
     assert mock_gh_network.run_command.call_args.args[0] == ["api", "/repos/o/r/actions/jobs/42/logs"]
 
 
+def test_get_actions_job_log_zero_tail_returns_nothing(pr_service, mock_gh_network):
+    """`log[-0:]` is the whole log: asking for no characters must give none"""
+    mock_gh_network.get_repo_string.return_value = "o/r"
+    mock_gh_network.run_command.return_value = "some log"
+
+    assert pr_service.get_actions_job_log(42, tail_chars=0).data == ""
+    assert pr_service.get_actions_job_log(42, tail_chars=-5).data == ""
+
+
+def test_list_my_prs_filters_by_author_on_the_server(pr_service, mock_gh_network):
+    """A busy repo's first N PRs are not mine: gh must be asked for mine only"""
+    mock_gh_network.get_repo_arg.return_value = []
+    mock_gh_network.run_command.return_value = "[]"
+
+    pr_service.list_my_prs()
+
+    args = mock_gh_network.run_command.call_args.args[0]
+    assert args[args.index("--author") + 1] == "@me"
+
+
 def test_get_actions_job_log_not_found(pr_service, mock_gh_network):
     """An expired or unknown job is JOB_NOT_FOUND"""
     mock_gh_network.run_command.side_effect = GitHubAPIError("HTTP 404: Not Found")

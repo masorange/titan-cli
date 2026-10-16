@@ -2,7 +2,7 @@
 from typing import Optional
 
 from titan_cli.core.mods import Box, Button, Text
-from titan_plugin_git.operations.commit_operations import split_squash_pr_suffix
+from titan_plugin_git.models.formatting import split_squash_pr_suffix
 
 from .models import Repo
 

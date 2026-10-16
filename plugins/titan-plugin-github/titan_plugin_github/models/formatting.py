@@ -308,6 +308,7 @@ __all__ = [
     "calculate_review_summary",
     "summarize_status_check_rollup",
     "classify_status_check_rollup",
+    "actions_job_id",
     "summarize_review_status",
     "get_review_state_icon",
     "format_short_sha",

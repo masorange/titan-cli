@@ -4,7 +4,7 @@ from typing import Optional
 from titan_cli.core.mods import Box, Button, Link, Text
 from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest
 
-from .diagnosis import Diagnosis, diagnose, diagnosis_text, refresh_ai_label
+from .diagnosis import Diagnosis, diagnosis_text, refresh_ai_label, start_diagnosis
 from .models import Prs, Queue
 
 QUEUE_TONE = {"QUEUED": "subtle", "AWAITING_CHECKS": "warning", "MERGEABLE": "success", "UNMERGEABLE": "error", "LOCKED": "error"}
@@ -37,8 +37,7 @@ def diagnosis_of(m, pr: UIPullRequest, options) -> Box:
         label = "✦ Diagnose failure"
 
     def press():
-        if not running:
-            m.run(lambda: diagnose(m, pr.number, options))
+        start_diagnosis(m, pr.number, options)
 
     done = d is not None and d.status == "done"
     urls = {c.name: c.url for c in pr.failed_checks}
@@ -138,8 +137,9 @@ def queue_row(e: UIMergeQueueEntry) -> Box:
 def queue_fold(m, queue: Queue):
     return fold(
         m, "queue_open",
+        "Merge queue · unavailable" if queue.error else
         f"Merge queue · {queue.branch} ({queue.total})" + (f" · {queue.merge_method}" if queue.merge_method else ""),
-        bool(queue.entries),
+        bool(queue.entries or queue.error),
         queue.error and Text(queue.error, color="error"),
         not queue.error and queue.total == 0 and Text("Queue empty", dim=True),
         [queue_row(e) for e in queue.entries],
@@ -184,6 +184,6 @@ def draw(m, width: int, options=None, shown=None):
                 model_picker(m, options),
                 gap=1,
             )))
-    if queue is not None and queue.configured:
+    if queue is not None and (queue.configured or queue.error):
         parts.append(section(Text("⇉ Merge queue", bold=True, color="info"), "info", queue_fold(m, queue)))
     return Box(*parts)

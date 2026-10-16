@@ -2,7 +2,7 @@
 name = "jira_ready"
 version = "0.5.0"
 icon = "🎫"
-description = "Side panel with Jira issues, narrowed by a status and filters read from Jira"
+description = "Side panel with Jira issues from one or several projects, narrowed by statuses, components and filters read from Jira, or by a free-text search"
 requires_plugins = ["jira"]
 events = ["app.start", "ui.render"]
 slots = ["pane"]

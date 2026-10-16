@@ -1069,7 +1069,7 @@ client.get_commits(worktree_path="../repo-search-worktree", limit=10)
 
 Each `UIGitCommit` carries `pr_number`: the PR a squash merge landed, from the
 `(#1234)` GitHub appends to its subject (`None` otherwise).
-`operations.commit_operations.split_squash_pr_suffix(subject)` returns the subject
+`models.formatting.split_squash_pr_suffix(subject)` returns the subject
 without it and the number.
 
 ### Get the worktree diff stat

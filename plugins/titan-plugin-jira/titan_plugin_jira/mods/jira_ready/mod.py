@@ -66,6 +66,10 @@ class Choices:
     components: List[UIJiraComponent] = field(default_factory=list)
     filters: List[UIJiraFilter] = field(default_factory=list)
     projects: List[UIJiraProject] = field(default_factory=list)
+    # Lists ("statuses", "components", "filters", "projects") whose read failed and
+    # that nothing earlier could stand in for: absent from the offer is not the same
+    # as unknown, so the picks made from them are kept rather than dropped.
+    unknown: frozenset = frozenset()
 
 
 @dataclass(frozen=True)
@@ -146,59 +150,82 @@ def default_projects(jira, options) -> List[str]:
     return [jira.project_key] if jira and jira.project_key else []
 
 
-def read_choices(jira, projects: List[str]) -> Choices:
+def read_choices(jira, projects: List[str], previous: Optional[Choices] = None) -> Choices:
     """Statuses and components need at least one project - with several, every
     project's own are merged (by name, so the same status offered by two projects
     appears once). The starred filters and the project list itself need none.
-    A failed read offers nothing."""
-    def data(result):
+    A list whose read fails keeps what `previous` offered for it, or is marked
+    unknown when there is nothing earlier, so a hiccup never narrows the picks."""
+    failed: set = set()
+
+    def data(name, result):
         match result:
             case ClientSuccess(data=items):
                 return items
             case _:
+                failed.add(name)
                 return []
 
-    def merged(fetch):
+    def merged(name, fetch):
         by_name = {}
         for p in projects:
-            for item in data(fetch(p)):
+            for item in data(name, fetch(p)):
                 by_name.setdefault(item.name, item)
         return list(by_name.values())
 
-    statuses = sorted(merged(jira.list_statuses), key=lambda s: CATEGORY_ORDER.get(s.category, 1))
-    components = merged(jira.list_components)
-    all_projects = sorted(data(jira.list_projects()), key=lambda p: p.key)
-    return Choices(statuses, components, data(jira.list_favourite_filters()), all_projects)
+    statuses = sorted(merged("statuses", jira.list_statuses), key=lambda s: CATEGORY_ORDER.get(s.category, 1))
+    components = merged("components", jira.list_components)
+    filters = data("filters", jira.list_favourite_filters())
+    all_projects = sorted(data("projects", jira.list_projects()), key=lambda p: p.key)
+    fresh = {"statuses": statuses, "components": components, "filters": filters, "projects": all_projects}
+
+    unknown = set()
+    for name in failed:
+        if previous is not None and name not in previous.unknown:
+            fresh[name] = getattr(previous, name)
+        else:
+            unknown.add(name)
+    return Choices(**fresh, unknown=frozenset(unknown))
 
 
 def active_statuses(m) -> List[str]:
-    """The picked statuses still on offer (all of them while the offer is still loading)."""
+    """The picked statuses still on offer (all of them while the offer is unknown)."""
     picked = list(m.store.get("statuses") or [])
     choices: Optional[Choices] = m.state.get("choices")
-    if choices is None:
+    if choices is None or "statuses" in choices.unknown:
         return picked
     offered = {s.name for s in choices.statuses}
     return [s for s in picked if s in offered]
 
 
 def active_filters(m) -> List[str]:
-    """The picked filters still on offer (all of them while the offer is still loading)."""
+    """The picked filters still on offer (all of them while the offer is unknown)."""
     picked = list(m.store.get("filters", []))
     choices: Optional[Choices] = m.state.get("choices")
     if choices is None:
         return picked
-    offered = {MINE, *(component_id(c.name) for c in choices.components), *(filter_id(f) for f in choices.filters)}
-    return [f for f in picked if f in offered]
+    offered = {MINE}
+    unknown_components = "components" in choices.unknown
+    unknown_filters = "filters" in choices.unknown
+    offered |= {component_id(c.name) for c in choices.components}
+    offered |= {filter_id(f) for f in choices.filters}
+    return [
+        f for f in picked
+        if f in offered
+        or (unknown_components and f.startswith("component:"))
+        or (unknown_filters and f.startswith("filter:"))
+    ]
 
 
 def active_projects(m) -> List[str]:
-    """The picked projects still on offer (all of them while the offer is still loading)."""
+    """The picked projects still on offer (all of them while the offer is unknown).
+    Keys compare case-insensitively, as JQL does, and come back as Jira spells them."""
     picked = list(m.store.get("projects") or [])
     choices: Optional[Choices] = m.state.get("choices")
-    if choices is None:
+    if choices is None or "projects" in choices.unknown:
         return picked
-    offered = {p.key for p in choices.projects}
-    return [p for p in picked if p in offered]
+    offered = {p.key.upper(): p.key for p in choices.projects}
+    return [offered[p.upper()] for p in picked if p.upper() in offered]
 
 
 def conditions(filters: List[str], choices: Optional[Choices], query: str = "", projects: Sequence[str] = ()) -> List[str]:
@@ -619,14 +646,18 @@ def register(on, options):
         if jira is not None and m.store.get("projects") is None:
             m.store.set("projects", default_projects(jira, options))
         if jira is not None:
-            m.state.set("choices", read_choices(jira, active_projects(m)))
+            m.state.set("choices", read_choices(jira, active_projects(m), m.state.get("choices")))
 
     def refresh_issues(m):
         jira = m.client("jira")
         statuses, filters, projects = active_statuses(m), active_filters(m), active_projects(m)
         search, limit = m.store.get("search", ""), m.state.get("limit")
         m.state.set("loading", True)
-        result = read_ready(jira, options, statuses, filters, m.state.get("choices"), projects, search, limit)
+        try:
+            result = read_ready(jira, options, statuses, filters, m.state.get("choices"), projects, search, limit)
+        except BaseException:
+            m.state.set("loading", False)
+            raise
         # A slower search started before the last change must not overwrite a newer one.
         current = (statuses, filters, active_projects(m), m.store.get("search", ""), m.state.get("limit"))
         if (statuses, filters, projects, search, limit) == current:
@@ -817,8 +848,10 @@ def register(on, options):
 
             def work():
                 jira = m.client("jira")
-                result = take_issue(jira, issue, options["take_status"]) if jira else None
-                m.state.set("taking", None)
+                try:
+                    result = take_issue(jira, issue, options["take_status"]) if jira else None
+                finally:
+                    m.state.set("taking", None)
                 match result:
                     case ClientSuccess(message=message):
                         m.ui.toast(message)
@@ -826,7 +859,7 @@ def register(on, options):
                         m.ui.toast(message, "error")
                     case None:
                         m.ui.toast("Jira is not available here", "error")
-                refresh(m)
+                refresh_issues(m)
 
             m.run(work)
 
@@ -844,8 +877,10 @@ def register(on, options):
 
             def work():
                 jira = m.client("jira")
-                result = jira.transition_issue(issue.key, to_status) if jira else None
-                m.state.set("moving", None)
+                try:
+                    result = jira.transition_issue(issue.key, to_status) if jira else None
+                finally:
+                    m.state.set("moving", None)
                 match result:
                     case ClientSuccess(message=message):
                         m.ui.toast(message)
@@ -853,7 +888,7 @@ def register(on, options):
                         m.ui.toast(message, "error")
                     case None:
                         m.ui.toast("Jira is not available here", "error")
-                refresh(m)
+                refresh_issues(m)
 
             m.run(work)
 
@@ -874,8 +909,10 @@ def register(on, options):
 
             def work():
                 jira = m.client("jira")
-                result = jira.set_fix_version(issue.key, version.id if version else None) if jira else None
-                m.state.set("fixing", None)
+                try:
+                    result = jira.set_fix_version(issue.key, version.id if version else None) if jira else None
+                finally:
+                    m.state.set("fixing", None)
                 match result:
                     case ClientSuccess(message=message):
                         m.ui.toast(message)
@@ -883,7 +920,7 @@ def register(on, options):
                         m.ui.toast(message, "error")
                     case None:
                         m.ui.toast("Jira is not available here", "error")
-                refresh(m)
+                refresh_issues(m)
 
             m.run(work)
 

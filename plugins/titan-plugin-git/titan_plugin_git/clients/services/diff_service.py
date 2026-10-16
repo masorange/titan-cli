@@ -28,8 +28,13 @@ def _untracked_churn(root: Path, path: str) -> UIFileChurn:
     the rest in fixed-size chunks counting newlines, so large untracked files are never fully
     loaded into memory just to be polled every repo_refresh_seconds.
     """
+    full = root / path
+    # A symlink counts as one line in `git diff`, and opening it would follow it to
+    # whatever it points at; a FIFO or device would block the polling thread.
+    if full.is_symlink() or not full.is_file():
+        return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
     try:
-        with (root / path).open("rb") as f:
+        with full.open("rb") as f:
             head = f.read(_BINARY_CHECK_BYTES)
             if b"\0" in head:
                 return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)

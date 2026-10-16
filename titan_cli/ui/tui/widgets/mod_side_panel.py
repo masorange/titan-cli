@@ -548,31 +548,33 @@ class ModSidePanel(Horizontal):
         if getattr(event.widget, "id", None) == "mod-panel-header":
             self.app.mods_host.toggle_collapsed()
 
-    def _refresh_rail(self, host) -> None:
+    def _refresh_rail(self, host, all_panes, badges) -> None:
         rail = self.query_one("#mod-panel-rail", Vertical)
-        panes = list(host.panes)
+        panes = list(all_panes)
         if panes != self._rail_panes:
             rail.remove_children()
-            rail.mount_all(_RailIcon(pane, title, icon) for pane, (_, title, icon) in host.panes.items())
+            rail.mount_all(_RailIcon(pane, title, icon) for pane, (_, title, icon) in all_panes.items())
             self._rail_panes = panes
         for icon in rail.query(_RailIcon):
             icon.set_class(icon.pane == host.active and not host.collapsed, "-active")
-            icon.show_badge(host.badges.get(icon.pane))
+            icon.show_badge(badges.get(icon.pane))
 
     def refresh_panes(self) -> None:
         host = getattr(self.app, "mods_host", None)
-        if host is None or not host.panes:
+        # Mods open and close panes from their own threads: read one snapshot.
+        all_panes, badges = host.pane_snapshot() if host is not None else ({}, {})
+        if not all_panes:
             self.display = False
             return
         self.display = True
         self.set_class(host.collapsed, "-collapsed")
         self.styles.width = COLLAPSED_WIDTH if host.collapsed else host.width
-        self._refresh_rail(host)
+        self._refresh_rail(host, all_panes, badges)
         if host.collapsed:
             return
 
-        pane = host.active if host.active in host.panes else next(iter(host.panes))
-        _, title, _ = host.panes[pane]
+        pane = host.active if host.active in all_panes else next(iter(all_panes))
+        _, title, _ = all_panes[pane]
         header = self.query_one("#mod-panel-header", Static)
         header.update(RichText(f"▸ {title}  (F4)", no_wrap=True, overflow="ellipsis"))
 

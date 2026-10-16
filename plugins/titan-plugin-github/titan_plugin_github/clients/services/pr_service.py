@@ -178,13 +178,11 @@ class PRService:
             ClientResult[List[UIPullRequest]]
         """
         try:
-            # Get current user
-            user_output = self.gh.run_command(["api", "user", "--jq", ".login"])
-            current_user = user_output.strip()
-
-            # Fetch PRs
+            # Filter by author on the server: a client-side filter over the first
+            # `max_results` PRs of the repo misses mine in a busy repo.
             args = [
                 "pr", "list",
+                "--author", "@me",
                 "--state", state,
                 "--limit", str(max_results),
                 "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,statusCheckRollup,reviewDecision,mergeable,url",
@@ -193,15 +191,9 @@ class PRService:
             output = self.gh.run_command(args)
             all_prs = json.loads(output)
 
-            # Filter to current user's PRs
-            my_prs = [
-                pr for pr in all_prs
-                if pr.get("author") and pr["author"].get("login") == current_user
-            ]
-
             # Parse and map
             ui_prs = []
-            for pr_data in my_prs:
+            for pr_data in all_prs:
                 rest_pr = NetworkPullRequest.from_json(pr_data)
                 ui_pr = from_rest_pr(rest_pr)
                 ui_prs.append(ui_pr)
@@ -858,7 +850,8 @@ class PRService:
         try:
             repo = self.gh.get_repo_string()
             log = self.gh.run_command(["api", f"/repos/{repo}/actions/jobs/{job_id}/logs"], strip_output=False)
-            return ClientSuccess(data=log[-tail_chars:], message=f"Log of job {job_id} retrieved")
+            tail = log[-tail_chars:] if tail_chars > 0 else ""
+            return ClientSuccess(data=tail, message=f"Log of job {job_id} retrieved")
         except GitHubAPIError as e:
             if "not found" in str(e).lower():
                 return ClientError(

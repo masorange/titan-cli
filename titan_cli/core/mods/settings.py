@@ -8,12 +8,15 @@ project under the same `project_sources.<key>` block a plugin's `dev_local` over
 a favorite workflow already use (`core/config.py`), never in the project's own file.
 """
 
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
 import tomli_w
 import tomllib
 
+from titan_cli.core.errors import ConfigWriteError
 from titan_cli.core.utils import project_source_scope_key
 
 
@@ -33,18 +36,46 @@ def set_mod_setting(
         data = tomllib.loads(target.read_text())
     except FileNotFoundError:
         data = {}
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise ConfigWriteError(file_path=str(target), original_exception=e)
 
     root = (project_root or active_project_root() or Path.cwd()).resolve()
-    project_table = data.setdefault("project_sources", {}).setdefault(project_source_scope_key(root), {})
+    project_table = _table(_table(data, "project_sources"), project_source_scope_key(root))
     project_table["project_path"] = str(root)
-    node = project_table.setdefault("mods", {}).setdefault(mod, {})
+    node = _table(_table(project_table, "mods"), mod)
     *parents, last = path
     for key in parents:
-        node = node.setdefault(key, {})
+        node = _table(node, key)
     node[last] = value
 
+    try:
+        _write_atomically(target, tomli_w.dumps(data))
+    except (OSError, TypeError, ValueError) as e:
+        raise ConfigWriteError(file_path=str(target), original_exception=e)
+
+
+def _table(parent: dict, key: str) -> dict:
+    """`parent[key]` as a table, replacing a value of another shape the setting cannot live in."""
+    node = parent.get(key)
+    if not isinstance(node, dict):
+        node = parent[key] = {}
+    return node
+
+
+def _write_atomically(target: Path, text: str) -> None:
+    """Replace `target` in one step: a crash mid-write must not truncate the user's config."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(tomli_w.dumps(data))
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def set_mod_enabled(

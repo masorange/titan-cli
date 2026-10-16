@@ -45,6 +45,28 @@ def diagnose_job(m, github, check: UIFailedCheck) -> Tuple[UIJobDiagnosis, Optio
     return parse_job_diagnosis(check.name, answer.text, excerpt), answer.model
 
 
+def start_diagnosis(m, number: int, options) -> None:
+    """Start a diagnosis unless one is already running; the claim is made before returning.
+
+    The button's own "running" flag is from the last repaint, so two quick presses both
+    saw it false. Claiming in state here closes that window.
+    """
+    key = str(number)
+    claimed = []
+
+    def claim(all_):
+        all_ = all_ or {}
+        current = all_.get(key)
+        if current is not None and current.status == "running":
+            return all_
+        claimed.append(True)
+        return {**all_, key: Diagnosis("running", model=m.state.get("ai_label"))}
+
+    m.state.update("diagnoses", claim, default={})
+    if claimed:
+        m.run(lambda: diagnose(m, number, options))
+
+
 def diagnose(m, number: int, options) -> None:
     """Explain the failed checks of one of my PRs; runs on a background thread."""
     prs: Optional[Prs] = m.state.get("prs")

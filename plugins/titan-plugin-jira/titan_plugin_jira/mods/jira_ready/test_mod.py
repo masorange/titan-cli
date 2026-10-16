@@ -305,7 +305,7 @@ def test_a_search_query_complements_filters_as_an_exact_key_or_free_text():
         "assignee = currentUser()",
         'key = "ECAPP-2268"',
     ]
-    assert mod.conditions([], CHOICES, "login crash") == ['text ~ "login crash*"']
+    assert mod.conditions([], CHOICES, "login crash") == ['text ~ "login* crash*"']
     assert mod.conditions([], CHOICES, "  ") == []
 
 
@@ -324,6 +324,44 @@ def test_choices_come_from_jira_ordered_by_category_and_a_failed_read_offers_not
 
     assert [s.name for s in choices.statuses] == ["Todo", "Doing", "Done"]
     assert choices.components == [] and choices.filters == CHOICES.filters
+
+
+def test_a_failed_read_keeps_the_previous_offer_or_marks_it_unknown():
+    jira = Mock()
+    jira.list_statuses.return_value = ClientSuccess(data=[status("Todo")])
+    jira.list_components.return_value = ClientSuccess(data=[])
+    jira.list_favourite_filters.return_value = ClientSuccess(data=[])
+    jira.list_projects.return_value = ClientError(error_message="boom")
+
+    first = mod.read_choices(jira, ["ECAPP"])
+    assert first.unknown == frozenset({"projects"})
+
+    jira.list_projects.return_value = ClientSuccess(data=[project("ECAPP")])
+    loaded = mod.read_choices(jira, ["ECAPP"], first)
+    assert loaded.unknown == frozenset() and [p.key for p in loaded.projects] == ["ECAPP"]
+
+    jira.list_projects.return_value = ClientError(error_message="boom")
+    again = mod.read_choices(jira, ["ECAPP"], loaded)
+    assert again.unknown == frozenset() and [p.key for p in again.projects] == ["ECAPP"]
+
+
+def test_picks_survive_an_unknown_offer_and_projects_match_case_insensitively():
+    def state(choices, **store):
+        return SimpleNamespace(
+            store=SimpleNamespace(get=lambda key, default=None: store.get(key, default)),
+            state=SimpleNamespace(get=lambda key, default=None: choices if key == "choices" else default),
+        )
+
+    unknown = mod.Choices(unknown=frozenset({"projects", "statuses", "components", "filters"}))
+    m = state(unknown, projects=["ecapp"], statuses=["Done"], filters=["component:iOS", "filter:1", "mine"])
+    assert mod.active_projects(m) == ["ecapp"]
+    assert mod.active_statuses(m) == ["Done"]
+    assert mod.active_filters(m) == ["component:iOS", "filter:1", "mine"]
+
+    m = state(CHOICES, projects=["ecapp", "GONE"], statuses=["Gone"], filters=["component:Nope"])
+    assert mod.active_projects(m) == ["ECAPP"]
+    assert mod.active_statuses(m) == []
+    assert mod.active_filters(m) == []
 
 
 def test_projects_are_offered_alphabetically():

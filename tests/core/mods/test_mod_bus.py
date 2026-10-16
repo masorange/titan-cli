@@ -229,3 +229,25 @@ def test_a_dock_slot_carries_the_manifest_icon_and_an_empty_label_clears_it():
 
     assert (slots[0].icon, slots[0].label, slots[0].badge, slots[0].severity) == ("👀", "PRs", "2", "error")
     assert slots[1] is None
+
+
+def test_a_hook_that_rewraps_the_downstream_failure_still_fails_the_step():
+    bus = ModBus()
+    on = bus.on_for("rewrapper")
+
+    @on("step.call")
+    def rewrap(m, e, next):
+        try:
+            return next(e)
+        except RuntimeError as exc:
+            raise ValueError("wrapped") from exc
+
+    error = RuntimeError("step failed")
+
+    def final(e):
+        raise error
+
+    with pytest.raises(RuntimeError) as raised:
+        bus.dispatch("step.call", step_event(), final)
+
+    assert raised.value is error

@@ -5,7 +5,6 @@ Pure business logic for commit message handling.
 These functions can be used by any step and are easily testable.
 """
 
-import re
 from typing import Optional, Tuple
 
 from titan_cli.core.diffs import (
@@ -200,25 +199,10 @@ def process_ai_commit_message(raw_ai_response: str) -> str:
     return capitalized
 
 
-_SQUASH_PR_SUFFIX = re.compile(r"\s*\(#(\d+)\)$")
-
-
-def split_squash_pr_suffix(subject: str) -> Tuple[str, Optional[int]]:
-    """
-    Split the "(#1234)" GitHub appends to a squash merge's subject: the subject
-    without it, and the PR the commit landed (None when there is no suffix).
-    """
-    match = _SQUASH_PR_SUFFIX.search(subject)
-    if not match:
-        return subject, None
-    return subject[: match.start()], int(match.group(1))
-
-
 __all__ = [
     "build_ai_commit_prompt",
     "normalize_commit_message",
     "capitalize_commit_subject",
     "validate_message_length",
     "process_ai_commit_message",
-    "split_squash_pr_suffix",
 ]

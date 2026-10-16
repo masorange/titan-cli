@@ -1,6 +1,8 @@
 """A mod's store: small JSON values that outlive the session (a choice the person made)."""
 
 import json
+import os
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -26,9 +28,10 @@ class ModStore:
 
     def _read(self) -> dict:
         try:
-            return json.loads(self.path.read_text())
+            data = json.loads(self.path.read_text())
         except (OSError, ValueError):
             return {}
+        return data if isinstance(data, dict) else {}
 
     def get(self, key: str, default: Any = None) -> Any:
         with self._lock:
@@ -40,7 +43,22 @@ class ModStore:
             data = self._read()
             data[key] = value
             try:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                self.path.write_text(json.dumps(data, indent=2))
-            except (OSError, TypeError):
+                self._write(data)
+            except (OSError, TypeError, ValueError):
                 logger.warning("mod_store_write_failed", mod=self._mod, key=key, exc_info=True)
+
+    def _write(self, data: dict) -> None:
+        """Write beside the target and rename over it, so a crash never leaves half a file."""
+        text = json.dumps(data, indent=2)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=f".{self._mod}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(text)
+            os.replace(tmp, self.path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise

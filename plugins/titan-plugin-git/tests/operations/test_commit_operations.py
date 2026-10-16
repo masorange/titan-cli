@@ -276,7 +276,7 @@ class TestProcessAICommitMessage:
 
 
 def test_split_squash_pr_suffix():
-    from titan_plugin_git.operations.commit_operations import split_squash_pr_suffix
+    from titan_plugin_git.models.formatting import split_squash_pr_suffix
 
     assert split_squash_pr_suffix("feat: Add login (#1234)") == ("feat: Add login", 1234)
     assert split_squash_pr_suffix("fix: (#12) in the middle") == ("fix: (#12) in the middle", None)

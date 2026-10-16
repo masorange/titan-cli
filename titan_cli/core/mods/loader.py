@@ -183,6 +183,14 @@ def discover_mods(sources: List[Tuple[str, Path]]) -> Dict[str, ModManifest]:
             if not manifest.entrypoint.is_file():
                 logger.warning("mod_entrypoint_missing", mod=manifest.name, path=str(folder))
                 continue
+            if manifest.name in found:
+                logger.warning(
+                    "mod_overrides_mod",
+                    mod=manifest.name,
+                    source=manifest.source,
+                    replaces=found[manifest.name].source,
+                    path=str(folder),
+                )
             found[manifest.name] = manifest
     return found
 
@@ -411,8 +419,10 @@ def _load_one(
             )
             return False
     options, dropped = resolve_options(manifest.options, config.get("options", {}))
-    for option, reason in dropped:
-        logger.warning("mod_option_dropped", mod=name, option=option, reason=reason)
+    for option, _reason in dropped:
+        # The reason quotes the offending value, which may be a secret typed into a
+        # string option: log which option was dropped, never what was in it.
+        logger.warning("mod_option_dropped", mod=name, option=option)
     options["sections"], dropped = resolve_sections(manifest.sections, config.get("sections", {}))
     for section, reason in dropped:
         logger.warning("mod_section_dropped", mod=name, section=section, reason=reason)
@@ -422,7 +432,7 @@ def _load_one(
         if not callable(register):
             raise AttributeError(f"{manifest.entrypoint} defines no register(on, options)")
         register(bus.on_for(name, manifest.events), options)
-    except Exception as e:
+    except (Exception, SystemExit) as e:  # a mod calling sys.exit() must not stop Titan starting
         bus.statuses[name] = ModStatus(name, FAILED, error=f"{type(e).__name__}: {e}")
         # All or nothing: hooks a register() added before failing would run
         # for a mod that is reported as not loaded, and its modules would linger.
