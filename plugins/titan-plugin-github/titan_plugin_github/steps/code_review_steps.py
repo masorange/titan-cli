@@ -599,7 +599,13 @@ def select_pr_for_code_review(ctx: WorkflowContext) -> WorkflowResult:
 
     preset = ctx.get("review_pr_number")
     if preset:
-        return _review_given_pr(ctx, int(preset))
+        try:
+            preset_number = int(str(preset).lstrip("#"))
+        except (TypeError, ValueError):
+            ctx.textual.error_text(f"Invalid PR number: {preset!r}")
+            ctx.textual.end_step("error")
+            return Error(f"Invalid PR number: {preset!r}")
+        return _review_given_pr(ctx, preset_number)
 
     with ctx.textual.loading("Fetching open PRs..."):
         all_result = ctx.github.list_all_prs()
