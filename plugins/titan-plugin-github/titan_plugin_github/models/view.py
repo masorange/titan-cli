@@ -131,6 +131,24 @@ class UICommentThread:
 
 
 @dataclass
+class UIFailedCheck:
+    """A failed check of a PR, with where GitHub shows it."""
+    name: str
+    url: str  # Actions job page, or the external CI's target URL; "" when unknown
+    job_id: Optional[int] = None  # GitHub Actions job id (for get_actions_job_log); None for external CI
+
+
+@dataclass
+class UIJobDiagnosis:
+    """Why one failed CI job failed, as an AI read it from the job's log."""
+    job_name: str
+    cause: str  # One sentence; says so when the log does not make it clear
+    where: str = ""  # "path/File.ext:line" when the log names one
+    quote: str = ""  # The log line the AI says shows the failure
+    is_quote_in_log: bool = False  # False with a quote: the AI made the line up, distrust the cause
+
+
+@dataclass
 class UIPullRequest:
     """
     UI model for displaying a pull request.
@@ -166,6 +184,10 @@ class UIPullRequest:
     head_repository_name: Optional[str] = None
     requested_reviewers: List[str] = field(default_factory=list)  # All requested reviewer logins
     pending_reviewers: List[str] = field(default_factory=list)  # Reviewers who haven't reviewed yet
+    url: str = ""  # The PR's web page; "" when the fetch did not ask for it
+    checks_state: str = "none"  # "failing", "running", "passing" or "none"
+    failed_checks: List[UIFailedCheck] = field(default_factory=list)
+    has_conflicts: bool = False  # mergeable == CONFLICTING; False when not fetched
 
 
 @dataclass
@@ -234,6 +256,31 @@ class UIMergeQueueState:
     queue_position: Optional[int]  # Position in the queue, when queued
     queue_entry_state: Optional[str]  # "QUEUED", "AWAITING_CHECKS", ...
     summary: str  # Ready-to-render description of the state
+
+
+@dataclass
+class UIMergeQueueEntry:
+    """UI model for one pull request waiting in the merge queue."""
+    position: int
+    pr_number: int
+    title: str
+    author: str  # Login, "?" when not visible
+    state: str  # "QUEUED", "AWAITING_CHECKS", "MERGEABLE", "UNMERGEABLE", "LOCKED"
+    state_label: str  # "queued", "running checks", "ready to merge", ...
+    eta_seconds: Optional[int]  # GitHub's estimate, when it has one
+    eta_label: str  # "<1m", "~12m", "~1h05", or "" without an estimate
+    is_mine: bool  # Authored by the authenticated user
+    url: str = ""  # The queued PR's web page
+
+
+@dataclass
+class UIMergeQueue:
+    """UI model for the merge queue of the repository's default branch."""
+    is_configured: bool  # False: the default branch has no merge queue
+    branch: str  # Default branch name
+    merge_method: str  # "squash", "merge", "rebase" or ""
+    total: int  # Entries in the queue, including those not listed
+    entries: List[UIMergeQueueEntry] = field(default_factory=list)
 
 
 @dataclass

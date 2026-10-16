@@ -1,0 +1,103 @@
+"""
+Inputs of the events a mod can hook.
+
+Each one is frozen: a hook that wants the rest of the chain to see something
+different passes `dataclasses.replace(e, ...)` to `next`, it never mutates `e`.
+"""
+
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Any, Mapping, Optional
+
+from titan_cli.engine.results import Error, Exit, Skip, Success
+
+
+def _frozen(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
+    return MappingProxyType(dict(mapping))
+
+
+@dataclass(frozen=True)
+class WorkflowRun:
+    """
+    `workflow.run`: wraps a whole workflow. Before `next` is the start, after it the end.
+
+    `next(e)` returns how the workflow ended; `outcome(result)` reads it as a word.
+    A workflow the user aborts (Ctrl+C) never returns: `next` raises, so a hook that
+    must act however the run ends puts that code in a `finally`. `nested` is true for
+    a workflow run as a step of another, which ends inside its parent's run.
+    """
+
+    workflow: str
+    source: str
+    nested: bool
+
+
+def outcome(result: Any) -> str:
+    """
+    How a workflow or step ended, as `"success"`, `"error"`, `"skip"` or `"exit"`
+    (stopped early on purpose, not a failure), so a mod can tell without importing
+    the engine's result classes.
+    """
+    for kind, name in ((Success, "success"), (Error, "error"), (Skip, "skip"), (Exit, "exit")):
+        if isinstance(result, kind):
+            return name
+    raise TypeError(f"not a workflow result: {result!r}")
+
+
+@dataclass(frozen=True)
+class StepCall:
+    """
+    `step.call`: wraps one step.
+
+    Exactly one of `plugin`+`step`, `command` or `nested_workflow` is set, the
+    same shapes a workflow YAML accepts. `params` is what the step will see; a
+    hook that passes a replaced `params` to `next` changes it for the step.
+    """
+
+    workflow: str
+    step_id: str
+    step_name: str
+    plugin: Optional[str] = None
+    step: Optional[str] = None
+    command: Optional[str] = None
+    nested_workflow: Optional[str] = None
+    params: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "params", _frozen(self.params))
+
+
+@dataclass(frozen=True)
+class AppStart:
+    """`app.start`: the TUI has mounted. Open panes and start timers here; never block."""
+
+    project_root: str
+
+
+@dataclass(frozen=True)
+class SectionChange:
+    """
+    `section.change`: the user switched one of the mod's sections on or off while Titan runs.
+
+    Only that mod's hooks see it. `options["sections"]` already holds the new value, so
+    a mod that reads it each time it polls or draws needs no hook; one that must start
+    work when a section turns on (a first refresh) hooks this.
+    """
+
+    section: str
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class UIRender:
+    """
+    `ui.render`: draw one slot. Answer with an element tree from
+    `titan_cli.core.mods.elements`, or `next(e)` to leave it to others.
+
+    `component` is the slot (`"Pane"` for now), `pane` the id the mod opened it
+    with, `width` the columns the slot has.
+    """
+
+    component: str
+    pane: Optional[str]
+    width: int

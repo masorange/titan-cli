@@ -57,6 +57,7 @@ class Icons:
     # AI & Automation
     AI = "🤖"
     AI_CONFIG = "🧠"
+    MOD = "🧩"
     ROBOT = "🤖"
     SPARKLES = "✨"
 

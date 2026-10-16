@@ -27,6 +27,8 @@ from ..models import (
     UIJiraStatus,
     UIJiraUser,
     UIJiraVersion,
+    UIJiraComponent,
+    UIJiraFilter,
     UIPriority
 )
 
@@ -96,6 +98,10 @@ class JiraClient:
             ClientResult[UIJiraIssue] - Success contains the issue data, Error contains error details
         """
         return self._issue_service.get_issue(key, expand)
+
+    def issue_url(self, issue_key: str) -> str:
+        """The issue's page in the Jira web UI (e.g. https://acme.atlassian.net/browse/PROJ-123)."""
+        return f"{self.base_url}/browse/{issue_key}"
 
     def search_issues(
         self,
@@ -370,12 +376,41 @@ class JiraClient:
 
         return self._metadata_service.list_project_versions(key)
 
+    def list_components(self, project_key: Optional[str] = None) -> ClientResult[List[UIJiraComponent]]:
+        """
+        List the components of a project.
+
+        Args:
+            project_key: Project key (uses default if not provided)
+
+        Returns:
+            ClientResult[List[UIJiraComponent]]
+        """
+        key = project_key or self.project_key
+        if not key:
+            return ClientError(
+                error_message="Project key not provided",
+                error_code="MISSING_PROJECT_KEY"
+            )
+
+        return self._metadata_service.list_components(key)
+
+    def list_favourite_filters(self) -> ClientResult[List[UIJiraFilter]]:
+        """
+        List the saved filters the current user starred in Jira.
+
+        Returns:
+            ClientResult[List[UIJiraFilter]]: each with its name and JQL
+        """
+        return self._metadata_service.list_favourite_filters()
+
     def create_version(
         self,
         name: str,
         project_key: Optional[str] = None,
         description: Optional[str] = None,
         release_date: Optional[str] = None,
+        start_date: Optional[str] = None,
     ) -> ClientResult[UIJiraVersion]:
         """Create a version in the provided or default Jira project."""
         key = project_key or self.project_key
@@ -389,6 +424,7 @@ class JiraClient:
             project_key=key,
             name=name,
             description=description,
+            start_date=start_date,
             release_date=release_date,
         )
 
@@ -398,6 +434,7 @@ class JiraClient:
         project_key: Optional[str] = None,
         description: Optional[str] = None,
         release_date: Optional[str] = None,
+        start_date: Optional[str] = None,
     ) -> ClientResult[UIJiraVersion]:
         """Return an existing version by name or create it if missing."""
         key = project_key or self.project_key
@@ -411,6 +448,7 @@ class JiraClient:
             project_key=key,
             name=name,
             description=description,
+            start_date=start_date,
             release_date=release_date,
         )
 
@@ -428,6 +466,10 @@ class JiraClient:
             version_id=version_id,
             version_name=version_name,
         )
+
+    def set_fix_version(self, issue_key: str, version_id: Optional[str]) -> ClientResult[None]:
+        """Replace the issue's fixVersions with one Jira version ID; `None` clears them."""
+        return self._issue_service.set_fix_version(issue_key=issue_key, version_id=version_id)
 
     def assign_issue(self, issue_key: str, account_id: str) -> ClientResult[None]:
         """Assign an existing issue to a user by account ID."""

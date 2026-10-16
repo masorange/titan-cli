@@ -10,7 +10,7 @@ cells. So the body belongs to the workflows and those two demote to keys.
 """
 
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -19,6 +19,7 @@ from textual.css.query import NoMatches
 from textual.widgets import Static
 
 from titan_cli import __version__
+from titan_cli.core.mods import HomeCardSlot
 from titan_cli.core.workflows import (
     DEFAULT_SLOT_COUNT,
     QuickLaunchService,
@@ -26,7 +27,7 @@ from titan_cli.core.workflows import (
 )
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import Button, StatusBarWidget, WorkflowCard
+from titan_cli.ui.tui.widgets import ModHomeCard, WorkflowCard
 from titan_cli.core.plugins.community_sources import (
     CommunityPluginRecord,
     PluginChannel,
@@ -36,8 +37,6 @@ from titan_cli.core.plugins.community_sources import (
 from .base import BaseScreen
 from .card_grid import CardGridNavigationMixin
 
-from .ai_config import AIConfigScreen
-from .plugin_management import PluginManagementScreen
 
 # Width a card needs before another one fits beside it. The column count is derived from
 # this on resize; the SET of cards never is - a grid whose contents changed with the window
@@ -46,10 +45,6 @@ CARD_TARGET_WIDTH = 38
 MAX_COLUMNS = 4
 # Horizontal space #home-body's padding takes out of the screen width.
 HOME_BODY_GUTTER = 8
-# Same idea for the action row: a button whose label is squeezed below this reads as
-# truncation, so the row stacks instead of shrinking. Its labels are shorter than a
-# card's body, hence the smaller target.
-ACTION_TARGET_WIDTH = 24
 # The grid's heading. Deliberately says nothing about where the cards came from: a
 # heading cannot be true of a mixed grid, and the per-card star already is.
 SECTION_TITLE = f"{Icons.WORKFLOW} Quick launch"
@@ -99,9 +94,10 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("escape", "quit", "Quit"),
-        Binding("w", "open_workflows", "Workflows"),
-        Binding("p", "open_plugins", "Plugins"),
-        Binding("a", "open_ai_config", "AI"),
+        Binding("w", "app.open_workflows", "Workflows"),
+        Binding("p", "app.open_plugins", "Plugins"),
+        Binding("m", "app.open_mods", "Mods"),
+        Binding("a", "app.open_ai_config", "AI"),
     ] + [
         Binding(str(number), f"launch_slot({number})", show=False)
         for number in range(1, DEFAULT_SLOT_COUNT + 1)
@@ -132,27 +128,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         margin-top: 1;
     }
 
-    /* A Grid, not a Horizontal, for the same reason the cards are one: on a narrow
-       terminal three buttons side by side shrink until their labels truncate. The column
-       count is recomputed on resize and drops to 1, stacking them the way the cards
-       stack. */
-    #home-actions {
-        height: auto;
-        padding: 1 3 1 3;
-        grid-size: 3;
-        grid-rows: 3;
-        grid-gutter: 1 2;
-    }
-
-    /* Real buttons rather than chips. A Chip is content-width by design - it exists to
-       annotate a step's output - so three of them read as a caption strip under the grid
-       instead of as the way out of this screen. These span the row and match the cards'
-       weight. */
-    #home-actions Button {
-        width: 1fr;
-        margin: 0;
-    }
-
     #home-empty {
         height: 1fr;
         align: center middle;
@@ -161,6 +136,28 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
     #home-empty-message {
         width: auto;
         text-align: center;
+    }
+
+    #home-mods-section {
+        /* Container's own default is height: 1fr; overflow: hidden hidden - inside
+           #home-body's VerticalScroll that clips the section to whatever space is
+           left over instead of sizing to its content, so the grid's own height
+           (and anything below the fold) never becomes part of what there is to
+           scroll to. */
+        height: auto;
+    }
+
+    #home-mods-title {
+        text-style: bold;
+        color: $accent;
+        margin: 1 0 1 1;
+    }
+
+    #home-mods-grid {
+        grid-size: 3;
+        grid-rows: 9;
+        grid-gutter: 1 2;
+        height: auto;
     }
     """
 
@@ -178,14 +175,10 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             with Container(id="home-empty"):
                 yield Static(
                     f"{Icons.PLUGIN}  No plugins are enabled for this project\n\n"
-                    "[dim]Enable Git, GitHub or Jira to start running workflows.[/dim]",
+                    "[dim]Enable Git, GitHub or Jira to start running workflows:[/dim]\n"
+                    "[dim]Plugins in the dock below, or press[/dim] p",
                     id="home-empty-message",
                 )
-            with Grid(id="home-actions"):
-                yield self._action_button(
-                    Icons.PLUGIN, "p", "Manage plugins", variant="primary"
-                )
-                yield self._action_button(Icons.AI_CONFIG, "a", "AI")
             return
 
         has_favorites = any(slot.is_favorite for slot in self._slots)
@@ -220,30 +213,39 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             hint.display = not has_favorites
             yield hint
 
-        with Grid(id="home-actions"):
-            # Workflows is the primary: it is the one a user reaches for, and the other
-            # two are monthly setup.
-            yield self._action_button(
-                Icons.WORKFLOW, "w", "All workflows", variant="primary"
-            )
-            yield self._action_button(Icons.PLUGIN, "p", "Plugins")
-            yield self._action_button(Icons.AI_CONFIG, "a", "AI")
+            # Mods' own cards: one per mod that called `m.ui.home_card`,
+            # independent of what it shows on the dock or in its side panel pane. The
+            # section is composed either way and hidden when empty, same as the hint
+            # above, so refresh_mod_cards() only ever toggles and refills it.
+            slots = self._mod_card_slots()
+            with Container(id="home-mods-section") as mods_section:
+                yield Static(f"{Icons.MOD} Mods", id="home-mods-title")
+                with Grid(id="home-mods-grid"):
+                    for mod, slot in slots:
+                        yield self._mod_card_for(mod, slot)
+            mods_section.display = bool(slots)
 
-    def _action_button(self, icon: str, key: str, label: str, variant: str = "default") -> Button:
-        """One action, sized and weighted to be seen, with its key shown on it.
+    def _mod_card_slots(self) -> List[Tuple[str, HomeCardSlot]]:
+        host = getattr(self.app, "mods_host", None)
+        return host.home_card_slots() if host is not None else []
 
-        `w` as plain text beside the label read as the first word of "w All workflows",
-        so the key is bracketed - it is a shortcut, not part of the name.
-        """
-        # The bracket is escaped: a Button label is markup, so a bare `[w]` is parsed as
-        # a tag and silently disappears - the same hazard the card descriptions have.
-        button = Button(
-            f"{icon}  {label}  \\[{key}]",
-            variant=variant,
-            id=f"home-action-{key}",
-        )
-        button.tooltip = f"Press {key}"
-        return button
+    def _mod_card_for(self, mod: str, slot: HomeCardSlot) -> ModHomeCard:
+        return ModHomeCard(mod, slot.icon or "", slot.title, slot.text, slot.on_click is not None)
+
+    def refresh_mod_cards(self) -> None:
+        """Rebuild the mods section from what they currently ask for."""
+        self.call_later(self._refresh_mod_cards)
+
+    async def _refresh_mod_cards(self) -> None:
+        try:
+            section = self.query_one("#home-mods-section", Container)
+            grid = self.query_one("#home-mods-grid", Grid)
+        except NoMatches:
+            return
+        slots = self._mod_card_slots()
+        section.display = bool(slots)
+        await grid.remove_children()
+        await grid.mount_all([self._mod_card_for(mod, slot) for mod, slot in slots])
 
     def _build_slots(self) -> List[QuickLaunchSlot]:
         """Read what the grid needs and choose the slots."""
@@ -273,16 +275,14 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         for message in self.config.get_plugin_sync_events():
             self.app.notify(message, severity="information", timeout=6)
         self._reflow_grid()
-        self._reflow_actions()
         # After the first refresh: setting it mid-mount is what let a later focus overwrite
         # it without a trace.
         self.call_after_refresh(self._focus_first_card)
         self.run_worker(self._check_plugin_updates(), exclusive=False)
 
     def on_resize(self) -> None:
-        """Reflow the columns. The set of cards is deliberately untouched (D-003)."""
+        """Reflow the columns. The set of cards is deliberately untouched."""
         self._reflow_grid()
-        self._reflow_actions()
 
     def _column_count(self, width: int) -> int:
         """How many card columns fit in `width`."""
@@ -316,6 +316,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         not, so it is reused unless it is known to be stale.
         """
         super().on_screen_resume()
+        self.refresh_mod_cards()
 
         if self._discovery_dirty:
             # The set of workflows itself may have changed (a plugin was enabled or
@@ -358,25 +359,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         await grid.mount_all([self._card_for(slot) for slot in self._slots])
         self._reflow_grid()
         self._focus_first_card()
-
-    def _reflow_actions(self) -> None:
-        """Wrap the action row the same way the cards wrap, down to one per line.
-
-        Guarded on the value changing for the same reason `_reflow_grid` is: an
-        unconditional style write relayouts, which emits another Resize, which lands
-        back here.
-        """
-        try:
-            actions = self.query_one("#home-actions", Grid)
-        except NoMatches:
-            return
-        buttons = len(actions.query(Button))
-        if not buttons:
-            return
-        available = self.size.width - HOME_BODY_GUTTER
-        columns = max(1, min(buttons, available // ACTION_TARGET_WIDTH))
-        if actions.styles.grid_size_columns != columns:
-            actions.styles.grid_size_columns = columns
 
     def _focus_first_card(self) -> None:
         """Put the cursor on the first card, so Enter means something immediately."""
@@ -425,17 +407,6 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         """A card was chosen - run its workflow."""
         self.execute_workflow(message.workflow_name)
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """An action button was pressed or clicked."""
-        actions = {
-            "home-action-w": self.action_open_workflows,
-            "home-action-p": self.action_open_plugins,
-            "home-action-a": self.action_open_ai_config,
-        }
-        action = actions.get(event.button.id)
-        if action is not None:
-            action()
-
     def action_launch_slot(self, number: int) -> None:
         """Launch the workflow on the given number key."""
         for slot in self._slots:
@@ -449,33 +420,9 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
 
         self.app.push_screen(WorkflowExecutionScreen(self.config, workflow_name))
 
-    def action_open_workflows(self) -> None:
-        """Open the full workflow list."""
-        from .workflows import WorkflowsScreen
-
-        self.app.push_screen(WorkflowsScreen(self.config))
-
-    def action_open_plugins(self) -> None:
-        """Open plugin management.
-
-        Enabling or disabling a plugin changes which workflows exist, so the cached
-        discovery this screen holds is marked stale for the resume that follows.
-        """
+    def mark_discovery_stale(self) -> None:
+        """Rediscover workflows on the next resume: a plugin may be enabled or disabled."""
         self._discovery_dirty = True
-        self.app.push_screen(PluginManagementScreen(self.config))
-
-    def action_open_ai_config(self) -> None:
-        """Open AI configuration."""
-        def on_ai_config_closed(result) -> None:
-            """Refresh the status bar with whatever the screen changed."""
-            try:
-                self.config.load()
-                status_bar = self.query_one("#status-bar", StatusBarWidget)
-                self._update_status_bar(status_bar)
-            except Exception as e:
-                self.app.notify(f"Error refreshing status bar: {e}", severity="error")
-
-        self.app.push_screen(AIConfigScreen(self.config), callback=on_ai_config_closed)
 
     def action_quit(self) -> None:
         """Quit the application."""

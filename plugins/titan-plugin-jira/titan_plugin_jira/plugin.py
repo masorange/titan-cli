@@ -337,3 +337,10 @@ class JiraPlugin(TitanPlugin):
             Path to workflows directory containing YAML workflow definitions
         """
         return Path(__file__).parent / "workflows"
+
+    @property
+    def mods_path(self) -> Optional[Path]:
+        """
+        Returns the path to the mods directory this plugin ships.
+        """
+        return Path(__file__).parent / "mods"

@@ -289,6 +289,66 @@ class TestDiffServiceGetBranchNumstat:
 
 
 @pytest.mark.unit
+class TestDiffServiceGetUncommittedNumstat:
+    """Test DiffService.get_uncommitted_numstat()"""
+
+    def test_diffs_against_head_without_touching_the_index(self, service, mock_git_network):
+        """Test it runs one read-only diff against HEAD and parses it"""
+        mock_git_network.run_command.return_value = "3\t1\tsrc/a.py\n-\t-\tlogo.png\n"
+
+        result = service.get_uncommitted_numstat()
+
+        assert isinstance(result, ClientSuccess)
+        assert [(c.path, c.additions, c.deletions, c.is_binary) for c in result.data] == [
+            ("src/a.py", 3, 1, False),
+            ("logo.png", 0, 0, True),
+        ]
+        mock_git_network.run_command.assert_called_once()
+        args = mock_git_network.run_command.call_args.args[0]
+        assert args[-3:] == ["HEAD", "--numstat", "--no-renames"]
+        assert "add" not in args
+
+    def test_error_returns_client_error(self, service, mock_git_network):
+        """Test git error returns ClientError"""
+        mock_git_network.run_command.side_effect = GitCommandError("not a git repository")
+
+        result = service.get_uncommitted_numstat()
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "DIFF_ERROR"
+
+    def test_include_untracked_counts_new_files_lines(self, service, mock_git_network, tmp_path):
+        """New files are outside `git diff`: their lines are read and counted as additions"""
+        (tmp_path / "new.py").write_text("a\nb\nc")
+        (tmp_path / "blob.bin").write_bytes(b"\0\1\2")
+        mock_git_network.get_repo_path.return_value = str(tmp_path)
+        mock_git_network.run_command.side_effect = ["3\t1\tsrc/a.py\n", "new.py\nblob.bin\ngone.txt\n"]
+
+        result = service.get_uncommitted_numstat(include_untracked=True)
+
+        assert [(c.path, c.additions, c.is_binary) for c in result.data] == [
+            ("src/a.py", 3, False),
+            ("new.py", 3, False),
+            ("blob.bin", 0, True),
+            ("gone.txt", 0, True),
+        ]
+        assert mock_git_network.run_command.call_args.args[0][-3:] == ["ls-files", "--others", "--exclude-standard"]
+
+
+    def test_include_untracked_does_not_follow_symlinks(self, service, mock_git_network, tmp_path):
+        """A link to a big file or a FIFO is not read: `git diff` counts it as one line anyway"""
+        target = tmp_path / "target.txt"
+        target.write_text("a\nb\nc\n")
+        (tmp_path / "link").symlink_to(target)
+        mock_git_network.get_repo_path.return_value = str(tmp_path)
+        mock_git_network.run_command.side_effect = ["", "link\n"]
+
+        result = service.get_uncommitted_numstat(include_untracked=True)
+
+        assert [(c.path, c.additions, c.is_binary) for c in result.data] == [("link", 0, True)]
+
+
+@pytest.mark.unit
 class TestDiffServiceGetChangedFiles:
     """Test DiffService.get_changed_files()"""
 

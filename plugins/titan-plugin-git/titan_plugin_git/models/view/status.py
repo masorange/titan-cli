@@ -17,6 +17,7 @@ class UIGitStatus:
     staged_files: List[str]
     ahead: int = 0
     behind: int = 0
+    has_upstream: bool = False  # False: ahead/behind are 0 because there is nothing to compare with
     clean_icon: str = ""  # "✓" if clean, "✗" if dirty
     status_summary: str = ""  # e.g., "Clean" or "3 modified, 2 untracked"
     sync_status: str = ""  # e.g., "↑2 ↓1" or "↑3" or "synced"

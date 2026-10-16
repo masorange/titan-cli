@@ -12,7 +12,7 @@ from pathlib import Path
 
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal
 from textual.binding import Binding
 
 from titan_cli.ui.tui.icons import Icons
@@ -26,6 +26,7 @@ from titan_cli.ui.tui.widgets import (
     SegmentedSwitch,
     SegmentedSwitchOption,
     DevSourcePathModal,
+    ListDetailPanel,
 )
 from .base import BaseScreen
 from .install_plugin_screen import InstallPluginScreen
@@ -74,55 +75,9 @@ class PluginManagementScreen(BaseScreen):
         align: center middle;
     }
 
-    #plugin-container {
-        width: 100%;
-        height: 1fr;
-        background: $surface-lighten-1;
-    }
-
-    #plugin-container Horizontal {
-        width: 100%;
-        height: 1fr;
-        padding: 1;
-    }
-
-    #left-panel {
-        width: 20%;
-        height: 100%;
-        border: round $primary;
-        border-title-align: center;
-        background: $surface-lighten-1;
-        padding: 0;
-    }
-
-    #left-panel OptionList {
-        height: 1fr;
-        width: 100%;
-        padding: 1;
-    }
-
     #install-plugin-button {
         width: 100%;
         margin: 1 1 1 1;
-    }
-
-    #left-panel OptionList > .option-list--option {
-        padding: 1;
-    }
-
-    #right-panel {
-        width: 80%;
-        height: 1fr;
-        border: round $primary;
-        border-title-align: center;
-        background: $surface-lighten-1;
-        padding: 0;
-    }
-
-    #plugin-details {
-        height: 100%;
-        width: 100%;
-        padding: 1;
     }
 
     #details-content {
@@ -196,22 +151,15 @@ class PluginManagementScreen(BaseScreen):
 
     def compose_content(self) -> ComposeResult:
         """Compose the plugin management screen."""
-        with Container(id="plugin-container"):
-            with Horizontal():
-                # Left panel: Plugin list + install button
-                left_panel = Container(id="left-panel")
-                left_panel.border_title = "Installed Plugins"
-                with left_panel:
-                    yield OptionList(id="plugin-list")
-                    yield Button(f"{Icons.PLUGIN} Install Plugin", variant="primary", id="install-plugin-button")
-
-                # Right panel: Plugin details and actions
-                right_panel = Container(id="right-panel")
-                right_panel.border_title = "Plugin Details"
-                with right_panel:
-                    with VerticalScroll(id="plugin-details"):
-                        yield Container(id="details-content")
-
+        yield ListDetailPanel(
+            "Installed Plugins",
+            "Plugin Details",
+            list_id="plugin-list",
+            scroll_id="plugin-details",
+            content_id="details-content",
+            left_footer=[Button(f"{Icons.PLUGIN} Install Plugin", variant="primary", id="install-plugin-button")],
+            id="plugin-container",
+        )
 
     def on_mount(self) -> None:
         """Initialize the screen with plugin list."""

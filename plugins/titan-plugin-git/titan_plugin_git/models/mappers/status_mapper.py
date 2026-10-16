@@ -39,7 +39,9 @@ def from_network_status(network_status: NetworkGitStatus) -> UIGitStatus:
 
     # Sync status
     sync_status = ""
-    if network_status.ahead > 0 and network_status.behind > 0:
+    if not network_status.has_upstream:
+        sync_status = "no upstream"
+    elif network_status.ahead > 0 and network_status.behind > 0:
         sync_status = f"↑{network_status.ahead} ↓{network_status.behind}"
     elif network_status.ahead > 0:
         sync_status = f"↑{network_status.ahead}"
@@ -58,5 +60,6 @@ def from_network_status(network_status: NetworkGitStatus) -> UIGitStatus:
         staged_files=network_status.staged_files,
         ahead=network_status.ahead,
         behind=network_status.behind,
+        has_upstream=network_status.has_upstream,
         sync_status=sync_status,
     )

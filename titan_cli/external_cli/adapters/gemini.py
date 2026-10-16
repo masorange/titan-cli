@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
+from titan_cli.core import interrupt
 from .base import CliModel, HeadlessResponse, SupportedCLI
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -83,7 +84,7 @@ class GeminiHeadlessAdapter:
         if model is not None:
             cmd += ["-m", model]
         try:
-            result = subprocess.run(
+            result = interrupt.run_tracked(
                 cmd,
                 input=prompt,
                 capture_output=True,

@@ -114,7 +114,7 @@ class SlackConfigScreen(BaseScreen):
             config,
             title=f"{Icons.SETTINGS} Configure Slack",
             show_back=True,
-            show_status_bar=False,
+            show_dock=False,
         )
         self._reconfigure_project_mode = False
         self._has_changes = False

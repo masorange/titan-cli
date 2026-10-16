@@ -9,6 +9,9 @@ from titan_plugin_jira.operations.jql_operations import (
     format_jql_with_project,
     merge_query_collections,
     build_query_not_found_message,
+    build_issue_jql,
+    search_condition,
+    strip_order_by,
 )
 
 
@@ -190,3 +193,77 @@ class TestBuildQueryNotFoundMessage:
         """Should include the missing query name."""
         msg = build_query_not_found_message("my_missing_query", {"q1": "jql"}, {})
         assert "my_missing_query" in msg
+
+
+class TestSearchCondition:
+    """Tests for search_condition function."""
+
+    def test_blank_query_has_no_condition(self):
+        assert search_condition("") == ""
+        assert search_condition("   ") == ""
+
+    def test_issue_key_matches_exactly(self):
+        assert search_condition("ECAPP-2268") == 'key = "ECAPP-2268"'
+
+    def test_free_text_matches_with_trailing_wildcard(self):
+        assert search_condition("login crash") == 'text ~ "login* crash*"'
+
+    def test_text_search_operators_are_escaped(self):
+        assert search_condition("a:b (c)") == 'text ~ "a\\\\:b* \\\\(c\\\\)*"'
+
+    def test_strips_surrounding_whitespace(self):
+        assert search_condition("  ECAPP-2268  ") == 'key = "ECAPP-2268"'
+
+    def test_a_bare_number_searches_every_selected_project(self):
+        assert search_condition("2268", ["ECAPP", "ESHOP"]) == 'key in ("ECAPP-2268", "ESHOP-2268")'
+
+    def test_a_single_selected_project_is_an_equality(self):
+        assert search_condition("2268", ["ECAPP"]) == 'key = "ECAPP-2268"'
+
+    def test_a_typod_prefix_is_ignored_in_favour_of_the_selected_projects(self):
+        assert search_condition("ESHOPP-2268", ["ECAPP", "ESHOP"]) == 'key in ("ECAPP-2268", "ESHOP-2268")'
+
+    def test_a_number_with_no_project_selected_falls_back_to_a_literal_key_or_text(self):
+        assert search_condition("2268", []) == 'text ~ "2268*"'
+        assert search_condition("ECAPP-2268", []) == 'key = "ECAPP-2268"'
+
+
+class TestBuildIssueJql:
+    """Tests for build_issue_jql's project scoping."""
+
+    def test_no_project_means_every_project(self):
+        assert build_issue_jql(project=None, order_by="") == ""
+        assert build_issue_jql(project=[], order_by="") == ""
+
+    def test_a_single_project_is_an_equality(self):
+        assert build_issue_jql(project="ECAPP", order_by="") == 'project = "ECAPP"'
+        assert build_issue_jql(project=["ECAPP"], order_by="") == 'project = "ECAPP"'
+
+    def test_several_projects_are_or_ed(self):
+        assert build_issue_jql(project=["ECAPP", "ESHOP"], order_by="") == 'project in ("ECAPP", "ESHOP")'
+
+
+class TestBuildIssueJqlStatus:
+    """Tests for build_issue_jql's status scoping (mirrors project scoping)."""
+
+    def test_no_status_means_any(self):
+        assert build_issue_jql(status=None, order_by="") == ""
+        assert build_issue_jql(status=[], order_by="") == ""
+
+    def test_a_single_status_is_an_equality(self):
+        assert build_issue_jql(status="Done", order_by="") == 'status = "Done"'
+        assert build_issue_jql(status=["Done"], order_by="") == 'status = "Done"'
+
+    def test_several_statuses_are_or_ed(self):
+        assert build_issue_jql(status=["To Do", "Done"], order_by="") == 'status in ("To Do", "Done")'
+
+    def test_combines_with_project(self):
+        assert build_issue_jql(status=["To Do", "Done"], project="ECAPP", order_by="") == \
+            'project = "ECAPP" AND status in ("To Do", "Done")'
+
+
+class TestStripOrderByQuotes:
+    def test_order_by_inside_a_quoted_string_is_kept(self):
+        assert strip_order_by('summary ~ "order by" ORDER BY Rank') == 'summary ~ "order by"'
+        assert strip_order_by("summary ~ 'a order by b'") == "summary ~ 'a order by b'"
+        assert strip_order_by('summary ~ "say \\"order by\\" now"') == 'summary ~ "say \\"order by\\" now"'

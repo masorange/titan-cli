@@ -158,7 +158,7 @@ class ProjectSetupWizardScreen(BaseScreen):
             config,
             title=f"{Icons.SETTINGS} Project Setup",
             show_back=False,
-            show_status_bar=False
+            show_dock=False
         )
         self.project_path = project_path
         self.current_step = 0

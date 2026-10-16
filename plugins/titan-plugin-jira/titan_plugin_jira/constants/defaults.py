@@ -8,6 +8,9 @@ from titan_plugin_jira.models.enums import JiraPriority
 # Default title when AI generation fails
 DEFAULT_TITLE = "New Task"
 
+# Fields a search returns when the caller names none: enough for a list of issues.
+DEFAULT_SEARCH_FIELDS = ["summary", "status", "assignee", "priority", "created", "updated"]
+
 # Standard Jira priorities (fallback when API fails)
 DEFAULT_PRIORITIES = [
     UIPriority(id="1", name=JiraPriority.HIGHEST, icon="🔴", label="🔴 Highest"),

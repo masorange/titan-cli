@@ -11,6 +11,7 @@ from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
 
 from ..network import JiraNetwork
+from ...constants import DEFAULT_SEARCH_FIELDS
 from ...models import (
     NetworkJiraIssue,
     NetworkJiraFields,
@@ -113,7 +114,7 @@ class IssueService:
             payload = {
                 "jql": jql,
                 "maxResults": max_results,
-                "fields": fields or ["summary", "status", "assignee", "priority", "created", "updated"]
+                "fields": fields or DEFAULT_SEARCH_FIELDS
             }
 
             data = self.network.make_request("POST", "search/jql", json=payload)
@@ -391,6 +392,28 @@ class IssueService:
             return ClientError(
                 error_message=f"Failed to assign fixVersion {version_id} to {issue_key}: {e.message}",
                 error_code="ASSIGN_FIX_VERSION_ERROR",
+            )
+
+    @log_client_operation()
+    def set_fix_version(
+        self,
+        issue_key: str,
+        version_id: Optional[str],
+    ) -> ClientResult[None]:
+        """Make a Jira version the issue's only fixVersion; `None` clears the field."""
+        try:
+            versions = [{"id": version_id}] if version_id else []
+            self.network.make_request("PUT", f"issue/{issue_key}", json={"fields": {"fixVersions": versions}})
+
+            return ClientSuccess(
+                data=None,
+                message=f"Set fixVersion of {issue_key}" if version_id else f"Cleared fixVersion of {issue_key}",
+            )
+
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to set fixVersion of {issue_key}: {e.message}",
+                error_code="SET_FIX_VERSION_ERROR",
             )
 
     @log_client_operation()

@@ -5,6 +5,7 @@ Diff Service
 Business logic for Git diff operations.
 Uses network layer to execute commands and returns diff outputs.
 """
+from pathlib import Path
 from typing import List
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
@@ -14,6 +15,43 @@ from ..network import GitNetwork
 from ...exceptions import GitCommandError, GitError
 from ...models.view import UIFileChurn
 
+
+
+_BINARY_CHECK_BYTES = 8000
+_CHURN_CHUNK_SIZE = 65536
+
+
+def _untracked_churn(root: Path, path: str) -> UIFileChurn:
+    """A new file's churn: all its lines are additions; binary or unreadable files count none.
+
+    Reads only the first `_BINARY_CHECK_BYTES` to decide if the file is binary, then streams
+    the rest in fixed-size chunks counting newlines, so large untracked files are never fully
+    loaded into memory just to be polled every repo_refresh_seconds.
+    """
+    full = root / path
+    # A symlink counts as one line in `git diff`, and opening it would follow it to
+    # whatever it points at; a FIFO or device would block the polling thread.
+    if full.is_symlink() or not full.is_file():
+        return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
+    try:
+        with full.open("rb") as f:
+            head = f.read(_BINARY_CHECK_BYTES)
+            if b"\0" in head:
+                return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
+            saw_content = bool(head)
+            lines = head.count(b"\n")
+            ends_with_newline = head.endswith(b"\n")
+            while True:
+                chunk = f.read(_CHURN_CHUNK_SIZE)
+                if not chunk:
+                    break
+                saw_content = True
+                lines += chunk.count(b"\n")
+                ends_with_newline = chunk.endswith(b"\n")
+    except OSError:
+        return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
+    additions = lines + (0 if not saw_content or ends_with_newline else 1)
+    return UIFileChurn(path=path, additions=additions, deletions=0)
 
 class DiffService:
     """
@@ -246,20 +284,47 @@ class DiffService:
                 check=True,
             )
 
-            churns: List[UIFileChurn] = []
-            for line in output.splitlines():
-                parts = line.split("\t")
-                if len(parts) != 3:
-                    continue
-                added, deleted, path = parts
-                if added == "-" or deleted == "-":
-                    churns.append(UIFileChurn(path=path, additions=0, deletions=0, is_binary=True))
-                    continue
-                churns.append(UIFileChurn(path=path, additions=int(added), deletions=int(deleted)))
+            return ClientSuccess(
+                data=_parse_numstat(output),
+                message=f"Numstat between {base_branch} and {head_branch} retrieved",
+            )
+        except (GitError, ValueError) as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
+    @log_client_operation()
+    def get_uncommitted_numstat(self, include_untracked: bool = False) -> ClientResult[List[UIFileChurn]]:
+        """
+        Get per-file addition/deletion counters of uncommitted changes
+        (working tree and index against HEAD).
+
+        Read-only: unlike get_uncommitted_diff_stat it does not mark untracked
+        files with intent-to-add, so it is safe to poll. `git diff` leaves
+        untracked files out; with `include_untracked` each one (honouring
+        .gitignore) is added with its line count as additions.
+
+        Args:
+            include_untracked: Also count new, untracked files
+
+        Returns:
+            ClientResult[List[UIFileChurn]] with one entry per changed file.
+            Binary files are included with is_binary=True and zero counters.
+        """
+        try:
+            output = self.git.run_command(
+                ["git", "-c", "core.quotePath=false", "diff", "HEAD", "--numstat", "--no-renames"],
+                check=True,
+            )
+            churns = _parse_numstat(output)
+            if include_untracked:
+                untracked = self.git.run_command(
+                    ["git", "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"],
+                    check=True,
+                )
+                root = Path(self.git.get_repo_path())
+                churns += [_untracked_churn(root, path) for path in untracked.splitlines() if path]
             return ClientSuccess(
                 data=churns,
-                message=f"Numstat between {base_branch} and {head_branch} retrieved",
+                message="Uncommitted numstat retrieved",
             )
         except (GitError, ValueError) as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
@@ -312,3 +377,18 @@ class DiffService:
             return ClientSuccess(data=diff_stat, message="Diff stat retrieved")
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+
+def _parse_numstat(output: str) -> List[UIFileChurn]:
+    """Parse `git diff --numstat --no-renames` lines; binary files print "-" counters."""
+    churns: List[UIFileChurn] = []
+    for line in output.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        added, deleted, path = parts
+        if added == "-" or deleted == "-":
+            churns.append(UIFileChurn(path=path, additions=0, deletions=0, is_binary=True))
+            continue
+        churns.append(UIFileChurn(path=path, additions=int(added), deletions=int(deleted)))
+    return churns

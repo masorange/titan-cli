@@ -51,6 +51,24 @@ def copy_to_system_clipboard(text: str) -> Optional[str]:
     return None
 
 
+def copy_with_feedback(app, text: str, what: str) -> None:
+    """
+    Copy `text` and tell the user how it went, naming it as `what`.
+
+    The system clipboard first; when nothing local takes it (a remote session,
+    no helper installed) OSC 52 is the only route left and it cannot be
+    confirmed, so the message says what was attempted rather than claiming
+    success.
+    """
+    if copy_to_system_clipboard(text):
+        app.notify(f"Copied {what}", timeout=2)
+        return
+    app.copy_to_clipboard(text)
+    app.notify(f"Sent {what} to the terminal's clipboard — if nothing pastes, "
+               "this terminal does not support it",
+               severity="warning", timeout=5)
+
+
 def _candidates() -> list[list[str]]:
     if sys.platform == "darwin" and shutil.which(MAC_HELPER[0]):
         return [MAC_HELPER]

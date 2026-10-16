@@ -3,7 +3,7 @@ Titan TUI Widgets
 
 Reusable Textual widgets for the Titan TUI.
 """
-from .status_bar import StatusBarWidget
+from .dock import Dock, DockItem
 from .header import HeaderWidget
 from .panel import Panel
 from .panel_container import PanelContainer
@@ -17,11 +17,14 @@ from .prompt_selection_list import PromptSelectionList, SelectionOption
 from .prompt_choice import PromptChoice, ChoiceOption
 from .chip import Chip
 from .workflow_card import WorkflowCard
+from .mod_home_card import ModHomeCard
 from .decision_badge import DecisionBadge
 from .prompt_option_list import PromptOptionList, OptionItem
 from .styled_option_list import StyledOptionList, StyledOption
 from .wizard import StepStatus, WizardStep, StepIndicator
 from .segmented_switch import SegmentedSwitch, SegmentedSwitchOption
+from .labeled_switch import LabeledSwitch
+from .list_detail_panel import ListDetailPanel
 from .tabs import TabbedPanel, TabPanel
 from .dev_source_path_modal import DevSourcePathModal
 from .collapsible_list import (
@@ -43,7 +46,8 @@ from .text import (
 )
 
 __all__ = [
-    "StatusBarWidget",
+    "Dock",
+    "DockItem",
     "HeaderWidget",
     "Panel",
     "PanelContainer",
@@ -59,6 +63,7 @@ __all__ = [
     "ChoiceOption",
     "Chip",
     "WorkflowCard",
+    "ModHomeCard",
     "DecisionBadge",
     "PromptOptionList",
     "OptionItem",
@@ -66,6 +71,8 @@ __all__ = [
     "StyledOption",
     "SegmentedSwitch",
     "SegmentedSwitchOption",
+    "LabeledSwitch",
+    "ListDetailPanel",
     "TabbedPanel",
     "TabPanel",
     "DevSourcePathModal",

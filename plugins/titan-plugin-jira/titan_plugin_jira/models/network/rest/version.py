@@ -15,4 +15,5 @@ class NetworkJiraVersion:
     name: str
     description: Optional[str] = None
     released: bool = False
+    startDate: Optional[str] = None
     releaseDate: Optional[str] = None

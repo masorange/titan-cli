@@ -21,7 +21,7 @@ from textual.widget import Widget
 from textual.widgets import Collapsible, Label, Static
 from textual.widgets._collapsible import CollapsibleTitle
 
-from titan_cli.ui.tui.clipboard import copy_to_system_clipboard
+from titan_cli.ui.tui.clipboard import copy_with_feedback
 
 
 #: Blank columns kept between the name and the block anchored to the right edge,
@@ -175,19 +175,7 @@ class CopyButton(Static):
         self.tooltip = f"Copy {label}" if label else "Copy"
 
     def on_click(self) -> None:
-        what = self._label or "row"
-
-        if copy_to_system_clipboard(self._text):
-            self.notify(f"Copied {what}", timeout=2)
-            return
-
-        # Nothing local took it: this is a remote session, or the helpers are not
-        # installed. OSC 52 is the only route left and it cannot be confirmed,
-        # so the message says what was attempted rather than claiming success.
-        self.app.copy_to_clipboard(self._text)
-        self.notify(f"Sent {what} to the terminal's clipboard — if nothing pastes, "
-                    "this terminal does not support it",
-                    severity="warning", timeout=5)
+        copy_with_feedback(self.app, self._text, self._label or "row")
 
 
 class ListEntry(Collapsible):

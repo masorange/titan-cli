@@ -1,0 +1,24 @@
+"""What the pane shows: snapshots the readers build from the github plugin's UI models and the drawing reads."""
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest
+
+
+@dataclass(frozen=True)
+class Prs:
+    repo: str = ""
+    to_review: List[UIPullRequest] = field(default_factory=list)
+    mine: List[UIPullRequest] = field(default_factory=list)
+    open_count: int = 0
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Queue:
+    configured: bool = False
+    branch: str = ""
+    merge_method: str = ""
+    total: int = 0
+    entries: List[UIMergeQueueEntry] = field(default_factory=list)
+    error: Optional[str] = None

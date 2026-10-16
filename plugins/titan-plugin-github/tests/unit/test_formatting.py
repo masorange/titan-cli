@@ -9,6 +9,7 @@ from titan_plugin_github.models.formatting import (
     format_branch_info,
     calculate_review_summary,
     summarize_status_check_rollup,
+    classify_status_check_rollup,
     summarize_review_status,
 )
 
@@ -201,3 +202,32 @@ class TestSummarizeReviewStatus:
 
     def test_ready_for_review_fallback(self):
         assert summarize_review_status(None, False) == "ready for review"
+
+
+class TestClassifyStatusCheckRollup:
+    """One state per PR plus the failed checks, check runs and commit statuses alike"""
+
+    def test_no_checks(self):
+        assert classify_status_check_rollup([]) == ("none", [])
+
+    def test_failures_win_and_are_listed_with_their_url(self):
+        rollup = [
+            {"__typename": "CheckRun", "name": "build", "status": "COMPLETED", "conclusion": "FAILURE",
+             "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"},
+            {"__typename": "StatusContext", "context": "ci/jenkins", "state": "ERROR", "targetUrl": "https://ci/x"},
+            {"__typename": "CheckRun", "name": "lint", "status": "IN_PROGRESS", "conclusion": None},
+        ]
+        assert classify_status_check_rollup(rollup) == (
+            "failing",
+            [("build", "https://github.com/o/r/actions/runs/1/job/2"), ("ci/jenkins", "https://ci/x")],
+        )
+
+    def test_running_until_every_check_has_passed(self):
+        running = [
+            {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"},
+            {"__typename": "StatusContext", "state": "PENDING"},
+        ]
+        assert classify_status_check_rollup(running) == ("running", [])
+        passed = [{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SKIPPED"},
+                  {"__typename": "StatusContext", "state": "SUCCESS"}]
+        assert classify_status_check_rollup(passed) == ("passing", [])

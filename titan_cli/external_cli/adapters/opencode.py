@@ -12,6 +12,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
+from titan_cli.core import interrupt
 from .base import (
     CliModel,
     CliUsage,
@@ -130,7 +131,7 @@ class OpenCodeHeadlessAdapter:
         # and on argv a single string over Linux's 131,072-byte MAX_ARG_STRLEN fails the
         # exec with E2BIG -- a deep-review prompt runs ~115k characters.
         try:
-            result = subprocess.run(
+            result = interrupt.run_tracked(
                 cmd,
                 input=_HEADLESS_PREAMBLE + prompt,
                 capture_output=True,

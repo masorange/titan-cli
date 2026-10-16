@@ -38,6 +38,10 @@ auto_assign_prs = true
 - [Workflow Steps](./workflow-steps.md): public reusable workflow steps grouped by functionality
 - [Built-in Workflows](./built-in-workflows.md): workflows shipped by the plugin
 
+## Mod
+
+The plugin ships the `github` [mod](../../concepts/mods.md): a side-panel pane with the PRs waiting for your review (each with a Review button that opens `review-pr`), your PRs, the merge queue and an AI diagnosis of failed checks (AI routing task `mods.github`, "PR check diagnosis"). Its rail icon shows how many reviews wait for you. Sections `prs` and `queue` can be switched off one by one. Options (`[mods.github.options]`): `review_workflow` (`review-pr`, empty for no button), `prs_refresh_seconds`, `queue_refresh_seconds`, `queue_shown`, `refresh_key` (`f5`).
+
 ## Accessing the client
 
 In Titan code, the public entry point is the GitHub plugin client:

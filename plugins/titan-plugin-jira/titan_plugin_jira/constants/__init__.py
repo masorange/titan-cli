@@ -15,7 +15,7 @@ from .messages import (
 
 from .templates import AI_PROMPT_TEMPLATE, FALLBACK_ISSUE_TEMPLATE, JIRA_PLAN_PROMPT_TEMPLATE
 
-from .defaults import DEFAULT_PRIORITIES, DEFAULT_TITLE
+from .defaults import DEFAULT_PRIORITIES, DEFAULT_SEARCH_FIELDS, DEFAULT_TITLE
 
 __all__ = [
     # Messages
@@ -31,5 +31,6 @@ __all__ = [
     "JIRA_PLAN_PROMPT_TEMPLATE",
     # Defaults
     "DEFAULT_PRIORITIES",
+    "DEFAULT_SEARCH_FIELDS",
     "DEFAULT_TITLE",
 ]

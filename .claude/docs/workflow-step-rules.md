@@ -123,3 +123,25 @@ Runtime rules:
   derived material in `SensitiveValue` and call `.reveal()` only at client
   construction.
 - Full guide: [Secrets & Security](security.md).
+
+## No Low-Level Client Calls In Steps
+
+Steps never call low-level client methods (`run_in_worktree()`, `run_command()`, raw
+network executors). Those bypass `ClientResult` and UI models, are hard to test, and put
+business logic in the UI layer.
+
+```python
+# ❌ WRONG
+result = ctx.git.run_in_worktree(path, ["git", "log", "--oneline"])
+
+# ✅ CORRECT — a service method returning ClientResult[UIModel]
+match ctx.git.get_worktree_commits(path, limit=10):
+    case ClientSuccess(data=commits):
+        for commit in commits:
+            ctx.textual.text(commit.summary)
+    case ClientError(error_message=err):
+        return Error(f"Failed: {err}")
+```
+
+If the method you need doesn't exist, add it to the right service (`WorktreeService`,
+`BranchService`, …) or write an operation in `operations/`.

@@ -655,6 +655,20 @@ ctx.textual.panel("Warning message", panel_type="warning")
 
 **Implementation**: `/titan_cli/ui/tui/widgets/panel.py`
 
+#### LabeledSwitch
+An on/off row: Textual's `Switch` beside a title and an optional description. Reusable wherever a setting is on or off (the Mods screen uses it for a mod and for each of its sections).
+
+```python
+LabeledSwitch("Merge queue", value=True, description="Your place in the queue.", name="queue")
+
+def on_labeled_switch_changed(self, event: LabeledSwitch.Changed) -> None:
+    save(event.switch.name, event.value)
+```
+
+`Changed` fires only when the person toggles it; assigning `.value` from code does not. `disabled=True` dims the row and blocks it.
+
+**Implementation**: `/titan_cli/ui/tui/widgets/labeled_switch.py`
+
 #### Table
 Displays tabular data with headers. In steps, prefer the `ctx.textual.table()` convenience method instead of mounting this widget manually.
 

@@ -14,6 +14,7 @@ Usage:
 from .pr_mapper import (
     from_rest_pr,
     from_network_pr_merge_result,
+    from_graphql_merge_queue,
     from_graphql_merge_queue_state,
     from_network_pr_file,
     from_network_pr_created,
@@ -27,6 +28,7 @@ from .release_mapper import from_network_release
 __all__ = [
     "from_rest_pr",
     "from_network_pr_merge_result",
+    "from_graphql_merge_queue",
     "from_graphql_merge_queue_state",
     "from_network_pr_file",
     "from_network_pr_created",
