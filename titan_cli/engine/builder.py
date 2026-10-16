@@ -63,9 +63,6 @@ class WorkflowContextBuilder:
         self._firebase = None
         self._docker = None
 
-        # Plugin managers (keyed by plugin name)
-        self._plugin_managers: dict = {}
-
     def with_ai(self, ai_client: Optional[Any] = None) -> WorkflowContextBuilder:
         """
         Add AI client.
@@ -87,12 +84,18 @@ class WorkflowContextBuilder:
                 self._ai = None
         return self
 
-    def with_ai_router(self, ai_router: Optional[Any] = None) -> WorkflowContextBuilder:
+    def with_ai_router(
+        self, ai_router: Optional[Any] = None, session_override: Optional[Any] = None
+    ) -> WorkflowContextBuilder:
         """
         Add the AI execution façade steps route their AI calls through.
 
         Args:
             ai_router: Optional AIExecutor instance (auto-created if None)
+            session_override: The `AISessionOverride` the UI is holding, so a CLI or
+                model the user chose for this session only applies to this run. Passed
+                by reference, not copied: the override can change between runs, and the
+                app owns the single instance.
 
         Note:
             `ctx.ai` stays available and unchanged for steps that talk to a
@@ -106,6 +109,7 @@ class WorkflowContextBuilder:
                 self._ai_config,
                 provider_factory=create_ai_provider,
                 secret_broker=create_broker_factory().for_plugin("core"),
+                session_override=session_override,
             )
         return self
 
@@ -162,17 +166,6 @@ class WorkflowContextBuilder:
                     self._github = None # Fail silently
             else:
                 self._github = None
-        return self
-
-    def with_plugin_managers(self, plugin_name: str, managers: Any) -> WorkflowContextBuilder:
-        """
-        Register workflow managers for a plugin.
-
-        Args:
-            plugin_name: Plugin identifier (e.g. "github", "jira")
-            managers: Plugin-specific managers container
-        """
-        self._plugin_managers[plugin_name] = managers
         return self
 
     def with_jira(self, jira_client: Optional[Any] = None) -> WorkflowContextBuilder:
@@ -300,7 +293,6 @@ class WorkflowContextBuilder:
             ai_router=self._ai_router,
             git=self._git,
             github=self._github,
-            github_managers=self._plugin_managers.get("github"),
             jira=self._jira,
             slack=self._slack,
             docker=self._docker,

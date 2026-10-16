@@ -178,6 +178,7 @@ class NetworkPRFile:
     deletions: int
     changes: int
     patch: Optional[str] = None  # Missing for binary files or files exceeding size limit
+    previous_filename: Optional[str] = None  # Only present for renamed files
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> 'NetworkPRFile':
@@ -188,6 +189,7 @@ class NetworkPRFile:
             deletions=data.get("deletions", 0),
             changes=data.get("changes", 0),
             patch=data.get("patch"),
+            previous_filename=data.get("previous_filename") or None,
         )
 
 

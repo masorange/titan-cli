@@ -3,6 +3,8 @@ import sys
 import shutil
 from typing import Optional
 
+from .configs import CLI_REGISTRY
+
 class CLILauncher:
     """
     Generic launcher for external CLI tools.
@@ -74,3 +76,20 @@ class CLILauncher:
         )
 
         return result.returncode
+
+
+def launcher_for(cli_name: str) -> CLILauncher:
+    """Build a launcher wired to the flags registered for this CLI.
+
+    Every caller needs the same three registry lookups, and a caller that skips one
+    silently loses a capability - a missing `prompt_flag` turns an initial prompt into a
+    stray argument, a missing `model_flag` drops the model. Doing it once here keeps a
+    new CLI a registry entry rather than an edit in every launch site.
+    """
+    config = CLI_REGISTRY.get(cli_name, {})
+    return CLILauncher(
+        cli_name,
+        install_instructions=config.get("install_instructions"),
+        prompt_flag=config.get("prompt_flag"),
+        model_flag=config.get("model_flag"),
+    )

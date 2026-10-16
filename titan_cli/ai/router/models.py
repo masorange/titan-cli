@@ -40,12 +40,28 @@ class AIRoutePolicy:
 
 @dataclass
 class AIRouteDecision:
-    """The provider the router resolved a request to, and why."""
+    """
+    The provider the router resolved a request to, and why.
+
+    `instance_origin` and `model_origin` say which rung supplied each part - pinned,
+    session, default, or (for the model, applied later by the executor) step. They are
+    per part on purpose: the two are resolved independently, so a single label would be
+    wrong whenever they differ.
+
+    `model` is filled for CLI decisions only, from the task's pin or the global
+    `cli_models` entry for the resolved CLI. It rides on the decision rather than being
+    looked up again at execution time so that everything reporting the decision - the log
+    event, the on-screen chip - names the model that actually ran. A remote decision leaves
+    it unset: the model of a connection belongs to the connection.
+    """
 
     provider: AIProviderType
     cli: Optional[str] = None
     connection_id: Optional[str] = None
     reason: str = ""
+    model: Optional[str] = None
+    instance_origin: Optional[str] = None
+    model_origin: Optional[str] = None
 
 
 @dataclass

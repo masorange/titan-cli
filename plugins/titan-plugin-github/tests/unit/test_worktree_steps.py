@@ -97,3 +97,15 @@ class TestCleanupWorktreeStep:
         result = cleanup_worktree_step(ctx)
 
         assert isinstance(result, Skip)
+
+    def test_failed_removal_still_deletes_the_review_refs(self):
+        ctx = _make_context()
+        ctx.data["selected_pr_number"] = 42
+        ctx.git.remove_worktree.return_value = ClientError(
+            error_message="not a working tree", error_code="WORKTREE_REMOVE_ERROR"
+        )
+
+        cleanup_worktree_step(ctx)
+
+        refs = [c.args[0] for c in ctx.git.delete_ref.call_args_list]
+        assert "refs/titan/review/pr-42" in refs

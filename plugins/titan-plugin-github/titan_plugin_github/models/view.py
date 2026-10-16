@@ -248,6 +248,7 @@ class UIFileChange:
     deletions: int
     status: FileChangeStatus
     status_icon: str  # "+", "−", "~", "→", etc.
+    previous_path: Optional[str] = None  # Old path of a renamed file
 
 
 @dataclass

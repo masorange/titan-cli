@@ -1,7 +1,11 @@
 """
 Status Bar Widget
 
-Fixed status bar showing git branch, AI info, and active project.
+Fixed status bar showing git branch, which AI runs what, and the active project.
+
+The two AI cells are labelled with the key that changes them, F2 and F3, because the
+bar is the only place those shortcuts are advertised: a user who can see that the wrong
+model is selected can act on it without leaving the screen they are on.
 """
 from textual.app import ComposeResult
 from textual.widget import Widget
@@ -15,7 +19,8 @@ class StatusBarWidget(Widget):
 
     Shows:
     - Left: Git branch
-    - Center: AI connection source and model
+    - F2: the CLI Titan runs, and the model pinned to it
+    - F3: the default AI connection and its model
     - Right: Active project name
 
     This widget is designed to be docked at the bottom of the screen.
@@ -23,6 +28,7 @@ class StatusBarWidget(Widget):
 
     # Reactive properties - automatically update the widget when changed
     git_branch: reactive[str] = reactive("N/A")
+    cli_info: reactive[str] = reactive("N/A")
     ai_info: reactive[str] = reactive("N/A")
     project_name: reactive[str] = reactive("N/A")
 
@@ -45,9 +51,20 @@ class StatusBarWidget(Widget):
         content-align: center middle;
     }
 
+    /* The AI cells carry the longest text (a connection name plus a model id), so they
+       get more of the row than the branch and project names at the ends. */
+    StatusBarWidget #cli-info, StatusBarWidget #ai-info {
+        width: 3fr;
+    }
+
     StatusBarWidget #branch-info {
         text-align: left;
         color: cyan;
+    }
+
+    StatusBarWidget #cli-info {
+        text-align: center;
+        color: $accent;
     }
 
     StatusBarWidget #ai-info {
@@ -65,6 +82,7 @@ class StatusBarWidget(Widget):
         """Compose the status bar with three columns."""
         with Horizontal():
             yield Static(f"{self.git_branch}", id="branch-info")
+            yield Static(f"{self.cli_info}", id="cli-info")
             yield Static(f"{self.ai_info}", id="ai-info")
             yield Static(f"{self.project_name}", id="project-info")
 
@@ -72,6 +90,11 @@ class StatusBarWidget(Widget):
         """Update branch display."""
         branch_widget = self.query_one("#branch-info", Static)
         branch_widget.update(value)
+
+    def _update_cli(self, value: str) -> None:
+        """Update CLI display."""
+        cli_widget = self.query_one("#cli-info", Static)
+        cli_widget.update(value)
 
     def _update_ai(self, value: str) -> None:
         """Update AI display."""
@@ -88,6 +111,11 @@ class StatusBarWidget(Widget):
         if self.is_mounted:
             self._update_branch(new_value)
 
+    def watch_cli_info(self, new_value: str) -> None:
+        """Update CLI display when cli_info changes."""
+        if self.is_mounted:
+            self._update_cli(new_value)
+
     def watch_ai_info(self, new_value: str) -> None:
         """Update AI display when ai_info changes."""
         if self.is_mounted:
@@ -98,17 +126,26 @@ class StatusBarWidget(Widget):
         if self.is_mounted:
             self._update_project(new_value)
 
-    def update_status(self, git_branch: str = None, ai_info: str = None, project_name: str = None):
+    def update_status(
+        self,
+        git_branch: str = None,
+        ai_info: str = None,
+        project_name: str = None,
+        cli_info: str = None,
+    ):
         """
         Update status bar information.
 
         Args:
             git_branch: Git branch name
-            ai_info: AI source/model info
+            ai_info: Default connection and its model
             project_name: Active project name
+            cli_info: Default CLI and the model pinned to it
         """
         if git_branch is not None:
             self.git_branch = git_branch
+        if cli_info is not None:
+            self.cli_info = cli_info
         if ai_info is not None:
             self.ai_info = ai_info
         if project_name is not None:

@@ -21,7 +21,7 @@ from titan_cli.core.models import AIConfig, AIConnectionType
 from titan_cli.core.security import SecretBroker
 from titan_cli.external_cli.adapters import list_available_headless_clis
 from titan_cli.external_cli.configs import CLI_REGISTRY
-from titan_cli.external_cli.launcher import CLILauncher
+from titan_cli.external_cli.launcher import launcher_for
 
 from .enums import AIProviderType
 
@@ -117,13 +117,7 @@ class AIAvailabilityChecker:
     def _probe_interactive_clis(self) -> List[AIProviderAvailability]:
         available = []
         for cli_name, config in CLI_REGISTRY.items():
-            launcher = CLILauncher(
-                cli_name,
-                install_instructions=config.get("install_instructions"),
-                prompt_flag=config.get("prompt_flag"),
-                model_flag=config.get("model_flag"),
-            )
-            if launcher.is_available():
+            if launcher_for(cli_name).is_available():
                 available.append(
                     AIProviderAvailability(
                         provider=AIProviderType.CLI_INTERACTIVE,

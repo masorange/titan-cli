@@ -211,7 +211,6 @@ def build_review_action_payload(
                 why_inline_allowed=action.why_inline_allowed,
                 file_status=action.file_status,
                 is_test_file=action.is_test_file,
-                read_mode=action.read_mode,
                 file_has_valid_lines=len(file_valid_lines),
                 is_valid=inline_safe)
             if inline_safe:
@@ -267,7 +266,6 @@ def build_review_action_payload(
                 "is_inline_safe_for_github": action.is_inline_safe_for_github,
                 "file_status": action.file_status,
                 "is_test_file": action.is_test_file,
-                "read_mode": action.read_mode,
             }
             for action in actions
             if action.action_type == ReviewActionType.NEW_COMMENT
@@ -436,5 +434,27 @@ def resolve_action_anchors(
                     "is_inline_safe_for_github": is_inline_safe_for_github,
                 }
             )
+        )
+
+    # One aggregate per run, because the anchoring layer is a regression gate on every
+    # review feature and the per-finding debug lines record `via` but not the confidence
+    # the reviewer actually sees. Counted here, where both are known.
+    anchored = [action for action in resolved_actions if action.path]
+    if anchored:
+        confidence_counts: dict[str, int] = {}
+        source_counts: dict[str, int] = {}
+        for action in anchored:
+            key = action.anchor_confidence or "none"
+            confidence_counts[key] = confidence_counts.get(key, 0) + 1
+            source_key = action.resolution_source or "unresolved"
+            source_counts[source_key] = source_counts.get(source_key, 0) + 1
+        inline_safe = sum(1 for action in anchored if action.is_inline_safe_for_github)
+        logger.info(
+            "review_anchoring_summary",
+            actions=len(anchored),
+            inline_safe=inline_safe,
+            inline_share=round(inline_safe / len(anchored), 3),
+            anchor_confidence=confidence_counts,
+            resolution_source=source_counts,
         )
     return resolved_actions

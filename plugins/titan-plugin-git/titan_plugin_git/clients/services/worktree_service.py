@@ -119,6 +119,24 @@ class WorktreeService:
             return ClientError(error_message=str(e), error_code="WORKTREE_PRUNE_ERROR")
 
     @log_client_operation()
+    def delete_ref(self, ref: str) -> ClientResult[None]:
+        """
+        Delete a ref (e.g. ``refs/titan/review/pr-1``). Succeeds if the ref is already gone.
+
+        Args:
+            ref: Fully qualified ref name
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            self.git.run_command(["git", "update-ref", "-d", ref])
+            return ClientSuccess(data=None, message=f"Ref deleted: {ref}")
+
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="REF_DELETE_ERROR")
+
+    @log_client_operation()
     def list_worktrees(self) -> ClientResult[List[UIGitWorktree]]:
         """
         List all worktrees.

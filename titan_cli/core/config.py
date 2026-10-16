@@ -1,5 +1,6 @@
 # core/config.py
 from copy import deepcopy
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -17,6 +18,29 @@ from .logging import get_logger
 from .plugins.community_sources import PluginChannel
 
 logger = get_logger(__name__)
+
+# Pin keys that name WHICH instance serves a task. Changing one invalidates the task's
+# pinned model, because a model identifier only means something to its own instance.
+_INSTANCE_PIN_KEYS = ("cli", "connection")
+
+# Which transport each instance pin belongs to, so touching the inert one leaves the
+# other's model alone.
+_TRANSPORT_OF_PIN = {"cli": "cli", "connection": "remote"}
+
+_MAX_LAST_USED_ENTRIES = 20
+
+def _transport_of(provider: Optional[str]) -> str:
+    """Which instance a provider kind is served by: a CLI, a connection, or nothing.
+
+    The two CLI kinds share one - `claude` and `claude -p` are the same binary - so
+    moving between them keeps the CLI's model, while crossing to a connection does not.
+    """
+    if provider in ("cli_headless", "cli_interactive"):
+        return "cli"
+    if provider == "remote":
+        return "remote"
+    return "none"
+
 
 class TitanConfig:
     """Manages Titan configuration with global + project merge"""
@@ -125,7 +149,10 @@ class TitanConfig:
         initialization failures, so a credential stored since the last attempt
         gets a fresh try.
         """
-        fingerprint = self._compute_plugin_fingerprint(merged)
+        fingerprint = self._compute_plugin_fingerprint(
+            merged,
+            self._get_project_source_scope_data().get("plugins", {}),
+        )
 
         if not force and fingerprint == self._plugin_fingerprint:
             logger.debug("plugin_registry_reused")
@@ -139,15 +166,36 @@ class TitanConfig:
         logger.debug("plugin_registry_rebuilt", forced=force)
 
     @staticmethod
-    def _compute_plugin_fingerprint(merged: dict) -> str:
+    def _compute_plugin_fingerprint(
+        merged: dict,
+        source_overrides: Optional[dict] = None,
+    ) -> str:
         """
         Everything the built registry depends on, as one comparable value.
 
-        Two inputs: the `[plugins.*]` configuration (which plugins are enabled
-        and how each is configured) and the set of installed entry points (so a
-        plugin installed or removed mid-session is noticed). Enumerating entry
-        points costs a few milliseconds against the second a rebuild costs, which
-        is what makes checking cheaper than assuming.
+        Three inputs: the `[plugins.*]` configuration (which plugins are enabled
+        and how each is configured), the set of installed entry points (so a
+        plugin installed or removed mid-session is noticed), and the per-project
+        plugin source overrides from the user's config. Enumerating entry points
+        costs a few milliseconds against the second a rebuild costs, which is
+        what makes checking cheaper than assuming.
+
+        The source overrides are here because they decide WHICH COPY of a
+        plugin's code gets imported, and they live somewhere `merged` cannot
+        see. Switching a plugin from `stable` to `dev_local` writes to
+        `[project_sources.<key>.plugins.<name>.source]` in the user's config,
+        deliberately not to the project file the team shares - and `merged` is
+        the global-plus-project merge, which does not include that table. So the
+        fingerprint could not tell the two channels apart, the registry was
+        reused, `prepare()` never re-applied the override, and the already
+        imported stable module kept serving until Titan was restarted. The screen
+        read the effective source and correctly said "Develop" while the old code
+        ran; neither half was lying, they read different places.
+
+        Only the `plugins` sub-block of that table is included, never the whole
+        thing: the same per-project table also holds `workflows.favorites` and
+        `workflows.last_used`, and hashing those would rebuild the entire plugin
+        registry every time a workflow ran.
 
         A credential a plugin reads while initializing is deliberately NOT here -
         secrets live outside the config files and hashing them to compare would
@@ -160,7 +208,11 @@ class TitanConfig:
         installed = sorted(ep.name for ep in entry_points(group="titan.plugins"))
 
         payload = json.dumps(
-            {"plugins": plugins_config, "installed": installed},
+            {
+                "plugins": plugins_config,
+                "installed": installed,
+                "source_overrides": source_overrides or {},
+            },
             sort_keys=True,
             default=str,
         )
@@ -182,8 +234,15 @@ class TitanConfig:
 
         return None
 
-    def _load_toml(self, path: Optional[Path]) -> dict:
-        """Load TOML file, returning an empty dict on failure."""
+    def _load_toml(self, path: Optional[Path], *, strict: bool = False) -> dict:
+        """Load TOML file, returning an empty dict on failure.
+
+        `strict` raises instead of degrading. Reads can afford to treat an unparseable
+        file as empty - the app still starts - but a WRITE cannot: every save here
+        rebuilds the whole file from what was read, so a momentary syntax error would
+        turn "set a model" into "delete project_sources, favourites and everything else
+        this file held".
+        """
         if not path or not path.exists():
             return {}
 
@@ -191,8 +250,10 @@ class TitanConfig:
             try:
                 return tomli.load(f)
             except tomli.TOMLDecodeError as e:
-                # Wrap the generic exception. Warnings will be handled by CLI commands.
-                _ = ConfigParseError(file_path=str(path), original_exception=e)
+                error = ConfigParseError(file_path=str(path), original_exception=e)
+                if strict:
+                    raise error
+                # Warnings are handled by CLI commands.
                 return {}
 
     def _load_and_migrate_toml(
@@ -200,9 +261,14 @@ class TitanConfig:
         path: Optional[Path],
         migration_manager: MigrationManager,
         write_on_migration: bool = True,
+        strict: bool = False,
     ) -> dict:
-        """Load TOML and normalize it to the current config schema."""
-        raw_config = self._load_toml(path)
+        """Load TOML and normalize it to the current config schema.
+
+        `strict` is forwarded: a caller about to WRITE the file back needs an
+        unparseable one to raise rather than read as empty.
+        """
+        raw_config = self._load_toml(path, strict=strict)
         if not raw_config:
             return {}
 
@@ -350,10 +416,15 @@ class TitanConfig:
         config_data = self._load_and_migrate_toml(
             self._global_config_path,
             migration_manager=self.global_migration_manager,
+            # Strict for the same reason as the preferences saver: what this returns is
+            # what gets written back, so an unparseable file must raise instead of
+            # being replaced by `{}` plus whatever section is being saved.
+            strict=True,
         )
         ai_cfg = config_data.setdefault("ai", {})
         ai_cfg.setdefault("connections", {})
         ai_cfg.setdefault("default_connection", None)
+        ai_cfg.setdefault("cli_models", {})
         return ai_cfg
 
     def save_ai_connections_config(self, ai_config: dict) -> None:
@@ -437,6 +508,62 @@ class TitanConfig:
         self.save_ai_connections_config(ai_cfg)
         self._sync_in_memory_default_cli(None)
 
+    def set_cli_model(self, cli_name: str, model: str) -> None:
+        """
+        Pin the model a CLI runs with, for both headless and interactive use.
+
+        Stored per CLI rather than globally because the identifier only means anything to
+        the CLI that accepts it: switching the default CLI must not carry the previous
+        one's model over to a tool that would reject it.
+
+        The identifier is not checked against anything. Only the CLI knows what it takes,
+        and a typo surfaces as that CLI's own error on the next run, naming the model.
+        """
+        ai_cfg = self.get_ai_connections_config()
+        models = ai_cfg.setdefault("cli_models", {})
+        models[cli_name] = model
+        self.save_ai_connections_config(ai_cfg)
+        self._sync_in_memory_cli_models(models)
+
+    def clear_cli_model(self, cli_name: str) -> None:
+        """Stop pinning a model for this CLI, letting it use its own default again."""
+        ai_cfg = self.get_ai_connections_config()
+        models = ai_cfg.setdefault("cli_models", {})
+        models.pop(cli_name, None)
+        self.save_ai_connections_config(ai_cfg)
+        self._sync_in_memory_cli_models(models)
+
+    def get_cli_model(self, cli_name: str) -> Optional[str]:
+        """The model pinned for this CLI, or None to let the CLI choose its own."""
+        if not getattr(self, "config", None) or not self.config.ai:
+            return None
+        return self.config.ai.cli_models.get(cli_name)
+
+    def _project_overrides_ai(self, key: str) -> bool:
+        """Whether the PROJECT config supplies this `[ai]` key.
+
+        `self.config` is the merged model, and `_merge_configs` lets a project's `[ai]`
+        table win for everything except connections. Writing a freshly-saved GLOBAL
+        value straight onto the merged model would therefore make the session use the
+        global one and silently revert to the project's on the next `load()` - visible
+        to nobody until a workflow ran with the wrong CLI.
+        """
+        project_ai = (self.project_config or {}).get("ai")
+        return isinstance(project_ai, dict) and key in project_ai
+
+    def _sync_in_memory_cli_models(self, models: dict) -> None:
+        """Keep the parsed `self.config.ai.cli_models` in step with what was just written.
+
+        Same reason as `_sync_in_memory_default_cli`: the next workflow step resolves its
+        route off the in-memory config, not off disk.
+        """
+        if not getattr(self, "config", None) or self._project_overrides_ai("cli_models"):
+            return
+        if self.config.ai:
+            self.config.ai.cli_models = dict(models)
+        else:
+            self.config.ai = AIConfig(cli_models=dict(models))
+
     def _sync_in_memory_default_cli(self, cli_name: Optional[str]) -> None:
         """
         Keep the parsed `self.config.ai.default_cli` in step with what was just written.
@@ -445,7 +572,7 @@ class TitanConfig:
         a workflow step, or the screen repainting its rows - would otherwise keep using the
         previous value until a full reload.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("default_cli"):
             return
         if self.config.ai:
             self.config.ai.default_cli = cli_name
@@ -458,34 +585,59 @@ class TitanConfig:
             self._global_config_path,
             migration_manager=self.global_migration_manager,
         )
-        ai_cfg = config_data.setdefault("ai", {})
-        prefs = ai_cfg.setdefault("preferences", {})
-        prefs.setdefault("tasks", {})
+        # Normalized at every level rather than assumed: this is a hand-editable TOML
+        # file, so `ai`, `preferences` or `tasks` can be a string or a list after an
+        # edit or a half-applied migration, and `setdefault` on one would raise
+        # AttributeError deep inside the model picker. The favourites path in this same
+        # file already guards this way.
+        ai_cfg = config_data.get("ai")
+        if not isinstance(ai_cfg, dict):
+            ai_cfg = {}
+            config_data["ai"] = ai_cfg
+        prefs = ai_cfg.get("preferences")
+        if not isinstance(prefs, dict):
+            prefs = {}
+            ai_cfg["preferences"] = prefs
+        tasks = prefs.get("tasks")
+        if not isinstance(tasks, dict):
+            prefs["tasks"] = {}
+        else:
+            # One level deeper than the comment used to promise: a hand-edited
+            # `tasks.commit = "claude"` passed the table check and then raised
+            # AttributeError inside `_set_task_ai_pin`, before AIPreferences could
+            # reject it.
+            prefs["tasks"] = {k: v for k, v in tasks.items() if isinstance(v, dict)}
         return prefs
 
     def save_ai_preferences_config(self, preferences: dict) -> None:
         """Persist global AI preferences without touching AI connections."""
+        # Strict: this rebuilds the entire file from what it reads, so an unparseable
+        # config must raise instead of being silently replaced by `{}` plus `[ai]`.
         config_data = self._load_and_migrate_toml(
             self._global_config_path,
             migration_manager=self.global_migration_manager,
+            strict=True,
         )
         config_data["config_version"] = (
             self.config.config_version if getattr(self, "config", None) else "1.0"
         )
+        # Validated BEFORE the write: this used to happen in the in-memory sync
+        # afterwards, so an invalid payload landed on disk while the caller was told the
+        # save had failed and memory kept the old value.
+        parsed = AIPreferences(**preferences)
         config_data.setdefault("ai", {})["preferences"] = preferences
         self._write_global_config(config_data)
-        self._sync_in_memory_ai_preferences(preferences)
+        self._sync_in_memory_ai_preferences(parsed)
 
-    def _sync_in_memory_ai_preferences(self, preferences: dict) -> None:
+    def _sync_in_memory_ai_preferences(self, parsed: "AIPreferences") -> None:
         """
         Keep the already-parsed `self.config.ai.preferences` in sync with what
         was just persisted to disk, so a caller holding this same TitanConfig
         instance (e.g. a workflow step, in the same process) sees the new
         preference immediately, without needing a full `.load()`.
         """
-        if not getattr(self, "config", None):
+        if not getattr(self, "config", None) or self._project_overrides_ai("preferences"):
             return
-        parsed = AIPreferences(**preferences)
         if self.config.ai:
             self.config.ai.preferences = parsed
         else:
@@ -503,6 +655,195 @@ class TitanConfig:
         if task in prefs["tasks"]:
             del prefs["tasks"][task]
             self.save_ai_preferences_config(prefs)
+
+    # --- per-task instance pins ------------------------------------------------
+    #
+    # A pin is a sparse override on top of the global defaults: absent means "inherit".
+    # Each setter touches ONE key and preserves the rest of the task's preference, and each
+    # clear DELETES its key rather than writing an empty value. TOML has no null: unlike
+    # save_ai_connections_config, which filters Nones out, save_ai_preferences_config hands
+    # the dict straight to tomli_w, which raises TypeError on None. So a pin "cleared" to
+    # None does not quietly persist - it makes the save fail outright. Deleting the key is
+    # the only shape that means "inherit again".
+
+    def set_task_ai_provider(self, task: str, provider: str) -> Optional[str]:
+        """
+        Change which KIND of provider serves a task, keeping the pins that still apply.
+
+        This used to be a whole-record replace, which dropped the task's `cli`,
+        `connection` and `model` every time - including when the user re-picked the kind
+        the task already had.
+
+        What survives follows from what a pin belongs to. An INSTANCE pin belongs to a
+        transport: while the other kind is in effect it is simply inert, and keeping it
+        means switching back finds it still there. A MODEL belongs to whichever instance
+        serves the task, so a change of transport invalidates it - the same rule as
+        `_drop_stale_model`, one level up.
+
+        Returns:
+            The model pin this dropped, if the transport changed, so the caller can say so.
+        """
+        prefs = self.get_ai_preferences_config()
+        existing = prefs["tasks"].get(task)
+
+        if existing is None:
+            prefs["tasks"][task] = {"provider": provider}
+            self.save_ai_preferences_config(prefs)
+            return None
+
+        dropped = None
+        if _transport_of(existing.get("provider")) != _transport_of(provider):
+            dropped = existing.pop("model", None)
+        existing["provider"] = provider
+        self.save_ai_preferences_config(prefs)
+        return dropped
+
+    def set_task_ai_cli(
+        self, task: str, cli_name: str, *, provider: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Pin the CLI that serves this task, overriding the global default.
+
+        Args:
+            task: The AI task key.
+            cli_name: The CLI to pin.
+            provider: Provider kind, used ONLY when the task has no stored preference yet -
+                a pin cannot exist without one, and a CLI pin on a task resolving to a
+                remote provider would be inert. An existing preference keeps its own kind.
+
+        Returns:
+            The model pin this dropped, if changing the CLI invalidated one, so the caller
+            can say so. None when nothing was dropped.
+
+        Raises:
+            ValueError: If the task has no stored preference and no `provider` was given.
+        """
+        return self._set_task_ai_pin(task, "cli", cli_name, provider=provider)
+
+    def clear_task_ai_cli(self, task: str) -> Optional[str]:
+        """Stop pinning a CLI for this task; it follows the global default again.
+
+        Returns the model pin this dropped, if any - following the default is also a
+        change of instance.
+        """
+        return self._clear_task_ai_pin(task, "cli")
+
+    def set_task_ai_connection(
+        self, task: str, connection_id: str, *, provider: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Pin the remote connection that serves this task, overriding the global default.
+
+        The connection counterpart of `set_task_ai_cli`, with the same creation rule: a
+        pin lives inside a preference, so `provider` is needed when the task has none yet.
+        Returns the model pin this dropped, if any.
+        """
+        return self._set_task_ai_pin(task, "connection", connection_id, provider=provider)
+
+    def clear_task_ai_connection(self, task: str) -> Optional[str]:
+        """Stop pinning a connection for this task; the global default applies again.
+
+        Returns the model pin this dropped, if any.
+        """
+        return self._clear_task_ai_pin(task, "connection")
+
+    def set_task_ai_model(
+        self, task: str, model: str, *, provider: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Pin the model this task runs with, overriding the global entry for whichever
+        instance serves it - `cli_models` for a CLI, the connection's `default_model` for
+        a remote.
+
+        An explicit `model=` at the call site still outranks this: see the routing
+        precedence in `titan_cli/ai/router/`.
+        """
+        return self._set_task_ai_pin(task, "model", model, provider=provider)
+
+    def clear_task_ai_model(self, task: str) -> None:
+        """Stop pinning a model for this task; it follows the global default again."""
+        self._clear_task_ai_pin(task, "model")
+
+    def _set_task_ai_pin(
+        self, task: str, key: str, value: str, *, provider: Optional[str]
+    ) -> Optional[str]:
+        """
+        Write one pin key, creating the task's preference if it has none.
+
+        Creating one has a visible consequence worth knowing: the task's provider KIND
+        stops being the step's default and becomes a stored choice, so the config screen
+        will show it as the user's pick. Clearing the pin does not undo that - removing the
+        whole preference (the row's Clear action) does.
+
+        Returns the model pin this dropped, if changing the instance invalidated one.
+        """
+        prefs = self.get_ai_preferences_config()
+        existing = prefs["tasks"].get(task)
+
+        if existing is None:
+            if not provider:
+                raise ValueError(
+                    f"cannot pin '{key}' for task '{task}': it has no stored preference and "
+                    f"no provider was given to create one"
+                )
+            existing = {"provider": provider}
+            prefs["tasks"][task] = existing
+
+        # Only when the pin being touched is the one that actually serves this task:
+        # a `cli` pin on a remote task is inert (see AIProviderPreference), so it never
+        # owned the model it would otherwise invalidate - and the caller would be told
+        # about a change the user did not make.
+        changed_instance = (
+            key in _INSTANCE_PIN_KEYS
+            and existing.get(key) != value
+            and _transport_of(existing.get("provider")) == _TRANSPORT_OF_PIN[key]
+        )
+        existing[key] = value
+        dropped = self._drop_stale_model(existing) if changed_instance else None
+        self.save_ai_preferences_config(prefs)
+        return dropped
+
+    def _clear_task_ai_pin(self, task: str, key: str) -> Optional[str]:
+        """
+        Delete one pin key, leaving the rest of the preference untouched.
+
+        Returns the model pin this dropped: clearing an instance pin sends the task back
+        to the global default, which is a change of instance like any other.
+        """
+        prefs = self.get_ai_preferences_config()
+        existing = prefs["tasks"].get(task)
+        if not existing or key not in existing:
+            return None
+        del existing[key]
+        dropped = (
+            self._drop_stale_model(existing)
+            if key in _INSTANCE_PIN_KEYS
+            and _transport_of(existing.get("provider")) == _TRANSPORT_OF_PIN[key]
+            else None
+        )
+        self.save_ai_preferences_config(prefs)
+        return dropped
+
+    @staticmethod
+    def _drop_stale_model(preference: dict) -> Optional[str]:
+        """
+        Forget a pinned model whose instance just changed, returning what was forgotten.
+
+        A model identifier only means something to the instance it was chosen for: `opus`
+        is a claude alias and codex has never heard of it, so carrying it across would
+        hand the new CLI a flag it rejects. The global layer never needs this because
+        `cli_models` is keyed BY CLI; a task's pin is a bare model, so the invalidation
+        has to be explicit.
+
+        Deliberately blunt: it drops the model even when the new instance might have
+        accepted it. A wrong model is a failed run, while a forgotten one costs one more
+        pick - and the caller is told, so nothing disappears silently.
+        """
+        return preference.pop("model", None)
+
+    def get_task_ai_preference(self, task: str) -> Optional[dict]:
+        """The stored preference for a task, or None. Reads the global file."""
+        return self.get_ai_preferences_config()["tasks"].get(task)
 
     def _write_toml(self, path: Path, data: dict) -> None:
         """Write raw TOML data to disk."""
@@ -751,6 +1092,81 @@ class TitanConfig:
         self._write_global_config(config_data)
         return is_now_favorite
 
+    def get_workflow_last_used(self) -> dict:
+        """Return {workflow name: ISO-8601 UTC timestamp} of runs for the active project.
+
+        Nothing is cleaned on read. A name whose workflow is not currently discoverable
+        belongs to a plugin the user may re-enable, so the caller skips it rather than this
+        deleting a record that would become valid again.
+        """
+        workflows = self._get_project_workflows_table()
+        last_used = workflows.get("last_used")
+        if not isinstance(last_used, dict):
+            return {}
+        return {
+            name: value
+            for name, value in last_used.items()
+            if isinstance(name, str) and isinstance(value, str)
+        }
+
+    def record_workflow_run(self, name: str, *, now: Optional[datetime] = None) -> None:
+        """Record that a workflow has just been run, for the active project.
+
+        Scoped exactly like favorites: the same `workflows` table under the project's
+        `project_sources` key, which is a hash of the resolved project path. Two projects
+        holding a workflow of the same name therefore never see each other's runs.
+        """
+        timestamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.get("project_sources")
+        if not isinstance(project_sources, dict):
+            project_sources = {}
+            config_data["project_sources"] = project_sources
+
+        project_key = self._find_project_source_scope_key(project_sources) or self._get_project_source_scope_key()
+        project_table = project_sources.get(project_key)
+        if not isinstance(project_table, dict):
+            project_table = {}
+            project_sources[project_key] = project_table
+        project_table["project_path"] = str((self._project_root or Path.cwd()).resolve())
+
+        workflows = project_table.get("workflows")
+        if not isinstance(workflows, dict):
+            workflows = {}
+            project_table["workflows"] = workflows
+
+        stored = workflows.get("last_used")
+        last_used = {
+            existing: value
+            for existing, value in (stored.items() if isinstance(stored, dict) else ())
+            if isinstance(existing, str) and isinstance(value, str)
+        }
+        last_used[name] = timestamp
+
+        # Most recent first, then truncate. ISO-8601 UTC sorts lexicographically, so
+        # comparing the strings is a real chronological comparison.
+        workflows["last_used"] = dict(
+            sorted(last_used.items(), key=lambda item: item[1], reverse=True)[
+                :_MAX_LAST_USED_ENTRIES
+            ]
+        )
+
+        self._write_global_config(config_data)
+
+    def _get_project_workflows_table(self) -> dict:
+        """Return the active project's `workflows` table from the global config on disk."""
+        config_data = self._load_toml(self._global_config_path)
+        project_sources = config_data.get("project_sources")
+        if not isinstance(project_sources, dict):
+            return {}
+        project_key = self._find_project_source_scope_key(project_sources)
+        project_table = project_sources.get(project_key) if project_key else None
+        if not isinstance(project_table, dict):
+            return {}
+        workflows = project_table.get("workflows")
+        return workflows if isinstance(workflows, dict) else {}
+
     def _get_project_source_scope_key(self) -> str:
         """Return the global-config key used to scope local plugin overrides per project."""
         project_path = str((self._project_root or Path.cwd()).resolve())
@@ -787,36 +1203,3 @@ class TitanConfig:
     def _project_source_table_empty(self, project_table: dict) -> bool:
         """Return whether a scoped project source block contains meaningful data."""
         return not any(key != "project_path" for key in project_table)
-
-    def get_status_bar_info(self) -> dict:
-        """
-        Get information for the status bar display.
-
-        Returns:
-            A dict with keys: 'ai_info', 'project_name'
-            Values are strings or None if not available.
-        """
-        # Extract AI info
-        ai_info = None
-        if self.config and self.config.ai:
-            ai_config = self.config.ai
-            default_connection_id = ai_config.default_connection
-
-            if (
-                default_connection_id
-                and default_connection_id in ai_config.connections
-            ):
-                connection_config = ai_config.connections[default_connection_id]
-                provider_name = (
-                    connection_config.provider or connection_config.gateway_backend
-                )
-                model = connection_config.default_model or "default"
-                ai_info = f"{provider_name}/{model}"
-
-        # Extract project name from project config
-        project_name = self.get_project_name()
-
-        return {
-            'ai_info': ai_info,
-            'project_name': project_name
-        }

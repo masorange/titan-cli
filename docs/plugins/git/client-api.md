@@ -284,6 +284,39 @@ client.get_commit_sha("HEAD~1")
 
 - `ref`: Required. Any Git ref.
 
+### Get the merge base of two refs
+
+Returns the SHA of the best common ancestor of two refs, the commit a pull request's diff is
+computed against.
+
+**Call:**
+
+```python
+client.get_merge_base("refs/titan/review/pr-236", "origin/master")
+```
+
+**Parameters:**
+
+- `ref_a`: Required. A Git ref.
+- `ref_b`: Required. A Git ref.
+
+### Get a file as it is at a ref
+
+Returns the content of a file at any ref without checking anything out, or `None` when the
+file does not exist at that ref (for example, a file a change adds). Content that is not text
+is returned as a `ClientError`.
+
+**Call:**
+
+```python
+client.get_file_at_ref("abc1234", "src/app/service.py")
+```
+
+**Parameters:**
+
+- `ref`: Required. A commit SHA, branch or tag.
+- `path`: Required. The repository-relative file path.
+
 ### Get commits versus base
 
 Returns commit messages from the base branch up to `HEAD`.

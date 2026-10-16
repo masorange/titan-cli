@@ -103,6 +103,10 @@ class AIConfig(BaseModel):
         description="Default CLI name, used for both headless and interactive CLI work",
     )
     connections: Dict[str, AIConnectionConfig] = Field(default_factory=dict)
+    cli_models: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Model identifier to run each CLI with, keyed by CLI command name",
+    )
 
     # Neither default is validated against what exists. A default pointing at something that
     # is gone - a connection renamed by hand, a CLI uninstalled - is a real problem, but it is
@@ -111,6 +115,9 @@ class AIConfig(BaseModel):
     # instead reported at resolution time, by name, with the app running and the config screen
     # reachable. (For `default_cli` there is a second reason: the set of known CLIs lives in
     # `titan_cli.external_cli`, which sits above this module in the dependency graph.)
+    #
+    # `cli_models` is unvalidated for a third reason: only the CLI itself knows which model
+    # identifiers it accepts, and one it rejects is its own error message.
 
     @property
     def default(self) -> Optional[str]:
@@ -129,14 +136,43 @@ class AIConfig(BaseModel):
 
 class AIProviderPreference(BaseModel):
     """
-    A persisted choice of which KIND of provider to use for an AI task.
+    A persisted choice of how an AI task is served: which KIND of provider, and
+    optionally which CLI and model within that kind.
 
-    Only the provider type is stored. Which connection or which CLI serves it is a single
-    global choice (`AIConfig.default_connection` / `AIConfig.default_cli`), so changing the
-    default in one place changes every task that uses that kind of provider.
+    `cli` and `model` are SPARSE overrides: `None` means "inherit the global default"
+    (`AIConfig.default_cli` / `AIConfig.cli_models[cli]`), which is what every task did
+    before they existed. Only a task the user deliberately pinned stops following a change
+    to the global default, so one edit there still moves everything else.
+
+    `cli` and `connection` are the two halves of the same question - which instance - and
+    only the one matching the task's provider kind is read, so a leftover from a kind the
+    task no longer uses is inert rather than an error. `model` serves both: for a CLI it
+    overrides `AIConfig.cli_models[cli]`, for a connection its `default_model`.
+
+    A pin is not a guarantee: it is resolved through availability like any other instance,
+    so a pinned CLI that is not installed is reported by name and never swapped for another.
     """
 
     provider: str = Field(..., description="AIProviderType value, e.g. 'remote', 'cli_headless'")
+    cli: Optional[str] = Field(
+        None,
+        description="CLI this task pins, overriding AIConfig.default_cli. None inherits.",
+    )
+    connection: Optional[str] = Field(
+        None,
+        description=(
+            "Remote connection this task pins, overriding AIConfig.default_connection. "
+            "None inherits."
+        ),
+    )
+    model: Optional[str] = Field(
+        None,
+        description=(
+            "Model this task pins for whichever instance serves it - overriding "
+            "AIConfig.cli_models for a CLI, or the connection's default_model for a "
+            "remote. None inherits. An explicit model= at the call site still outranks it."
+        ),
+    )
 
 
 class AIPreferences(BaseModel):

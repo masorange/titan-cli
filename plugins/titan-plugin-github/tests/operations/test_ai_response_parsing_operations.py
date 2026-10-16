@@ -1,9 +1,6 @@
 """
 Tests for `extract_json_payload()`, the centralized JSON-extraction operation
-(review-batching-006) shared by `ai_review_plan`, `ai_review_findings`, and
-`ai_thread_resolution`. Replaces the previously duplicated
-`_strip_markdown_fences()`/`_extract_json_slice()` free functions (two call
-sites) and a third hand-rolled copy inside `ai_thread_resolution`.
+shared by `ai_review_findings` and `ai_thread_resolution`.
 """
 
 from titan_cli.core.result import ClientError, ClientSuccess

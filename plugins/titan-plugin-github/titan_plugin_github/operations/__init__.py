@@ -37,6 +37,9 @@ from .pr_selection_operations import (
 from .worktree_operations import (
     setup_worktree,
     cleanup_worktree,
+    delete_review_refs,
+    review_base_ref,
+    review_head_ref,
     clear_stale_worktree,
     commit_in_worktree,
 )
@@ -84,6 +87,9 @@ __all__ = [
     # Worktree operations
     "setup_worktree",
     "cleanup_worktree",
+    "delete_review_refs",
+    "review_base_ref",
+    "review_head_ref",
     "clear_stale_worktree",
     "commit_in_worktree",
 

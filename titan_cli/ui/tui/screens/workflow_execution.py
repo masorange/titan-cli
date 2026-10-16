@@ -138,6 +138,19 @@ class WorkflowExecutionScreen(BaseScreen):
                 self._output("[dim]Press ESC or Q to return[/dim]")
                 return
 
+            # Recorded only once the workflow is known to exist, so a mistyped or
+            # removed name cannot earn a slot on the home screen. A failure to write
+            # the timestamp must never take the run down with it - the ordering of a
+            # launcher grid is not worth a failed workflow.
+            try:
+                self.config.record_workflow_run(self.workflow_name)
+            except Exception as exc:
+                logger.warning(
+                    "workflow_last_used_not_recorded",
+                    workflow=self.workflow_name,
+                    error=str(exc),
+                )
+
             self._update_header_title(f"{Icons.WORKFLOW} {self.workflow.name}")
             self._update_description(self.workflow.description or "")
 
@@ -187,7 +200,9 @@ class WorkflowExecutionScreen(BaseScreen):
 
             # Add AI if configured
             ctx_builder.with_ai()
-            ctx_builder.with_ai_router()
+            ctx_builder.with_ai_router(
+                session_override=getattr(app, "ai_session_override", None)
+            )
             ctx_builder.with_titan_config(self.config)
 
             # Add registered plugins to context
@@ -207,13 +222,6 @@ class WorkflowExecutionScreen(BaseScreen):
                             # Plugin client initialization failed - workflow steps
                             # using this plugin will fail gracefully
                             pass
-
-                try:
-                    managers = plugin.get_workflow_managers(project_root=project_root)
-                    if managers is not None:
-                        ctx_builder.with_plugin_managers(plugin_name, managers)
-                except Exception:
-                    pass
 
             # Build context and create executor
             execution_context = ctx_builder.build()

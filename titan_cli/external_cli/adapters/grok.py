@@ -1,17 +1,26 @@
 """
 Headless adapter for Grok Build CLI (grok).
 
-Uses `grok -p <prompt> --output-format streaming-messages-json` for
+Uses `grok --prompt-file <file> --output-format streaming-messages-json` for
 non-interactive execution.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Optional
 
-from .base import HeadlessResponse, SupportedCLI
+from .base import (
+    CliModel,
+    HeadlessResponse,
+    SupportedCLI,
+    model_listing_lines,
+    usage_from_result_envelope,
+)
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -66,9 +75,9 @@ observed failure.
 
 class GrokHeadlessAdapter:
     """
-    Runs Grok Build CLI in headless mode via `grok -p <prompt>`.
+    Runs Grok Build CLI in headless mode via `grok --prompt-file <file>`.
 
-    `-p` (`--single`) runs one prompt non-interactively and exits.
+    `--prompt-file` runs the prompt in that file non-interactively and exits.
     `--output-format streaming-messages-json` emits one JSON object per line
     and closes with a `result` line carrying the final answer alone — which
     `--output-format json` does not: its `text` field is every assistant turn
@@ -107,8 +116,29 @@ class GrokHeadlessAdapter:
     def supports_model_selection(self) -> bool:
         return True
 
+    @property
+    def supports_subagents(self) -> bool:
+        # Not verified in headless mode, so it is not relied on.
+        return False
+
     def is_available(self) -> bool:
         return shutil.which("grok") is not None
+
+    def list_models(self) -> list[CliModel]:
+        """`grok models` prints the available models as `* id` bullets.
+
+        The surrounding lines are prose ("Default model: ...", a sign-in notice), and a
+        signed-out grok lists only its default - which is still the honest answer for
+        that machine, so it is returned as-is rather than treated as a failure.
+        """
+        models: list[CliModel] = []
+        for line in model_listing_lines(["grok", "models"]):
+            if not line.startswith("*"):
+                continue
+            identifier = line.lstrip("*").strip().split()[0]
+            if identifier:
+                models.append(CliModel(identifier, identifier))
+        return models
 
     def execute(
         self,
@@ -119,6 +149,8 @@ class GrokHeadlessAdapter:
         disallowed_tools: Optional[list[str]] = None,
         effort: Optional[str] = None,
         model: Optional[str] = None,
+        allowed_tools: Optional[list[str]] = None,
+        max_budget_usd: Optional[float] = None,
     ) -> HeadlessResponse:
         cmd = [
             "grok",
@@ -139,7 +171,11 @@ class GrokHeadlessAdapter:
             cmd += ["--effort", effort]
         if model is not None:
             cmd += ["-m", model]
-        cmd += ["-p", _HEADLESS_PREAMBLE + prompt]
+        # The prompt goes in a private temp file (`--prompt-file`): grok does not read it
+        # from stdin, and on argv a single string over Linux's 131,072-byte MAX_ARG_STRLEN
+        # fails the exec with E2BIG -- a deep-review prompt runs ~115k characters.
+        prompt_file = _write_prompt_file(_HEADLESS_PREAMBLE + prompt)
+        cmd += ["--prompt-file", str(prompt_file)]
 
         try:
             result = subprocess.run(
@@ -148,6 +184,7 @@ class GrokHeadlessAdapter:
                 text=True,
                 cwd=cwd,
                 timeout=timeout,
+                stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
             return HeadlessResponse(
@@ -161,6 +198,8 @@ class GrokHeadlessAdapter:
                 stderr="grok command not found",
                 exit_code=127,
             )
+        finally:
+            prompt_file.unlink(missing_ok=True)
 
         return self._parse_stream(result)
 
@@ -233,12 +272,19 @@ class GrokHeadlessAdapter:
                 stdout="",
                 stderr=str(detail or "Grok CLI reported an error"),
                 exit_code=result.returncode or 1,
+                # Read even here: a failed turn still consumed tokens, and dropping
+                # them would understate any review that had a retry in it.
+                usage=usage_from_result_envelope(final, source="grok_result_event"),
             )
 
         return HeadlessResponse(
             stdout=self._sanitize(str(final.get("result", "") or last_assistant_text)),
             stderr=stderr,
             exit_code=result.returncode,
+            # grok's terminal line carries the same envelope claude's does - `usage`,
+            # `total_cost_usd` and a `modelUsage` map naming the model that ran - so the
+            # shared reader handles both rather than each adapter growing its own.
+            usage=usage_from_result_envelope(final, source="grok_result_event"),
         )
 
     def _assistant_text(self, event: dict) -> str:
@@ -258,3 +304,20 @@ class GrokHeadlessAdapter:
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""
         return _ANSI_ESCAPE.sub("", text).strip()
+
+
+def _write_prompt_file(text: str) -> Path:
+    """Write the prompt to a file only the current user can read, and return its path.
+
+    The prompt carries the PR's code, so it is not left world-readable in /tmp; the
+    caller deletes it once grok exits. If writing fails, the file is removed here so the
+    PR's code is not left behind.
+    """
+    fd, path = tempfile.mkstemp(prefix="titan-grok-", suffix=".txt")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except BaseException:
+        Path(path).unlink(missing_ok=True)
+        raise
+    return Path(path)

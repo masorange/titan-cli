@@ -9,6 +9,7 @@ from titan_plugin_github.operations.worktree_operations import (
     setup_worktree,
     cleanup_worktree,
     clear_stale_worktree,
+    delete_review_refs,
     commit_in_worktree,
 )
 
@@ -81,6 +82,17 @@ class TestSetupWorktree:
 
         assert success is False
         assert abs_path == ""
+
+    def test_creation_failure_deletes_the_fetched_refs(self, mock_git_client):
+        """No worktree means no cleanup step: the fetched ref must not stay behind."""
+        mock_git_client.create_worktree.return_value = ClientError(
+            error_message="Creation failed", error_code="WORKTREE_CREATE_ERROR"
+        )
+
+        setup_worktree(mock_git_client, 123, "feature-branch")
+
+        refs = [c.args[0] for c in mock_git_client.delete_ref.call_args_list]
+        assert "refs/titan/review/pr-123" in refs
 
     def test_uses_custom_base_path(self, mock_git_client):
         """Test using custom base path for worktrees"""
@@ -194,6 +206,24 @@ class TestCleanupWorktree:
         success = cleanup_worktree(mock_git_client, "/path/to/worktree")
 
         assert success is False
+
+
+@pytest.mark.unit
+class TestDeleteReviewRefs:
+    """Test removal of the refs a review leaves in the repository"""
+
+    def test_deletes_head_and_base_refs(self, mock_git_client):
+        delete_review_refs(mock_git_client, 123)
+
+        refs = [c.args[0] for c in mock_git_client.delete_ref.call_args_list]
+        assert refs == ["refs/titan/review/pr-123", "refs/titan/review/pr-123-base"]
+
+    def test_ignores_delete_failures(self, mock_git_client):
+        mock_git_client.delete_ref.side_effect = RuntimeError("boom")
+
+        delete_review_refs(mock_git_client, 123)
+
+        assert mock_git_client.delete_ref.call_count == 2
 
 
 @pytest.mark.unit

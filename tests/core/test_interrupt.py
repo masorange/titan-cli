@@ -1,5 +1,6 @@
 """Tests for cooperative interruption of blocking workflow calls."""
 
+import contextvars
 import threading
 import time
 
@@ -77,3 +78,40 @@ class TestWithAbortCheck:
 
         set_abort_check(broken_check)
         assert abort_requested() is True
+
+
+class TestContextPropagation:
+    """A blocking call must not lose the context it was made from.
+
+    `run_interruptible` moves the call onto a daemon thread, and a bare thread starts
+    with an EMPTY context — which silently stripped the log's run id from every AI call
+    in a review, since they all go through here. Measured 2026-09-22: 3,573
+    `findings_batch_adapter_call` events and every `ai_call_cost` event had no `run`
+    field. Cost that cannot be attributed to a run cannot be compared between runs,
+    which was the whole point of recording it.
+    """
+
+    def test_a_contextvar_set_by_the_caller_is_visible_inside(self):
+        set_abort_check(lambda: False)
+        marker = contextvars.ContextVar("marker", default="unset")
+        marker.set("set-by-caller")
+
+        assert run_interruptible(marker.get) == "set-by-caller"
+
+    def test_it_still_propagates_when_running_inline(self):
+        """With no abort check the call runs inline, which must behave the same."""
+        clear_abort_check()
+        marker = contextvars.ContextVar("marker_inline", default="unset")
+        marker.set("set-by-caller")
+
+        assert run_interruptible(marker.get) == "set-by-caller"
+
+    def test_a_binding_made_inside_does_not_leak_back_to_the_caller(self):
+        """The thread gets a COPY, so the caller's context is left as it was."""
+        set_abort_check(lambda: False)
+        marker = contextvars.ContextVar("marker_leak", default="unset")
+        marker.set("caller")
+
+        run_interruptible(lambda: marker.set("inside"))
+
+        assert marker.get() == "caller"

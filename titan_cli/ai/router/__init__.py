@@ -23,6 +23,7 @@ from .models import (
     AIRoutePolicy,
 )
 from .resolver import AIRouteNeedsInput, AIRouteResolution, AIRouteResolver
+from .session import AISessionOverride
 
 __all__ = [
     "AITask",
@@ -38,6 +39,7 @@ __all__ = [
     "AIRouteResolver",
     "AIRouteNeedsInput",
     "AIRouteResolution",
+    "AISessionOverride",
     "declare_ai_usage",
     "get_declared_ai_policy",
     "declared_ai_usage_enforces",

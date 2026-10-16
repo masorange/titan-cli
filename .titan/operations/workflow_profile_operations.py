@@ -424,34 +424,26 @@ INTERPRETERS: Dict[str, Dict[str, Any]] = {
     "Review PR": {
         # (count field, label, field holding the identities behind it)
         "funnel": [
-            ("review_config_applied_to_pr.manifest_files", "Files changed in the PR", None),
-            (
-                "review_config_applied_to_pr.candidate_files",
-                "Files selected for review",
-                "review_candidates_scored.candidate_paths",
-            ),
-            (
-                "review_candidates_scored.excluded",
-                "Files excluded by scoring",
-                "review_candidates_scored.excluded_files",
-            ),
-            ("review_context_summary.comments_in_context", "Existing comments in context", None),
+            ("review_session.files", "Files in the review session", None),
+            ("existing_comments_index_built.existing_comments_total", "Existing comments in context", None),
+            ("review_findings_parsed.findings_count", "Findings parsed from the session", None),
             ("findings_deduplicated.deduped_findings_count", "Findings after dedup", None),
             (
                 "findings_deduplicated.findings_removed_due_to_existing_threads",
                 "Findings dropped (already commented)",
                 None,
             ),
+            (
+                "findings_deduplicated.findings_removed_due_to_adjudicated_threads",
+                "Findings dropped (thread already adjudicated)",
+                None,
+            ),
         ],
         "labels": {
-            "file_context_resolved": "Files the reviewer actually read",
+            "review_session_activity": "What the review session did",
             "findings_batch_adapter_call": "Review batches sent to the AI",
-            "review_strategy_selected.strategy": "Review strategy",
-            "review_strategy_selected.size_class": "PR size class",
+            "review_session.duration_seconds": "Review session duration (s)",
         },
-        "thresholds": [
-            ("prompt", 90, "The prompt budget is nearly full — files may be arriving trimmed"),
-        ],
     },
 }
 

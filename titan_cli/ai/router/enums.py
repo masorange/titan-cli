@@ -23,12 +23,28 @@ class AITask(StrEnum):
     PR_DESCRIPTION = "pr_description"
     ISSUE_GENERATION = "issue_generation"
     JIRA_ANALYSIS = "jira_analysis"
-    CODE_REVIEW_PLAN = "code_review_plan"
     CODE_REVIEW_FINDINGS = "code_review_findings"
     RESPOND_PR_COMMENT = "respond_pr_comment"
     FIX_TEST_FAILURES = "fix_test_failures"
     FIX_LINT_FAILURES = "fix_lint_failures"
     GENERIC_ASSISTANT = "generic_assistant"
+
+
+class AIRouteOrigin(StrEnum):
+    """Which rung of the precedence supplied one part of a decision.
+
+    Tracked per part because the instance and the model are resolved independently
+    (D-008): a session override can name the CLI while the model still comes from the
+    global setting, and one label for the whole decision would be false half the time.
+
+    `STEP` is the one users cannot see coming - an explicit `model=` at the call site,
+    which outranks even a key just pressed - so naming it is the point of the exercise.
+    """
+
+    STEP = "step"
+    SESSION = "session"
+    PINNED = "pinned"
+    DEFAULT = "default"
 
 
 class AIProviderType(StrEnum):
@@ -80,6 +96,7 @@ def provider_description(provider: AIProviderType) -> str:
 
 __all__ = [
     "AITask",
+    "AIRouteOrigin",
     "AIProviderType",
     "PROVIDER_TYPE_LABELS",
     "PROVIDER_TYPE_DESCRIPTIONS",

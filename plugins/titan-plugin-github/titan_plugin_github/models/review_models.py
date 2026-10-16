@@ -1,9 +1,8 @@
 """
 Pydantic models for the code review system.
 
-The new-findings flow is intentionally split into two concerns:
-- cheap deterministic selection (manifest, scoring, comments context)
-- focused AI review over one or more bounded context batches
+The new-findings flow: a deterministic manifest and comments index around one free-form
+review session, whose findings are deduplicated, anchored and approved by the user.
 """
 
 from typing import Optional
@@ -11,27 +10,19 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from .review_enums import (
-    ChecklistCategory,
-    CommentContextKind,
-    ContextRequestType,
-    ExclusionReason,
     FileChangeStatus,
-    FileReadMode,
-    FileReviewPriority,
     FindingSeverity,
-    PRSizeClass,
     ReviewActionSource,
     ReviewActionType,
-    ReviewStrategyType,
     ThreadDecisionType,
     ThreadSeverity,
 )
-
 
 class ChangedFileEntry(BaseModel):
     """Single file changed in the PR with cheap deterministic signals."""
 
     path: str = Field(..., description="File path in repo")
+    previous_path: Optional[str] = Field(default=None, description="Path before a rename, if renamed")
     status: FileChangeStatus = Field(..., description="Normalized change type")
     additions: int = Field(default=0, description="Lines added")
     deletions: int = Field(default=0, description="Lines deleted")
@@ -41,12 +32,12 @@ class ChangedFileEntry(BaseModel):
     is_generated: bool = Field(default=False, description="Generated or vendored file")
     is_config: bool = Field(default=False, description="Configuration file")
     is_lockfile: bool = Field(default=False, description="Dependency lockfile")
+    is_static_resource: bool = Field(default=False, description="Image, font or translatable text")
     is_rename_only: bool = Field(default=False, description="Renamed without meaningful edits")
 
     @property
     def total_changes(self) -> int:
         return self.additions + self.deletions
-
 
 class PullRequestManifest(BaseModel):
     """Basic PR metadata."""
@@ -57,7 +48,6 @@ class PullRequestManifest(BaseModel):
     head: str = Field(..., description="Head branch")
     author: str = Field(..., description="PR author login")
     description: str = Field(..., description="PR description/body")
-
 
 class ChangeManifest(BaseModel):
     """Cheap deterministic context extracted from the PR."""
@@ -73,16 +63,6 @@ class ChangeManifest(BaseModel):
             f"(+{self.total_additions}/-{self.total_deletions})"
         )
 
-
-class ReviewChecklistItem(BaseModel):
-    """Single review category offered to AI."""
-
-    id: ChecklistCategory = Field(..., description="Unique checklist category ID")
-    name: str = Field(..., description="Display name")
-    description: str = Field(..., description="What this checklist item covers")
-    relevant_file_patterns: list[str] = Field(default_factory=list)
-
-
 class ExistingCommentIndexEntry(BaseModel):
     """Compact dedupe-oriented view of an existing PR comment."""
 
@@ -91,14 +71,16 @@ class ExistingCommentIndexEntry(BaseModel):
     is_resolved: bool = Field(..., description="Whether thread is resolved")
     path: Optional[str] = Field(default=None, description="File path")
     line: Optional[int] = Field(default=None, description="Target line")
-    category: Optional[str] = Field(default=None, description="Inferred category")
     title: str = Field(..., description="Short comment title/body preview")
+    body: str = Field(default="", description="The comment's text, capped; what dedupe compares against")
     author: str = Field(..., description="Comment author login")
+    # A scanner or linter (Wiz, Danger...) rather than a person. Its text is boilerplate
+    # about a line, so it is only matched on the very line it anchors to.
+    is_bot: bool = False
     has_author_reply: bool = False
     last_reply_author: Optional[str] = None
     reply_count: int = 0
     is_adjudicated: bool = False
-
 
 class CommentThreadSummary(BaseModel):
     """Compressed representation of a review thread for prompt context."""
@@ -114,102 +96,6 @@ class CommentThreadSummary(BaseModel):
     latest_state: str = Field(default="", description="Latest visible response or status")
     reply_count: int = 0
 
-
-class CommentContextEntry(BaseModel):
-    """Prompt-ready comment context, either raw compact comment or summarized thread."""
-
-    kind: CommentContextKind = Field(..., description="Representation type")
-    thread_id: str
-    path: Optional[str] = None
-    line: Optional[int] = None
-    category: Optional[str] = None
-    title: str = Field(default="")
-    summary: str = Field(default="")
-    is_resolved: bool = False
-    has_author_reply: bool = False
-    last_reply_author: Optional[str] = None
-    reply_count: int = 0
-    is_adjudicated: bool = False
-
-
-class ContextRequest(BaseModel):
-    """Request for additional supporting context beyond the diff."""
-
-    type: ContextRequestType
-    for_path: str
-    reason: str = ""
-
-
-class FileReviewPlan(BaseModel):
-    """Focused plan for one file selected for deeper review."""
-
-    path: str
-    priority: FileReviewPriority
-    read_mode: FileReadMode
-    reasons: list[str] = Field(default_factory=list)
-
-
-class ExcludedFileEntry(BaseModel):
-    """File excluded or trimmed from review focus."""
-
-    path: str
-    reason: ExclusionReason
-    detail: str = ""
-
-
-class ReviewPlan(BaseModel):
-    """Structured output from planning: what to review, not every changed file."""
-
-    focus_files: list[FileReviewPlan] = Field(default_factory=list)
-    review_axes: list[ChecklistCategory] = Field(default_factory=list)
-    extra_context_requests: list[ContextRequest] = Field(default_factory=list)
-    excluded_files: list[ExcludedFileEntry] = Field(default_factory=list)
-
-
-class PRClassification(BaseModel):
-    """Deterministic classification of PR size and composition."""
-
-    size_class: PRSizeClass
-    files_changed: int
-    total_lines_changed: int
-    doc_files: int = 0
-    test_files: int = 0
-    config_files: int = 0
-    generated_files: int = 0
-    comment_threads: int = 0
-    comment_entries: int = 0
-    high_signal_files: int = 0
-    repeated_callsite_files: int = 0
-    role_count: int = 0
-    roles: list[str] = Field(default_factory=list)
-    complexity_score: int = 0
-    active_review: bool = False
-    is_repetitive_migration: bool = False
-    rationale: str = ""
-
-
-class ScoredReviewCandidate(BaseModel):
-    """File candidate ranked before AI planning."""
-
-    path: str
-    score: int
-    priority: FileReviewPriority
-    suggested_read_mode: FileReadMode
-    reasons: list[str] = Field(default_factory=list)
-
-
-class ReviewStrategy(BaseModel):
-    """Execution strategy for the new-findings workflow."""
-
-    strategy: ReviewStrategyType
-    size_class: PRSizeClass
-    max_focus_files: int
-    max_prompt_chars: int
-    max_comment_entries: int
-    suspicious_empty_findings: bool = False
-    reason: str = ""
-
-
 class Finding(BaseModel):
     """Single problem found by AI in targeted code review."""
 
@@ -223,7 +109,6 @@ class Finding(BaseModel):
     snippet: Optional[str] = None
     suggested_comment: str
 
-
 class ThreadDecision(BaseModel):
     """AI decision on what to do with an existing review thread."""
 
@@ -233,7 +118,6 @@ class ThreadDecision(BaseModel):
     suggested_reply: Optional[str] = None
     category: Optional[str] = None
     severity: ThreadSeverity = ThreadSeverity.NONE
-
 
 class ThreadReviewCandidate(BaseModel):
     """Thread selected for AI analysis in thread-resolution workflow."""
@@ -248,7 +132,6 @@ class ThreadReviewCandidate(BaseModel):
     last_reply_body: Optional[str] = None
     is_outdated: bool = False
 
-
 class ReferencedCommitContext(BaseModel):
     """Remote commit context referenced from a review-thread reply."""
 
@@ -257,7 +140,6 @@ class ReferencedCommitContext(BaseModel):
     message: str = ""
     changed_files: list[str] = Field(default_factory=list)
     patch_excerpt: Optional[str] = None
-
 
 class ThreadReviewContext(BaseModel):
     """Enriched context for AI to decide what to do with a thread."""
@@ -272,7 +154,6 @@ class ThreadReviewContext(BaseModel):
     current_code_hunk: Optional[str] = None
     referenced_commits: list[ReferencedCommitContext] = Field(default_factory=list)
     is_outdated: bool = False
-
 
 class ReviewActionProposal(BaseModel):
     """Unified action ready for user review and GitHub submission."""
@@ -299,67 +180,17 @@ class ReviewActionProposal(BaseModel):
     is_inline_safe_for_github: bool = False
     file_status: Optional[str] = None
     is_test_file: bool = False
-    read_mode: Optional[str] = None
     related_existing_comment_ids: list[int] = Field(default_factory=list)
-
-
-class FileContextEntry(BaseModel):
-    """Extracted context for one focused file."""
-
-    path: str
-    read_mode: Optional[FileReadMode] = None
-    full_content: Optional[str] = None
-    hunks: list[str] = Field(default_factory=list)
-    expanded_hunks: list[str] = Field(default_factory=list)
-    worktree_reference: bool = False
-    review_hint: str = ""
-    changed_hunk_headers: list[str] = Field(default_factory=list)
-    approximate_chars: int = 0
-
-
-class FocusContextBatch(BaseModel):
-    """Single bounded batch of review context for one findings prompt."""
-
-    batch_id: str
-    files_context: dict[str, FileContextEntry] = Field(default_factory=dict)
-    comment_context: list[CommentContextEntry] = Field(default_factory=list)
-    checklist_applicable: list[ReviewChecklistItem] = Field(default_factory=list)
-    related_files: dict[str, str] = Field(default_factory=dict)
-    pr_manifest: Optional[PullRequestManifest] = None
-    approximate_chars: int = 0
-    prompt_budget_target_chars: int = 0
-    prompt_actual_chars: int = 0
-    prompt_still_too_large: bool = False
-    degraded_context: bool = False
-
-
-class ReviewContextPackage(BaseModel):
-    """Collection of one or more bounded context batches for findings analysis."""
-
-    batches: list[FocusContextBatch] = Field(default_factory=list)
-
 
 __all__ = [
     "ChangedFileEntry",
     "PullRequestManifest",
     "ChangeManifest",
-    "ReviewChecklistItem",
     "ExistingCommentIndexEntry",
     "CommentThreadSummary",
-    "CommentContextEntry",
-    "ContextRequest",
-    "FileReviewPlan",
-    "ExcludedFileEntry",
-    "ReviewPlan",
-    "PRClassification",
-    "ScoredReviewCandidate",
-    "ReviewStrategy",
     "Finding",
     "ThreadDecision",
     "ThreadReviewCandidate",
     "ThreadReviewContext",
     "ReviewActionProposal",
-    "FileContextEntry",
-    "FocusContextBatch",
-    "ReviewContextPackage",
 ]

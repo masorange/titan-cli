@@ -1,8 +1,8 @@
 """Operations for parsing structured JSON responses from AI CLI adapters.
 
 Centralizes the response-cleanup and JSON-extraction logic shared by every step that asks a
-headless CLI for a JSON array or object (ai_review_plan, ai_review_findings,
-ai_thread_resolution), so there is exactly one implementation to fix or extend.
+headless CLI for a JSON array or object (ai_review_findings, ai_thread_resolution), so there is
+exactly one implementation to fix or extend.
 """
 
 import json
