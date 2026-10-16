@@ -353,6 +353,109 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(usage.model_costs, {"claude-opus-5-5": 1.5})
 
     @patch("subprocess.run")
+    def test_tokens_cover_the_whole_session_like_the_price_does(self, mock_run):
+        # `modelUsage` adds up to `total_cost_usd`, so its tokens are the session's;
+        # `usage` describes one exchange. Reading the price from one and the tokens
+        # from the other made a delegating session look free and expensive at once.
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 3.64,'
+            ' "usage": {"input_tokens": 8, "output_tokens": 19303,'
+            ' "cache_read_input_tokens": 109318},'
+            ' "modelUsage": {"claude-sonnet-5": {"inputTokens": 20, "outputTokens": 59860,'
+            ' "cacheReadInputTokens": 282348, "thinkingTokens": 5000, "costUSD": 3.64}}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("judge these").usage
+
+        self.assertEqual(usage.token_scope, "session")
+        self.assertEqual(usage.output_tokens, 59860)
+        self.assertEqual(usage.cache_read_tokens, 282348)
+        self.assertEqual(usage.reasoning_tokens, 5000)
+
+    @patch("subprocess.run")
+    def test_tokens_of_every_model_are_summed_into_the_session(self, mock_run):
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 3.0,'
+            ' "modelUsage": {"claude-opus-5-5": {"outputTokens": 100, "costUSD": 1.0},'
+            ' "claude-sonnet-5": {"outputTokens": 400, "costUSD": 2.0}}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("judge these").usage
+
+        self.assertEqual(usage.output_tokens, 500)
+        self.assertEqual(usage.token_scope, "session")
+
+    @patch("subprocess.run")
+    def test_tokens_fall_back_to_the_call_when_there_is_no_model_breakdown(self, mock_run):
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 1.0,'
+            ' "usage": {"input_tokens": 8, "output_tokens": 19303}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("judge these").usage
+
+        self.assertEqual(usage.token_scope, "call")
+        self.assertEqual(usage.output_tokens, 19303)
+
+    @patch("subprocess.run")
+    def test_how_the_session_worked_is_reported_next_to_what_it_cost(self, mock_run):
+        # Two runs of the same prompt and model can differ by an order of magnitude in
+        # turns and in delegation; without these the difference in their figures has no
+        # explanation on record.
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 1.0,'
+            ' "num_turns": 12, "subagent_stats": {"spawned": 3, "completed": 3},'
+            ' "modelUsage": {"claude-sonnet-5": {"outputTokens": 10, "costUSD": 1.0,'
+            ' "provider": "firstParty", "costBasis": "list"}}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("judge these").usage
+
+        self.assertEqual(usage.turns, 12)
+        self.assertEqual(usage.subagents_spawned, 3)
+        self.assertEqual(usage.provider, "firstParty")
+        self.assertEqual(usage.cost_basis, "list")
+        fields = usage.as_log_fields()
+        self.assertEqual(fields["turns"], 12)
+        self.assertEqual(fields["subagents_spawned"], 3)
+        self.assertEqual(fields["provider"], "firstParty")
+
+    @patch("subprocess.run")
+    def test_a_session_that_delegated_nothing_says_so_rather_than_staying_silent(self, mock_run):
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 1.0,'
+            ' "num_turns": 98, "subagent_stats": {"spawned": 0},'
+            ' "modelUsage": {"claude-opus-5-5": {"outputTokens": 10, "costUSD": 1.0}}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("judge these").usage
+
+        self.assertEqual(usage.turns, 98)
+        self.assertEqual(usage.subagents_spawned, 0)
+        # A zero that was reported is a fact and must survive the "omit what is absent"
+        # filter; only what the CLI never said is dropped.
+        self.assertEqual(usage.as_log_fields()["subagents_spawned"], 0)
+
+    @patch("subprocess.run")
+    def test_a_split_billing_path_names_neither_side(self, mock_run):
+        envelope = (
+            '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 2.0,'
+            ' "modelUsage": {"a": {"costUSD": 1.0, "provider": "firstParty", "costBasis": "list"},'
+            ' "b": {"costUSD": 1.0, "provider": "gateway", "costBasis": "list"}}}'
+        )
+        mock_run.return_value = MagicMock(stdout=envelope, stderr="", returncode=0)
+
+        usage = self.adapter.execute("judge these").usage
+
+        self.assertIsNone(usage.provider)
+        self.assertEqual(usage.cost_basis, "list")
+
+    @patch("subprocess.run")
     def test_a_budget_ceiling_hit_reports_its_reason(self, mock_run):
         envelope = (
             '{"type": "result", "subtype": "error_max_budget_usd", "is_error": true, '

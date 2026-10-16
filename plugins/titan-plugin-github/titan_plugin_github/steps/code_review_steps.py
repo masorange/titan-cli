@@ -1045,6 +1045,11 @@ class _PinnedModelCli:
                 reasoning_tokens=getattr(usage, "reasoning_tokens", None),
                 total_tokens=getattr(usage, "total_tokens", None),
                 cost_usd=getattr(usage, "cost_usd", None),
+                token_scope=getattr(usage, "token_scope", None),
+                turns=getattr(usage, "turns", None),
+                subagents_spawned=getattr(usage, "subagents_spawned", None),
+                provider=getattr(usage, "provider", None),
+                cost_basis=getattr(usage, "cost_basis", None),
                 usage_source=getattr(usage, "source", None),
             )
             logger.debug(
@@ -1071,6 +1076,18 @@ class _PinnedModelCli:
                 cost_usd=record.cost_usd,
                 # Present only when the session used more than one model (subagents).
                 model_costs=getattr(usage, "model_costs", None),
+                # "session" means the tokens cover what the price covers; "call" means
+                # they cover one exchange and the two must not be read together.
+                token_scope=record.token_scope,
+                # Why two runs of the same prompt and model can differ by an order of
+                # magnitude: one ground through it alone, the other delegated.
+                turns=record.turns,
+                subagents_spawned=record.subagents_spawned,
+                # Which price table this figure came off. A CLI pointed at a gateway and
+                # the same CLI on its own account do not produce comparable numbers, and
+                # `list` is a published price rather than one that was charged.
+                provider=record.provider,
+                cost_basis=record.cost_basis,
                 usage_source=record.usage_source,
             )
             if self._ctx is not None:
@@ -1108,6 +1125,9 @@ def log_review_ai_cost(ctx, scope: str) -> None:
         substituted_model_calls=summary.substituted_model_calls,
         clis=summary.clis,
         models_reported=summary.models_reported,
+        # More than one scope means `total_tokens` added a session's tokens to a single
+        # exchange's, so the total is not a quantity of anything.
+        token_scopes=summary.token_scopes,
         phases=[
             {
                 "phase": p.phase,

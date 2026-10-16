@@ -185,3 +185,37 @@ class TestHumanReadableLine:
         line = format_cost_summary(summarize_ai_calls([_call(succeeded=False, cost_usd=0.01)]))
 
         assert "1 failed" in line
+
+
+class TestTokenScope:
+    """A token total is only a quantity when every call counted the same thing.
+
+    One CLI reports the whole session, subagents included; another reports the single
+    exchange that closed it. Summing the two is the mistake that made a session which
+    delegated to three subagents look like it had spent almost nothing while billing
+    three times another run.
+    """
+
+    def test_one_scope_is_carried_through_so_a_total_can_be_read(self):
+        summary = summarize_ai_calls([
+            _call(token_scope="session", total_tokens=100),
+            _call(token_scope="session", total_tokens=200),
+        ])
+
+        assert summary.token_scopes == ["session"]
+        assert summary.total_tokens == 300
+
+    def test_mixed_scopes_are_both_named_rather_than_silently_summed(self):
+        summary = summarize_ai_calls([
+            _call(token_scope="session", total_tokens=100),
+            _call(cli="codex", token_scope="call", total_tokens=200),
+        ])
+
+        # The sum still happens - the caller decides what to do - but the log now says
+        # the two halves measured different things.
+        assert summary.token_scopes == ["session", "call"]
+
+    def test_a_cli_that_names_no_scope_adds_none(self):
+        summary = summarize_ai_calls([_call(total_tokens=100)])
+
+        assert summary.token_scopes == []

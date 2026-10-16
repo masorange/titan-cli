@@ -110,6 +110,12 @@ class CliUsage:
     the same thing as the model Titan asked for: a CLI falls back to its own default
     when a pin is missing or unavailable, and that silent substitution is exactly what
     makes two runs incomparable.
+
+    `token_scope` says what the token counts cover, and comparing two runs that do not
+    share it is meaningless. A price and a token count taken from different scopes is
+    the same mistake one field further on: a session that delegates bills for its
+    subagents while a per-call `usage` block describes only the parent, so the cheaper
+    strategy reads as the more expensive one.
     """
 
     input_tokens: Optional[int] = None
@@ -124,6 +130,20 @@ class CliUsage:
     # different model reports several, and `model_reported` then names none: without this
     # the log cannot say that part of a bill was another model's.
     model_costs: Optional[dict[str, float]] = None
+    # "session" covers everything the price covers, subagents included; "call" is one
+    # exchange with the model and does not. None means the CLI said nothing either way.
+    token_scope: Optional[str] = None
+    # How the session worked, not how much it cost. The same prompt and model can grind
+    # alone for a hundred turns or delegate and finish in ten, and the two produce
+    # figures that cannot be compared with each other, so a run that does not record
+    # this cannot be read later.
+    turns: Optional[int] = None
+    subagents_spawned: Optional[int] = None
+    # Where the bill went and how it was priced. A CLI pointed at a gateway and the same
+    # CLI on its own account report costs off different price tables, and `list` means a
+    # published price rather than anything that was actually charged.
+    provider: Optional[str] = None
+    cost_basis: Optional[str] = None
     source: Optional[str] = None
 
     @property
@@ -158,6 +178,11 @@ class CliUsage:
             f"{prefix}cost_usd": self.cost_usd,
             f"{prefix}model_reported": self.model_reported,
             f"{prefix}model_costs": self.model_costs or None,
+            f"{prefix}token_scope": self.token_scope,
+            f"{prefix}turns": self.turns,
+            f"{prefix}subagents_spawned": self.subagents_spawned,
+            f"{prefix}provider": self.provider,
+            f"{prefix}cost_basis": self.cost_basis,
             f"{prefix}usage_source": self.source,
         }
         return {k: v for k, v in fields.items() if v is not None}
@@ -184,6 +209,13 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
 
     Returns None when there is no usage block at all, so a caller can tell "this CLI
     said nothing" from "this CLI said zero".
+
+    Tokens come from `modelUsage` when it is there, not from `usage`. The two count
+    different things: `modelUsage`'s per-model `costUSD` adds up to `total_cost_usd`
+    exactly, so its token figures cover the whole session, subagents included, while
+    `usage` describes the exchange the envelope closes. Taking the price from one and
+    the tokens from the other made a session that delegated to three subagents look
+    like it had spent almost nothing to earn a bill three times another run's.
     """
     if not isinstance(envelope, dict):
         return None
@@ -197,11 +229,33 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
         model_reported = next(iter(model_usage))
     cost = as_float(envelope.get("total_cost_usd"))
     model_costs = _model_costs(model_usage)
+    strategy = _session_strategy(envelope)
+    billing = _billing_basis(model_usage)
+
+    session_tokens = _session_tokens(model_usage)
+    if session_tokens is not None:
+        return CliUsage(
+            **session_tokens,
+            token_scope="session",
+            cost_usd=cost,
+            model_reported=model_reported,
+            model_costs=model_costs,
+            source=source,
+            **strategy,
+            **billing,
+        )
 
     if not isinstance(usage, dict):
-        if cost is None and model_reported is None:
+        if cost is None and model_reported is None and not strategy:
             return None
-        return CliUsage(cost_usd=cost, model_reported=model_reported, model_costs=model_costs, source=source)
+        return CliUsage(
+            cost_usd=cost,
+            model_reported=model_reported,
+            model_costs=model_costs,
+            source=source,
+            **strategy,
+            **billing,
+        )
 
     # Thinking is billed as output and counted inside output_tokens; broken out here
     # because it is the part of the output that never reaches the parsed answer.
@@ -212,11 +266,83 @@ def usage_from_result_envelope(envelope: Any, source: str) -> Optional[CliUsage]
         cache_read_tokens=as_int(usage.get("cache_read_input_tokens")),
         cache_write_tokens=as_int(usage.get("cache_creation_input_tokens")),
         reasoning_tokens=as_int(details.get("thinking_tokens")) if isinstance(details, dict) else None,
+        token_scope="call",
         cost_usd=cost,
         model_reported=model_reported,
         model_costs=model_costs,
         source=source,
+        **strategy,
+        **billing,
     )
+
+
+def _session_tokens(model_usage: Any) -> Optional[dict[str, int]]:
+    """The session's tokens, summed across every model that ran in it.
+
+    Summed and not reported per model because the figures are totals for the run; the
+    per-model split that does matter is the price, which `_model_costs` keeps. Returns
+    None when `modelUsage` names no token at all, so the caller can fall back instead
+    of recording a session of zero.
+    """
+    if not isinstance(model_usage, dict):
+        return None
+    fields = {
+        "input_tokens": "inputTokens",
+        "output_tokens": "outputTokens",
+        "cache_read_tokens": "cacheReadInputTokens",
+        "cache_write_tokens": "cacheCreationInputTokens",
+        "reasoning_tokens": "thinkingTokens",
+    }
+    totals: dict[str, int] = {}
+    for ours, theirs in fields.items():
+        counts = [
+            as_int(entry.get(theirs))
+            for entry in model_usage.values()
+            if isinstance(entry, dict) and as_int(entry.get(theirs)) is not None
+        ]
+        if counts:
+            totals[ours] = sum(counts)
+    return totals or None
+
+
+def _session_strategy(envelope: dict) -> dict[str, int]:
+    """How the session went about the work: how many turns, and how much it delegated.
+
+    Not consumption, but the thing that explains two runs' consumption differing. Only
+    what the CLI reported ends up in the result, so a CLI that says nothing adds no key
+    rather than a zero that would read as "delegated nothing".
+    """
+    out: dict[str, int] = {}
+    turns = as_int(envelope.get("num_turns"))
+    if turns is not None:
+        out["turns"] = turns
+    stats = envelope.get("subagent_stats")
+    if isinstance(stats, dict):
+        spawned = as_int(stats.get("spawned"))
+        if spawned is not None:
+            out["subagents_spawned"] = spawned
+    return out
+
+
+def _billing_basis(model_usage: Any) -> dict[str, str]:
+    """Who served the session and whether its price is a real one or a published one.
+
+    Only when every model in the session agrees: a run split across a gateway and a
+    direct account has no single answer, and naming one of them would be worse than
+    naming none.
+    """
+    if not isinstance(model_usage, dict) or not model_usage:
+        return {}
+    out: dict[str, str] = {}
+    for ours, theirs in (("provider", "provider"), ("cost_basis", "costBasis")):
+        values = {
+            entry.get(theirs)
+            for entry in model_usage.values()
+            if isinstance(entry, dict) and isinstance(entry.get(theirs), str)
+        }
+        if len(values) == 1:
+            out[ours] = values.pop()
+    return out
 
 
 def _model_costs(model_usage: Any) -> Optional[dict[str, float]]:
