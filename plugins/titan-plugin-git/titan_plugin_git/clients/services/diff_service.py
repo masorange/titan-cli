@@ -17,16 +17,36 @@ from ...models.view import UIFileChurn
 
 
 
+_BINARY_CHECK_BYTES = 8000
+_CHURN_CHUNK_SIZE = 65536
+
+
 def _untracked_churn(root: Path, path: str) -> UIFileChurn:
-    """A new file's churn: all its lines are additions; binary or unreadable files count none."""
+    """A new file's churn: all its lines are additions; binary or unreadable files count none.
+
+    Reads only the first `_BINARY_CHECK_BYTES` to decide if the file is binary, then streams
+    the rest in fixed-size chunks counting newlines, so large untracked files are never fully
+    loaded into memory just to be polled every repo_refresh_seconds.
+    """
     try:
-        content = (root / path).read_bytes()
+        with (root / path).open("rb") as f:
+            head = f.read(_BINARY_CHECK_BYTES)
+            if b"\0" in head:
+                return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
+            saw_content = bool(head)
+            lines = head.count(b"\n")
+            ends_with_newline = head.endswith(b"\n")
+            while True:
+                chunk = f.read(_CHURN_CHUNK_SIZE)
+                if not chunk:
+                    break
+                saw_content = True
+                lines += chunk.count(b"\n")
+                ends_with_newline = chunk.endswith(b"\n")
     except OSError:
         return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
-    if b"\0" in content[:8000]:
-        return UIFileChurn(path=path, additions=0, deletions=0, is_binary=True)
-    lines = content.count(b"\n") + (0 if not content or content.endswith(b"\n") else 1)
-    return UIFileChurn(path=path, additions=lines, deletions=0)
+    additions = lines + (0 if not saw_content or ends_with_newline else 1)
+    return UIFileChurn(path=path, additions=additions, deletions=0)
 
 class DiffService:
     """
