@@ -31,6 +31,10 @@ default_remote = "origin"
 - [Workflow Steps](./workflow-steps.md): public reusable workflow steps grouped by functionality
 - [Built-in Workflows](./built-in-workflows.md): workflows shipped by the plugin
 
+## Mod
+
+The plugin ships the `git` [mod](../../concepts/mods.md): a side-panel pane with the current branch, its upstream, ahead/behind and the latest commits, read through `GitClient` on a timer and refreshed after every workflow. Options (`[mods.git.options]` in `~/.titan/config.toml`): `repo_refresh_seconds` (30), `refresh_key` (`f5`, empty for none), `recent_commits` (10).
+
 ## Accessing the client
 
 In Titan code, the public entry point is the Git plugin client:

@@ -17,7 +17,9 @@ from titan_cli.ui.tui.icons import Icons
 
 from titan_cli.core.interrupt import (
     WorkflowAborted,
+    cancel_requested,
     clear_abort_check,
+    request_cancel,
     set_abort_check,
 )
 from titan_cli.core.workflows import ParsedWorkflow
@@ -92,7 +94,7 @@ class WorkflowExecutionScreen(BaseScreen):
     }
     """
 
-    def __init__(self, config, workflow_name: str, **kwargs):
+    def __init__(self, config, workflow_name: str, params: Optional[Dict[str, Any]] = None, **kwargs):
         super().__init__(
             config,
             title=f"{Icons.WORKFLOW} Executing: {workflow_name}",
@@ -102,6 +104,8 @@ class WorkflowExecutionScreen(BaseScreen):
             **kwargs
         )
         self.workflow_name = workflow_name
+        # Laid over the workflow's own params, e.g. by a mod launching it for one PR.
+        self.params = dict(params or {})
         self.workflow: Optional[ParsedWorkflow] = None
         self._worker: Optional[Worker] = None
         self._executor = None
@@ -229,14 +233,15 @@ class WorkflowExecutionScreen(BaseScreen):
             executor = TextualWorkflowExecutor(
                 plugin_registry=self.config.registry,
                 workflow_registry=self.config.workflows,
-                message_target=self  # Pass self to receive messages
+                message_target=self,  # Pass self to receive messages
+                mods=getattr(app, "mods", None),
             )
             # The cancel handler runs on the UI thread, where the run id
             # contextvar bound inside the worker is not visible.
             self._executor = executor
 
             # Execute workflow (this is synchronous and may take time)
-            executor.execute(self.workflow, execution_context)
+            executor.execute(self.workflow, execution_context, params_override=self.params or None)
 
         except WorkflowAborted:
             # The app closed while a step was blocked in an AI call or prompt.
@@ -250,6 +255,7 @@ class WorkflowExecutionScreen(BaseScreen):
                 "workflow_aborted_on_app_exit",
                 workflow=getattr(self.workflow, "name", None) or self.workflow_name,
                 workflow_slug=self.workflow_name,
+                cancelled_by_user=cancel_requested(),
             )
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
             self._output(f"\n[red]{Icons.ERROR} Workflow failed: {e}[/red]")
@@ -404,6 +410,10 @@ class WorkflowExecutionScreen(BaseScreen):
                 workflow=getattr(self.workflow, "name", None) or self.workflow_name,
                 run=getattr(self._executor, "run_id", None),
             )
+            # Worker.cancel() cannot stop a thread parked in an AI call, so also
+            # kill the headless subprocess and make the thread raise on its next
+            # poll; otherwise the abandoned run keeps spending until it finishes.
+            request_cancel()
             # Try to cancel, but don't wait for it to finish
             # The worker thread may be blocked, so we just move on
             try:
@@ -625,7 +635,11 @@ class WorkflowExecutionContent(Widget):
             try:
                 # with open("/tmp/titan_debug.log", "a") as f:
                 #     f.write(f"[{time.time():.3f}] SCREEN: About to call notify\n")
-                self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
+                if message.skipped:
+                    reason = f": {message.message}" if message.message else ""
+                    self.app.notify(f"Workflow skipped by a mod{reason}", severity="warning", timeout=8)
+                else:
+                    self.app.notify(f"✨ Workflow completed: {message.workflow_name}", severity="information", timeout=5)
                 # with open("/tmp/titan_debug.log", "a") as f:
                 #     f.write(f"[{time.time():.3f}] SCREEN: notify called successfully\n")
             except Exception:
@@ -648,4 +662,9 @@ class WorkflowExecutionContent(Widget):
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
             # Steps handle their own error display via ctx.textual
             # Just show a simple notification without duplicating the error message
-            self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)
+            if message.step_name == "mods":
+                # No step ran, so no step printed the reason: a mod refused the run.
+                reason = f": {message.error_message}" if message.error_message else ""
+                self.app.notify(f"❌ Workflow refused by a mod{reason}", severity="error", timeout=10)
+            else:
+                self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)

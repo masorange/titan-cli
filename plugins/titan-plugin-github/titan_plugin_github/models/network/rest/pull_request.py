@@ -49,6 +49,7 @@ class NetworkPullRequest:
         reviews: List of reviews
         labels: List of label objects with 'name' field
         requestedReviewers: List of users requested to review the PR
+        url: The PR's web page
     """
     number: int
     title: str
@@ -69,6 +70,7 @@ class NetworkPullRequest:
     labels: List[Dict[str, Any]] = field(default_factory=list)  # Raw label objects
     statusCheckRollup: List[Dict[str, Any]] = field(default_factory=list)
     reviewDecision: Optional[PRReviewDecision] = None
+    url: str = ""
     isCrossRepository: bool = False
     headRepositoryOwnerLogin: Optional[str] = None
     headRepositoryName: Optional[str] = None
@@ -123,6 +125,7 @@ class NetworkPullRequest:
             createdAt=data.get("createdAt"),
             updatedAt=data.get("updatedAt"),
             mergedAt=data.get("mergedAt"),
+            url=data.get("url", ""),
             reviews=reviews,
             labels=data.get("labels", []),  # Keep raw label objects
             statusCheckRollup=data.get("statusCheckRollup", []),

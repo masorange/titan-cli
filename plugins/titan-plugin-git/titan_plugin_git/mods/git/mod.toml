@@ -1,0 +1,26 @@
+[mod]
+name = "git"
+version = "0.4.0"
+icon = "⎇"
+description = "Side panel with the current branch, its upstream and the latest commits"
+requires_plugins = ["git"]
+events = ["app.start", "workflow.run", "ui.render"]
+slots = ["pane"]
+
+[options.repo_refresh_seconds]
+type = "int"
+title = "Refresh every (s)"
+default = 30
+min = 1
+
+[options.refresh_key]
+type = "string"
+title = "Refresh key"
+description = "Key that refreshes the branch and commits now; empty for none."
+default = "f5"
+
+[options.recent_commits]
+type = "int"
+title = "Recent commits shown"
+default = 10
+min = 0

@@ -119,7 +119,7 @@ class PluginConfigWizardScreen(BaseScreen):
             config,
             title=f"{Icons.SETTINGS} Configure {plugin_name}",
             show_back=False,
-            show_status_bar=False
+            show_dock=False
         )
         self.plugin_name = plugin_name
         self.current_step = 0

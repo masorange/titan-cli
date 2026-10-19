@@ -7,6 +7,7 @@ All functions here are UI-agnostic and can be unit tested independently.
 Modules:
     comment_operations: Operations for PR comments and reviews
     pr_operations: Operations for pull requests
+    ci_diagnosis_operations: Explaining why a CI job failed, from its log
     worktree_operations: Operations for git worktree workflows
     pr_creation_operations: Operations for PR creation
     issue_operations: Operations for GitHub issues
@@ -38,6 +39,13 @@ from .respond_tracking_operations import (
     build_run_record,
     run_record_path,
     verdict_agreement,
+)
+
+from .ci_diagnosis_operations import (
+    extract_failure_excerpt,
+    build_job_diagnosis_prompt,
+    parse_job_diagnosis,
+    format_job_diagnoses,
 )
 
 from .pr_operations import (
@@ -86,6 +94,11 @@ from .code_review_operations import (
 )
 
 __all__ = [
+    # CI diagnosis operations
+    "extract_failure_excerpt",
+    "build_job_diagnosis_prompt",
+    "parse_job_diagnosis",
+    "format_job_diagnoses",
     # Comment operations
     "build_ai_review_context",
     "build_commit_message_context",

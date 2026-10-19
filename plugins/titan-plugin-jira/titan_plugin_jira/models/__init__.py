@@ -21,6 +21,8 @@ from .network.rest import (
     NetworkJiraStatusCategory,
     NetworkJiraPriority,
     NetworkJiraVersion,
+    NetworkJiraComponent,
+    NetworkJiraFilter,
 )
 
 # View models (UI)
@@ -34,6 +36,8 @@ from .view import (
     UIJiraUser,
     UIJiraIssueType,
     UIJiraVersion,
+    UIJiraComponent,
+    UIJiraFilter,
 )
 
 # Mappers (network → view)
@@ -47,6 +51,8 @@ from .mappers import (
     from_network_user,
     from_network_issue_type,
     from_network_version,
+    from_network_component,
+    from_network_filter,
 )
 
 # Formatting utilities
@@ -72,6 +78,8 @@ __all__ = [
     "NetworkJiraStatusCategory",
     "NetworkJiraPriority",
     "NetworkJiraVersion",
+    "NetworkJiraComponent",
+    "NetworkJiraFilter",
     # View models
     "UIJiraIssue",
     "UIJiraProject",
@@ -82,6 +90,8 @@ __all__ = [
     "UIJiraUser",
     "UIJiraIssueType",
     "UIJiraVersion",
+    "UIJiraComponent",
+    "UIJiraFilter",
     # Mappers
     "from_network_issue",
     "from_network_project",
@@ -92,6 +102,8 @@ __all__ = [
     "from_network_user",
     "from_network_issue_type",
     "from_network_version",
+    "from_network_component",
+    "from_network_filter",
     # Formatting
     "format_jira_date",
     "get_status_icon",

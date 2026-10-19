@@ -60,8 +60,8 @@ def test_find_transition_by_name_contains_returns_matching_transition():
 
 def test_find_version_by_name_returns_exact_match():
     versions = [
-        UIJiraVersion(id="1", name="1.0.0", description="", released=False, release_date="Not set"),
-        UIJiraVersion(id="2", name="1.1.0", description="", released=False, release_date="Not set"),
+        UIJiraVersion(id="1", name="1.0.0", description="", released=False, start_date="Not set", release_date="Not set"),
+        UIJiraVersion(id="2", name="1.1.0", description="", released=False, start_date="Not set", release_date="Not set"),
     ]
 
     result = find_version_by_name(versions, "1.1.0")

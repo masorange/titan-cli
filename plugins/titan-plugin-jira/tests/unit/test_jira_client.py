@@ -292,6 +292,7 @@ def test_create_version_delegates_to_metadata_service(jira_client):
         project_key="TEST",
         name="1.0.0",
         description=None,
+        start_date=None,
         release_date=None,
     )
 
@@ -309,6 +310,7 @@ def test_ensure_version_exists_delegates_to_metadata_service(jira_client):
         project_key="TEST",
         name="1.0.0",
         description=None,
+        start_date=None,
         release_date=None,
     )
 
@@ -328,6 +330,15 @@ def test_assign_fix_version_delegates_to_issue_service(jira_client):
         version_id=None,
         version_name="1.0.0",
     )
+
+
+def test_set_fix_version_delegates_to_issue_service(jira_client):
+    jira_client._issue_service.set_fix_version = Mock(return_value=ClientSuccess(data=None, message="Set"))
+
+    result = jira_client.set_fix_version("TEST-123", "10001")
+
+    assert isinstance(result, ClientSuccess)
+    jira_client._issue_service.set_fix_version.assert_called_once_with(issue_key="TEST-123", version_id="10001")
 
 
 def test_get_comments_delegates(jira_client):

@@ -156,6 +156,28 @@ class UIJiraVersion:
     description: str                 # "No description" if empty
     released: bool                   # Release status
     release_date: str                # "Not set" or formatted date
+    start_date: str = "Not set"      # "Not set" or formatted date
+
+
+@dataclass
+class UIJiraComponent:
+    """
+    UI model for a Jira project component.
+    """
+    id: str
+    name: str                        # "Android", "Backend"
+    description: str                 # "No description" if empty
+
+
+@dataclass
+class UIJiraFilter:
+    """
+    UI model for a Jira saved filter.
+    """
+    id: str
+    name: str                        # As its owner named it
+    jql: str                         # Its query, usable as a condition of another
+    url: str                         # Its page in Jira; empty when the API gave none
 
 
 __all__ = [

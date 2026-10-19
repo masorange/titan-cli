@@ -10,6 +10,7 @@ import shutil
 import subprocess
 from typing import Any, Optional
 
+from titan_cli.core import interrupt
 from .base import CliModel, HeadlessResponse, SupportedCLI, usage_from_result_envelope
 
 _ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -111,7 +112,7 @@ class ClaudeHeadlessAdapter:
         # "[Errno 7] Argument list too long: 'claude'". `claude --print` reads its prompt
         # from stdin when none is given as an argument.
         try:
-            result = subprocess.run(
+            result = interrupt.run_tracked(
                 cmd,
                 input=prompt,
                 capture_output=True,

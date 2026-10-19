@@ -14,6 +14,11 @@ from .jql_operations import (
     format_jql_with_project,
     merge_query_collections,
     build_query_not_found_message,
+    build_issue_jql,
+    components_condition,
+    jql_string,
+    search_condition,
+    strip_order_by,
 )
 
 from .issue_formatting_operations import (
@@ -22,11 +27,16 @@ from .issue_formatting_operations import (
     build_issue_table_row,
     get_issue_table_headers,
     build_issue_table_data,
+    format_person_name,
+    display_lines,
+    issue_description_lines,
 )
 
 from .issue_operations import (
     find_ready_to_dev_transition,
     transition_issue_to_ready_for_dev,
+    assign_issue_to_current_user,
+    take_issue,
 )
 
 from .issue_management_operations import (
@@ -36,10 +46,12 @@ from .issue_management_operations import (
     issue_has_fix_version,
 )
 
+from .summary_prompt_operations import build_issue_summary_prompt
 from .plan_prompt_operations import (
     format_jira_issue_context,
     build_jira_plan_prompt,
 )
+from ..constants import DEFAULT_SEARCH_FIELDS
 
 __all__ = [
     # JQL operations
@@ -47,15 +59,25 @@ __all__ = [
     "format_jql_with_project",
     "merge_query_collections",
     "build_query_not_found_message",
+    "build_issue_jql",
+    "components_condition",
+    "jql_string",
+    "search_condition",
+    "strip_order_by",
     # Issue formatting operations
     "truncate_summary",
     "format_issue_field",
     "build_issue_table_row",
     "get_issue_table_headers",
     "build_issue_table_data",
+    "format_person_name",
+    "display_lines",
+    "issue_description_lines",
     # Issue operations
     "find_ready_to_dev_transition",
     "transition_issue_to_ready_for_dev",
+    "assign_issue_to_current_user",
+    "take_issue",
     # Workflow operations
     "find_transition_by_target_status",
     "find_transition_by_name_contains",
@@ -64,4 +86,6 @@ __all__ = [
     # Plan prompt operations
     "format_jira_issue_context",
     "build_jira_plan_prompt",
+    "build_issue_summary_prompt",
+    "DEFAULT_SEARCH_FIELDS",
 ]

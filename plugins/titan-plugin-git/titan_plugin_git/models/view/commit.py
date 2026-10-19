@@ -1,5 +1,6 @@
 """UI model for Git commit - pre-formatted for display."""
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -17,3 +18,4 @@ class UIGitCommit:
     author_short: str  # Just name, no email
     date: str  # Raw date
     formatted_date: str  # Human-readable: "2 days ago" or "2026-01-15"
+    pr_number: Optional[int] = None  # The PR a squash merge landed, from its "(#1234)" suffix

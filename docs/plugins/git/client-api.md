@@ -408,6 +408,27 @@ client.get_status()
 
 - No parameters.
 
+**Result:** `UIGitStatus` with `branch`, `is_clean`, `modified_files`,
+`untracked_files`, `staged_files`, `ahead`, `behind`, `has_upstream` (False when the
+branch tracks nothing, so the counts are 0 for that reason), and the pre-formatted
+`clean_icon`, `status_summary` and `sync_status`.
+
+### List untracked files
+
+Returns every untracked file one by one, honouring `.gitignore`. Unlike
+`get_status().untracked_files`, a new directory is expanded into its files and
+ignored files (build output, `__pycache__`) are never listed.
+
+**Call:**
+
+```python
+client.get_untracked_files()
+```
+
+**Parameters:**
+
+- No parameters.
+
 ### Check for uncommitted changes
 
 Returns whether the repository has local changes not yet committed.
@@ -541,6 +562,26 @@ client.get_branch_numstat(
 - `base_branch`: Required. Base branch.
 - `head_branch`: Required. Head branch.
 - `use_remote`: Optional. Treat both branches as remote refs.
+
+### Get per-file counters of uncommitted changes
+
+Returns one `UIFileChurn` per tracked file that differs from `HEAD` (working tree
+and index together), with `additions`, `deletions` and `is_binary`. It is
+read-only and safe to call repeatedly, e.g. from a timer. Prefer it over
+`get_uncommitted_diff_stat()`, which marks untracked files with intent-to-add as
+a side effect.
+
+**Call:**
+
+```python
+client.get_uncommitted_numstat(include_untracked=True)
+```
+
+**Parameters:**
+
+- `include_untracked`: Optional (default `False`). Also count new, untracked files
+  (honouring `.gitignore`): each one's lines as additions; binary or unreadable
+  files as `is_binary=True` with zero counters.
 
 ### List files changed between two refs
 
@@ -1025,6 +1066,11 @@ client.get_commits(worktree_path="../repo-search-worktree", limit=10)
 
 - `worktree_path`: Required. Worktree path.
 - `limit`: Optional. Maximum number of commits.
+
+Each `UIGitCommit` carries `pr_number`: the PR a squash merge landed, from the
+`(#1234)` GitHub appends to its subject (`None` otherwise).
+`models.formatting.split_squash_pr_suffix(subject)` returns the subject
+without it and the number.
 
 ### Get the worktree diff stat
 

@@ -617,7 +617,9 @@
         "Requires": [
           "    ctx.jira: An initialized JiraClient."
         ],
-        "Inputs (from ctx.data)": [],
+        "Inputs (from ctx.data)": [
+          "    jira_issue_key (str, optional): A full issue key to use without asking"
+        ],
         "Outputs (saved to ctx.data)": [
           "    jira_issue_key (str): The resolved JIRA issue key",
           "    selected_issue (UIJiraIssue, optional): Set only when resolved via the Ready to Dev list"

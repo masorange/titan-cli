@@ -88,8 +88,11 @@ docker = "titan_plugin_docker.plugin:DockerPlugin"
 testpaths = [
     "tests",
     "plugins/titan-plugin-git/tests",
+    "plugins/titan-plugin-git/titan_plugin_git/mods",
     "plugins/titan-plugin-github/tests",
+    "plugins/titan-plugin-github/titan_plugin_github/mods",
     "plugins/titan-plugin-jira/tests",
+    "plugins/titan-plugin-jira/titan_plugin_jira/mods",
     "plugins/titan-plugin-slack/tests",
     "plugins/titan-plugin-docker/tests"
 ]

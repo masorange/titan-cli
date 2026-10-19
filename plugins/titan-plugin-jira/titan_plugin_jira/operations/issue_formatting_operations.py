@@ -7,6 +7,9 @@ These functions can be used by any step and are easily testable.
 
 from typing import List, Tuple, Optional
 
+from ..models import UIJiraIssue
+from ..models.mappers.issue_mapper import NO_DESCRIPTION
+
 
 def truncate_summary(summary: Optional[str], max_length: int = 60) -> str:
     """
@@ -171,10 +174,46 @@ def build_issue_table_data(
     return headers, rows
 
 
+def format_person_name(name: Optional[str]) -> str:
+    """A person's name for display: names Jira holds in capitals are title-cased, others kept."""
+    if not name:
+        return ""
+    return name.title() if name.isupper() else name
+
+
+def display_lines(text: Optional[str], max_lines: Optional[int] = None) -> List[str]:
+    """
+    Text (a description, a comment body) as display lines: trailing spaces
+    dropped, runs of blank lines collapsed to one, none at either end, and cut
+    with "…" past `max_lines`. Leading indentation (code, nested lists) is kept.
+    """
+    lines: List[str] = []
+    for line in (text or "").splitlines():
+        if line.strip():
+            lines.append(line.rstrip())
+        elif lines and lines[-1] != "":
+            lines.append("")
+    while lines and lines[-1] == "":
+        lines.pop()
+    if max_lines is not None and len(lines) > max_lines:
+        lines = lines[:max_lines] + ["…"]
+    return lines
+
+
+def issue_description_lines(issue: UIJiraIssue, max_lines: Optional[int] = None) -> List[str]:
+    """The issue's description as `display_lines`; none when it has no description."""
+    if (issue.description or "").strip() == NO_DESCRIPTION:
+        return []
+    return display_lines(issue.description, max_lines)
+
+
 __all__ = [
     "truncate_summary",
     "format_issue_field",
     "build_issue_table_row",
     "get_issue_table_headers",
     "build_issue_table_data",
+    "format_person_name",
+    "display_lines",
+    "issue_description_lines",
 ]

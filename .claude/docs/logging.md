@@ -215,7 +215,7 @@ The executor brackets every run, so steps should not log these themselves:
 | `workflow_completed` | normal end, `status=success` or `exited` |
 | `workflow_failed` | a step returned `Error` with `on_error: fail` |
 | `workflow_cancelled_by_user` | the user left the screen; the run may still be logging |
-| `workflow_aborted_on_app_exit` | the app closed while a step was blocked |
+| `workflow_aborted_on_app_exit` | the app closed, or the user cancelled (`cancelled_by_user=true`), while a step was blocked; cancelling also kills the headless CLI subprocess |
 | `step_started` / `step_success` / `step_skipped` / `step_failed` | per step |
 
 A run that ends with none of the terminal events was killed outright — that is

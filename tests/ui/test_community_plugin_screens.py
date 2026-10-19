@@ -21,7 +21,7 @@ def test_main_menu_builds_project_stable_records_from_shared_pin():
         "disabled": None,
     }[plugin]
 
-    screen = MainMenuScreen(config, show_status_bar=False)
+    screen = MainMenuScreen(config, show_dock=False)
 
     records = screen._get_project_stable_records()
 
@@ -36,7 +36,7 @@ def test_main_menu_notifies_plugin_sync_events():
     config = MagicMock()
     config.get_plugin_sync_events.return_value = ["Syncing plugin 'sample' to project version v1.2.3."]
 
-    screen = MainMenuScreen(config, show_status_bar=False)
+    screen = MainMenuScreen(config, show_dock=False)
     app = MagicMock()
     type(screen).app = PropertyMock(return_value=app)
     screen.run_worker = MagicMock()

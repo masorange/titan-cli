@@ -115,3 +115,45 @@ class TestContextPropagation:
         run_interruptible(lambda: marker.set("inside"))
 
         assert marker.get() == "caller"
+
+
+class TestCancel:
+    def test_cancel_makes_blocked_call_abort_and_kills_child(self):
+        import sys
+
+        from titan_cli.core.interrupt import request_cancel, run_tracked
+
+        set_abort_check(lambda: False)
+        threading.Timer(0.3, request_cancel).start()
+        started = time.monotonic()
+        with pytest.raises(WorkflowAborted):
+            run_interruptible(lambda: run_tracked([sys.executable, "-c", "import time; time.sleep(30)"]))
+        assert time.monotonic() - started < 5
+
+    def test_new_run_clears_a_previous_cancel(self):
+        from titan_cli.core.interrupt import cancel_requested, request_cancel
+
+        request_cancel()
+        assert cancel_requested() is True
+        set_abort_check(lambda: False)
+        assert cancel_requested() is False
+
+
+class TestRunTracked:
+    def test_captures_text_output_and_returncode(self):
+        import sys
+
+        from titan_cli.core.interrupt import run_tracked
+
+        result = run_tracked([sys.executable, "-c", "import sys; print(sys.stdin.read().upper()); sys.exit(3)"], input="hi")
+        assert result.stdout.strip() == "HI"
+        assert result.returncode == 3
+
+    def test_timeout_raises_like_subprocess_run(self):
+        import subprocess
+        import sys
+
+        from titan_cli.core.interrupt import run_tracked
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_tracked([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.3)

@@ -23,14 +23,19 @@ behaves exactly like not being there.
 """
 
 import contextvars
+import subprocess
 import threading
-from typing import Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 T = TypeVar("T")
 
 _POLL_INTERVAL_SECONDS = 0.5
 
 _abort_check: Optional[Callable[[], bool]] = None
+
+_cancel_requested = False
+_tracked_processes: set = set()
+_tracked_lock = threading.Lock()
 
 
 class WorkflowAborted(BaseException):
@@ -46,8 +51,9 @@ class WorkflowAborted(BaseException):
 
 def set_abort_check(check: Callable[[], bool]) -> None:
     """Register the check consulted by `run_interruptible` (True = abort)."""
-    global _abort_check
+    global _abort_check, _cancel_requested
     _abort_check = check
+    _cancel_requested = False
 
 
 def clear_abort_check() -> None:
@@ -56,8 +62,74 @@ def clear_abort_check() -> None:
     _abort_check = None
 
 
+def cancel_requested() -> bool:
+    """Whether the user cancelled the running workflow (as opposed to quitting the app)."""
+    return _cancel_requested
+
+
+def request_cancel() -> None:
+    """
+    The user left a running workflow: abort its blocking calls and kill its children.
+
+    Quitting the app already aborted blocking calls, but cancelling a workflow leaves
+    the app running, so the abort check never fired and the headless CLI subprocess
+    kept going for its full duration - minutes of paid AI work whose result nothing
+    would ever read. Killing the tracked processes stops that spend at once; the flag
+    makes the workflow thread raise `WorkflowAborted` on its next poll.
+    """
+    global _cancel_requested
+    _cancel_requested = True
+    kill_tracked_processes()
+
+
+def kill_tracked_processes() -> None:
+    """Kill every subprocess started through `run_tracked` that is still running."""
+    with _tracked_lock:
+        processes = list(_tracked_processes)
+    for proc in processes:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def run_tracked(cmd: list[str], *, input: Optional[str] = None, timeout: Optional[float] = None, capture_output: bool = True, text: bool = True, **kwargs: Any) -> "subprocess.CompletedProcess":
+    """
+    `subprocess.run(cmd, capture_output=True, text=True, ...)` whose child can be killed by `request_cancel`.
+
+    Same contract as `subprocess.run` for the cases the headless adapters use: output is
+    always captured as text (`capture_output`/`text` exist only so call sites read like `run`), `TimeoutExpired` is raised after killing the child, and a missing
+    binary raises `FileNotFoundError`. Remaining keyword arguments go to `Popen`.
+    """
+    with subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE if input is not None else kwargs.pop("stdin", None),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        **kwargs,
+    ) as proc:
+        with _tracked_lock:
+            _tracked_processes.add(proc)
+        try:
+            stdout, stderr = proc.communicate(input=input, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise
+        except BaseException:
+            proc.kill()
+            raise
+        finally:
+            with _tracked_lock:
+                _tracked_processes.discard(proc)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
 def abort_requested() -> bool:
     """Whether the registered check currently asks to abort."""
+    if _cancel_requested:
+        return True
     check = _abort_check
     if check is None:
         return False
@@ -110,6 +182,10 @@ def run_interruptible(fn: Callable[[], T]) -> T:
         if abort_requested():
             raise WorkflowAborted("Application closed while a blocking call was in flight")
 
+    if _cancel_requested:
+        # Killing the child made the call return on its own before the poll saw the
+        # flag; its outcome is a killed process, not an answer.
+        raise WorkflowAborted("Workflow cancelled while a blocking call was in flight")
     if "error" in outcome:
         raise outcome["error"]
     return outcome["result"]

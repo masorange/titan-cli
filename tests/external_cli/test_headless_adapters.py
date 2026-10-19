@@ -118,7 +118,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     def test_is_available_false(self, _):
         self.assertFalse(self.adapter.is_available())
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_success(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout="Analysis complete\n",
@@ -139,26 +139,26 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.exit_code, 0)
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_failure_exit_code(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="error", returncode=1)
         response = self.adapter.execute("prompt")
         self.assertFalse(response.succeeded)
         self.assertEqual(response.exit_code, 1)
 
-    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=60))
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=60))
     def test_execute_timeout(self, _):
         response = self.adapter.execute("prompt", timeout=60)
         self.assertEqual(response.exit_code, 124)
         self.assertIn("timed out", response.stderr)
 
-    @patch("subprocess.run", side_effect=FileNotFoundError)
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=FileNotFoundError)
     def test_execute_cli_not_found(self, _):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.exit_code, 127)
         self.assertIn("not found", response.stderr)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_strips_ansi_codes(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout="\x1b[32mGreen text\x1b[0m\n",
@@ -171,7 +171,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     def test_supports_structured_output(self):
         self.assertTrue(self.adapter.supports_structured_output)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_adds_output_format_flags(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"structured_output": {"findings": []}}),
@@ -190,7 +190,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
             timeout=45,
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_unwraps_structured_output(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"structured_output": {"findings": [{"title": "Bug"}]}, "is_error": False}),
@@ -202,7 +202,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(json.loads(response.stdout), {"findings": [{"title": "Bug"}]})
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_falls_back_to_result_text_when_tool_not_called(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"result": "I won't call that tool.", "is_error": False}),
@@ -214,7 +214,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.stdout, "I won't call that tool.")
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_surfaces_cli_error(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"is_error": True, "result": "API Error: 400 bad schema"}),
@@ -226,7 +226,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertFalse(response.succeeded)
         self.assertIn("bad schema", response.stderr)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_falls_back_on_unparseable_envelope(self, mock_run):
         mock_run.return_value = MagicMock(stdout="not json at all", stderr="", returncode=0)
         response = self.adapter.execute("prompt", json_schema={"type": "object"})
@@ -237,7 +237,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     def test_supports_tool_restriction(self):
         self.assertTrue(self.adapter.supports_tool_restriction)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_the_prompt_never_travels_on_argv(self, mock_run):
         """Linux caps one argv string at 131,072 bytes; a 145k-char triage prompt failed
         the exec with E2BIG before claude started. On stdin there is no such ceiling."""
@@ -248,7 +248,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertNotIn(prompt, argv)
         self.assertEqual(mock_run.call_args.kwargs["input"], prompt)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_disallowed_tools_adds_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute(
@@ -264,7 +264,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
             timeout=45,
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_without_disallowed_tools_omits_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("review this")
@@ -275,7 +275,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     def test_supports_effort_control(self):
         self.assertTrue(self.adapter.supports_effort_control)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_effort_adds_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("review this", cwd="/tmp", timeout=45, effort="medium")
@@ -289,7 +289,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
             timeout=45,
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_without_effort_omits_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("review this")
@@ -297,7 +297,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         called_cmd = mock_run.call_args.args[0]
         self.assertNotIn("--effort", called_cmd)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_allowed_tools_and_budget_adds_flags(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute(
@@ -312,7 +312,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         index = called_cmd.index("--max-budget-usd")
         self.assertEqual(called_cmd[index + 1], "6")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_without_allowed_tools_or_budget_omits_flags(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("review this")
@@ -321,7 +321,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertFalse(any(token.startswith("--allowedTools") for token in called_cmd))
         self.assertNotIn("--max-budget-usd", called_cmd)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_session_with_subagents_reports_the_cost_of_each_model(self, mock_run):
         envelope = (
             '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 3.0110,'
@@ -338,7 +338,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertIsNone(usage.model_reported)
         self.assertEqual(usage.as_log_fields()["model_costs"], usage.model_costs)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_single_model_session_has_its_cost_under_that_model(self, mock_run):
         envelope = (
             '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 1.5,'
@@ -352,7 +352,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(usage.model_reported, "claude-opus-5-5")
         self.assertEqual(usage.model_costs, {"claude-opus-5-5": 1.5})
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_tokens_cover_the_whole_session_like_the_price_does(self, mock_run):
         # `modelUsage` adds up to `total_cost_usd`, so its tokens are the session's;
         # `usage` describes one exchange. Reading the price from one and the tokens
@@ -373,7 +373,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(usage.cache_read_tokens, 282348)
         self.assertEqual(usage.reasoning_tokens, 5000)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_tokens_of_every_model_are_summed_into_the_session(self, mock_run):
         envelope = (
             '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 3.0,'
@@ -387,7 +387,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(usage.output_tokens, 500)
         self.assertEqual(usage.token_scope, "session")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_tokens_fall_back_to_the_call_when_there_is_no_model_breakdown(self, mock_run):
         envelope = (
             '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 1.0,'
@@ -400,7 +400,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(usage.token_scope, "call")
         self.assertEqual(usage.output_tokens, 19303)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_how_the_session_worked_is_reported_next_to_what_it_cost(self, mock_run):
         # Two runs of the same prompt and model can differ by an order of magnitude in
         # turns and in delegation; without these the difference in their figures has no
@@ -424,7 +424,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(fields["subagents_spawned"], 3)
         self.assertEqual(fields["provider"], "firstParty")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_session_that_delegated_nothing_says_so_rather_than_staying_silent(self, mock_run):
         envelope = (
             '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 1.0,'
@@ -441,7 +441,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         # filter; only what the CLI never said is dropped.
         self.assertEqual(usage.as_log_fields()["subagents_spawned"], 0)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_split_billing_path_names_neither_side(self, mock_run):
         envelope = (
             '{"type": "result", "is_error": false, "result": "ok", "total_cost_usd": 2.0,'
@@ -455,7 +455,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.assertIsNone(usage.provider)
         self.assertEqual(usage.cost_basis, "list")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_budget_ceiling_hit_reports_its_reason(self, mock_run):
         envelope = (
             '{"type": "result", "subtype": "error_max_budget_usd", "is_error": true, '
@@ -480,7 +480,7 @@ class TestCodexHeadlessAdapterStructuredOutput(unittest.TestCase):
     def test_supports_structured_output_is_false(self):
         self.assertFalse(self.adapter.supports_structured_output)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_json_schema(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("prompt", json_schema={"type": "object"})
@@ -491,7 +491,7 @@ class TestCodexHeadlessAdapterStructuredOutput(unittest.TestCase):
     def test_supports_tool_restriction_is_false(self):
         self.assertFalse(self.adapter.supports_tool_restriction)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_disallowed_tools(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("prompt", disallowed_tools=["Bash", "Agent"])
@@ -502,7 +502,7 @@ class TestCodexHeadlessAdapterStructuredOutput(unittest.TestCase):
     def test_supports_effort_control_is_false(self):
         self.assertFalse(self.adapter.supports_effort_control)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_effort(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("prompt", effort="medium")
@@ -532,7 +532,7 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
     def test_supports_structured_output_is_false(self):
         self.assertFalse(self.adapter.supports_structured_output)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_passes_prompt_with_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="response\n", stderr="", returncode=0)
         self.adapter.execute("my prompt", cwd="/repo", timeout=45)
@@ -546,7 +546,7 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
             timeout=45,
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_json_schema(self, mock_run):
         mock_run.return_value = MagicMock(stdout="response\n", stderr="", returncode=0)
         self.adapter.execute("my prompt", json_schema={"type": "object"})
@@ -560,12 +560,12 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
             timeout=60,
         )
 
-    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="gemini", timeout=60))
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=subprocess.TimeoutExpired(cmd="gemini", timeout=60))
     def test_execute_timeout(self, _):
         response = self.adapter.execute("prompt", timeout=60)
         self.assertEqual(response.exit_code, 124)
 
-    @patch("subprocess.run", side_effect=FileNotFoundError)
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=FileNotFoundError)
     def test_execute_cli_not_found(self, _):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.exit_code, 127)
@@ -573,7 +573,7 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
     def test_supports_tool_restriction_is_false(self):
         self.assertFalse(self.adapter.supports_tool_restriction)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_disallowed_tools(self, mock_run):
         mock_run.return_value = MagicMock(stdout="response\n", stderr="", returncode=0)
         self.adapter.execute("my prompt", disallowed_tools=["Bash", "Agent"])
@@ -590,7 +590,7 @@ class TestGeminiHeadlessAdapter(unittest.TestCase):
     def test_supports_effort_control_is_false(self):
         self.assertFalse(self.adapter.supports_effort_control)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_effort(self, mock_run):
         mock_run.return_value = MagicMock(stdout="response\n", stderr="", returncode=0)
         self.adapter.execute("my prompt", effort="medium")
@@ -623,7 +623,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
     def test_is_available_false(self, _):
         self.assertFalse(self.adapter.is_available())
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_uses_run_with_json_format(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("my prompt", cwd="/repo", timeout=45)
@@ -641,7 +641,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
         # status bar over Titan's TUI via /dev/tty.
         self.assertTrue(kwargs["start_new_session"])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_exports_readonly_permission_override(self, mock_run):
         # Headless opencode auto-rejects "ask" permissions and the run dies without
         # an answer; the env var scopes read-only git allows to Titan's subprocess
@@ -656,7 +656,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
         # The rest of the environment is inherited, not replaced.
         self.assertIn("PATH", env)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_model_adds_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("prompt", model="anthropic/claude-sonnet-4-5")
@@ -665,7 +665,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
         self.assertIn("-m", called_cmd)
         self.assertIn("anthropic/claude-sonnet-4-5", called_cmd)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_extracts_text_events_from_jsonl(self, mock_run):
         jsonl = "\n".join([
             json.dumps({"type": "step_start", "part": {"type": "step-start"}}),
@@ -678,7 +678,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.stdout, "pong")
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_joins_multiple_text_events(self, mock_run):
         jsonl = "\n".join([
             json.dumps({"type": "text", "part": {"type": "text", "text": "first"}}),
@@ -689,7 +689,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "first\nsecond")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_skips_unparseable_lines(self, mock_run):
         jsonl = "not json\n" + json.dumps({"type": "text", "part": {"text": "ok"}})
         mock_run.return_value = MagicMock(stdout=jsonl, stderr="", returncode=0)
@@ -697,7 +697,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "ok")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_discards_narration_before_tool_calls(self, mock_run):
         # Agentic runs narrate between tool calls as plain "text" events; only what
         # comes after the last tool is the answer.
@@ -713,7 +713,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "The real answer")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_prefers_final_answer_phase_over_narration(self, mock_run):
         # Some providers tag the answer explicitly; narration in the same step must not
         # be joined in front of it.
@@ -730,7 +730,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "The real answer")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_falls_back_to_last_narration_when_run_dies_on_a_tool(self, mock_run):
         # A run that ends on a tool_use (denied permission, tool error) has no text
         # after the last tool; the last narration beats returning an empty string.
@@ -745,13 +745,13 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "Checking the commit log")
 
-    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="opencode", timeout=60))
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=subprocess.TimeoutExpired(cmd="opencode", timeout=60))
     def test_execute_timeout(self, _):
         response = self.adapter.execute("prompt", timeout=60)
         self.assertEqual(response.exit_code, 124)
         self.assertIn("timed out", response.stderr)
 
-    @patch("subprocess.run", side_effect=FileNotFoundError)
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=FileNotFoundError)
     def test_execute_cli_not_found(self, _):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.exit_code, 127)
@@ -760,7 +760,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
     def test_supports_structured_output_is_false(self):
         self.assertFalse(self.adapter.supports_structured_output)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_json_schema(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("prompt", json_schema={"type": "object"})
@@ -771,7 +771,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
     def test_supports_tool_restriction_is_false(self):
         self.assertFalse(self.adapter.supports_tool_restriction)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_disallowed_tools(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("prompt", disallowed_tools=["Bash", "Agent"])
@@ -782,7 +782,7 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
     def test_supports_effort_control_is_false(self):
         self.assertFalse(self.adapter.supports_effort_control)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_effort(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         self.adapter.execute("prompt", effort="medium")
@@ -824,7 +824,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
     def test_is_available_false(self, _):
         self.assertFalse(self.adapter.is_available())
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_success(self, mock_run):
         mock_run.return_value = MagicMock(stdout="pong\n", stderr="", returncode=0)
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
@@ -840,7 +840,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.stdout, "pong")
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_prompt_goes_on_stdin_never_argv(self, mock_run):
         # One argv string over 131,072 bytes fails with E2BIG; a deep-review prompt is
         # ~115k characters. stream-json input carries it on stdin.
@@ -853,7 +853,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertNotIn("--print", called_cmd)
         self.assertEqual(mock_run.call_args.kwargs["input"], _agy_stream_input(prompt))
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_the_result_event_of_a_stream_is_the_envelope(self, mock_run):
         stream = "\n".join([
             json.dumps({"event": "init", "init": {"cwd": "/tmp"}}),
@@ -870,7 +870,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertEqual(json.loads(response.stdout), {"findings": [1]})
         self.assertEqual(response.usage.input_tokens, 10)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_lone_non_result_event_is_a_failure_not_an_envelope(self, mock_run):
         # One event line parses as a whole-stdout dict; it must not pass as a
         # successful `--output-format json` envelope with an empty response.
@@ -886,7 +886,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertNotEqual(response.exit_code, 0)
         self.assertIn("without a result event", response.stderr)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_strips_ansi_codes(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout="\x1b[32mGreen text\x1b[0m\n",
@@ -896,13 +896,13 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.stdout, "Green text")
 
-    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="agy", timeout=60))
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=subprocess.TimeoutExpired(cmd="agy", timeout=60))
     def test_execute_timeout(self, _):
         response = self.adapter.execute("prompt", timeout=60)
         self.assertEqual(response.exit_code, 124)
         self.assertIn("timed out", response.stderr)
 
-    @patch("subprocess.run", side_effect=FileNotFoundError)
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=FileNotFoundError)
     def test_execute_cli_not_found(self, _):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.exit_code, 127)
@@ -911,7 +911,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
     def test_supports_structured_output(self):
         self.assertTrue(self.adapter.supports_structured_output)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_adds_output_format_flags(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"status": "SUCCESS", "structured_output": {"findings": []}}),
@@ -930,7 +930,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
             timeout=45,
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_unwraps_structured_output(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"status": "SUCCESS", "structured_output": {"findings": [{"title": "Bug"}]}}),
@@ -942,7 +942,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertEqual(json.loads(response.stdout), {"findings": [{"title": "Bug"}]})
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_falls_back_to_response_text(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"status": "SUCCESS", "response": "prose answer"}),
@@ -954,7 +954,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.stdout, "prose answer")
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_surfaces_cli_error(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"status": "ERROR", "response": "quota exceeded"}),
@@ -966,7 +966,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertFalse(response.succeeded)
         self.assertIn("quota exceeded", response.stderr)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_surfaces_error_field_when_response_empty(self, mock_run):
         # Hard failures (e.g. quota exhaustion) leave `response` empty and put the
         # cause in an error field — that detail must reach the user, not a generic
@@ -983,7 +983,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertFalse(response.succeeded)
         self.assertIn("RESOURCE_EXHAUSTED", response.stderr)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_falls_back_on_unparseable_envelope(self, mock_run):
         mock_run.return_value = MagicMock(stdout="not json at all", stderr="", returncode=0)
         response = self.adapter.execute("prompt", json_schema={"type": "object"})
@@ -994,7 +994,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
     def test_supports_tool_restriction_is_false(self):
         self.assertFalse(self.adapter.supports_tool_restriction)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_ignores_disallowed_tools(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("prompt", disallowed_tools=["Bash", "Agent"])
@@ -1005,7 +1005,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
     def test_supports_effort_control(self):
         self.assertTrue(self.adapter.supports_effort_control)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_effort_adds_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("review this", effort="medium")
@@ -1017,7 +1017,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
     def test_supports_model_selection(self):
         self.assertTrue(self.adapter.supports_model_selection)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_model_adds_flag(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("prompt", model="gemini-3-pro")
@@ -1028,7 +1028,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
 
     # ── read-permission provisioning ──────────────────────────────────────────
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_creates_settings_with_read_rules_when_absent(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.adapter.execute("prompt")
@@ -1036,7 +1036,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         settings = json.loads(self.settings_path.read_text())
         self.assertIn("read_file(*)", settings["permissions"]["allow"])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_merges_rules_preserving_existing_settings(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.settings_path.write_text(json.dumps({
@@ -1051,7 +1051,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
         self.assertIn("command(git status)", settings["permissions"]["allow"])
         self.assertIn("read_file(*)", settings["permissions"]["allow"])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_does_not_rewrite_settings_when_rules_present(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         from titan_cli.external_cli.adapters.antigravity import _READ_ONLY_PERMISSIONS
@@ -1063,7 +1063,7 @@ class TestAntigravityHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(self.settings_path.read_text(), original)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_leaves_malformed_settings_alone_and_still_runs(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.settings_path.write_text("{not valid json")
@@ -1136,7 +1136,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
     def test_is_available_false(self, _):
         self.assertFalse(self.adapter.is_available())
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_success(self, mock_run):
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
 
@@ -1158,7 +1158,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.stdout, "pong")
         self.assertTrue(response.succeeded)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_pins_permission_mode_so_headless_never_waits_for_approval(self, mock_run):
         # grok's default mode is "ask", which cannot prompt without a TTY.
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
@@ -1169,7 +1169,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertIn("--permission-mode", called_cmd)
         self.assertEqual(called_cmd[called_cmd.index("--permission-mode") + 1], "dontAsk")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_prompt_goes_in_a_private_file_that_is_removed_afterwards(self, mock_run):
         # One argv string over 131,072 bytes fails with E2BIG, and grok does not read
         # its prompt from stdin, so it travels in a file only this user can read.
@@ -1192,7 +1192,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertFalse(seen["path"].exists())
         self.assertFalse(any(prompt in arg for arg in mock_run.call_args.args[0]))
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_prompt_file_flag_comes_last(self, mock_run):
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
 
@@ -1207,7 +1207,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         called_cmd = mock_run.call_args.args[0]
         self.assertEqual(called_cmd[-2], "--prompt-file")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_model_and_effort(self, mock_run):
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
 
@@ -1219,7 +1219,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
             _GROK_BASE_CMD + ["--effort", "low", "-m", "grok-4.6"],
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_disallowed_tools_become_deny_rules(self, mock_run):
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
 
@@ -1231,7 +1231,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
             ["Bash(*)", "Write(**)", "WebSearch(*)"],
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_agent_restriction_disables_subagents(self, mock_run):
         # "Agent" has no permission-rule equivalent; grok blocks subagents with a flag.
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
@@ -1242,7 +1242,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertIn("--no-subagents", called_cmd)
         self.assertNotIn("--deny", called_cmd)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_edit_and_notebook_edit_collapse_to_one_rule(self, mock_run):
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
 
@@ -1252,7 +1252,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertEqual(called_cmd.count("--deny"), 1)
         self.assertIn("Edit(**)", called_cmd)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_unknown_tool_names_are_dropped(self, mock_run):
         mock_run.return_value = MagicMock(stdout=_grok_stream(), stderr="", returncode=0)
 
@@ -1260,7 +1260,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         self.assertNotIn("--deny", mock_run.call_args.args[0])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_json_schema_is_never_passed_to_the_cli(self, mock_run):
         # supports_structured_output is False, so Titan should not be sending a
         # schema — and even if a caller does, the flag must stay off the command
@@ -1271,7 +1271,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         self.assertNotIn("--json-schema", mock_run.call_args.args[0])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_error_result_line_becomes_failed_response(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps(
@@ -1292,7 +1292,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertEqual(response.stdout, "")
         self.assertIn("no auth", response.stderr)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_error_result_line_on_zero_exit_still_fails(self, mock_run):
         # grok exits 0 on some failed runs (observed with an unknown model id),
         # so is_error - not the exit code - decides.
@@ -1308,7 +1308,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
         self.assertIn("boom", response.stderr)
         self.assertEqual(response.stdout, "")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_non_json_stdout_is_passed_through_sanitized(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout="\x1b[32mplain output\x1b[0m\n", stderr="", returncode=0
@@ -1318,7 +1318,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "plain output")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_strips_ansi_codes_inside_result(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=_grok_stream(result="\x1b[32mGreen text\x1b[0m\n"), stderr="", returncode=0
@@ -1328,7 +1328,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "Green text")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_narration_is_not_part_of_the_answer(self, mock_run):
         # The whole reason for streaming-messages-json: --output-format json glues
         # every assistant turn together, so a commit-message run came back as
@@ -1346,7 +1346,7 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "feat: Add Grok Build CLI headless adapter")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_stream_without_result_line_falls_back_to_last_assistant_text(self, mock_run):
         # A run killed mid-stream never emits the terminal line; the last assistant
         # message beats returning an empty success.
@@ -1357,13 +1357,13 @@ class TestGrokHeadlessAdapter(unittest.TestCase):
 
         self.assertEqual(response.stdout, "I'll look into this first.")
 
-    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="grok", timeout=60))
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=subprocess.TimeoutExpired(cmd="grok", timeout=60))
     def test_execute_timeout(self, _):
         response = self.adapter.execute("prompt", timeout=60)
         self.assertEqual(response.exit_code, 124)
         self.assertIn("timed out", response.stderr)
 
-    @patch("subprocess.run", side_effect=FileNotFoundError)
+    @patch("titan_cli.core.interrupt.run_tracked", side_effect=FileNotFoundError)
     def test_execute_cli_not_found(self, _):
         response = self.adapter.execute("prompt")
         self.assertEqual(response.exit_code, 127)
@@ -1519,7 +1519,7 @@ class TestModelListing(unittest.TestCase):
 class TestCodexPromptGoesOnStdin(unittest.TestCase):
     """A deep-review prompt is ~115k chars; one argv string over 131,072 bytes fails with E2BIG."""
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_prompt_is_piped_and_never_an_argument(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         prompt = "ñ" * 140_000
@@ -1533,7 +1533,7 @@ class TestCodexPromptGoesOnStdin(unittest.TestCase):
 
 
 class TestCodexRunsReadOnly(unittest.TestCase):
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_the_sandbox_is_pinned_rather_than_inherited_from_user_config(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
 
@@ -1552,7 +1552,7 @@ class TestCodexReportsWhatTheSessionDid(unittest.TestCase):
             json.dumps({"type": "item.completed", "item": item}) for item in items
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_counts_items_and_keeps_the_commands(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=self._stream(
@@ -1575,7 +1575,7 @@ class TestCodexReportsWhatTheSessionDid(unittest.TestCase):
             response.activity["commands"], ["sed -n 1,80p a.diff", "rg -n foo ."]
         )
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_an_empty_stream_reports_no_activity(self, mock_run):
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
 
@@ -1697,7 +1697,7 @@ class TestListingIsDecodeSafe(unittest.TestCase):
         from titan_cli.external_cli.adapters.base import model_listing_lines
 
         error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
-        with patch("subprocess.run", side_effect=error):
+        with patch("titan_cli.core.interrupt.run_tracked", side_effect=error):
             self.assertEqual(model_listing_lines(["x", "models"]), [])
 
 
@@ -1865,7 +1865,7 @@ class TestClaudeUsageReporting(unittest.TestCase):
     def setUp(self):
         self.adapter = ClaudeHeadlessAdapter()
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_plain_call_reports_usage_and_answer(self, mock_run):
         mock_run.return_value = MagicMock(stdout=json.dumps(self.ENVELOPE), stderr="", returncode=0)
         response = self.adapter.execute("prompt")
@@ -1877,7 +1877,7 @@ class TestClaudeUsageReporting(unittest.TestCase):
         self.assertEqual(response.usage.cost_usd, 0.25971625)
         self.assertEqual(response.usage.model_reported, "claude-opus-5[1m]")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_thinking_is_reported_apart_from_the_answer(self, mock_run):
         """Thinking is counted inside output_tokens, and it is the part of the output
         that never reaches the parsed answer — so it is the only way to tell where a
@@ -1889,7 +1889,7 @@ class TestClaudeUsageReporting(unittest.TestCase):
         self.assertEqual(response.usage.output_tokens, 470)
         self.assertEqual(response.usage.reasoning_tokens, 400)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_reports_the_model_that_actually_ran_not_the_one_requested(self, mock_run):
         """A CLI silently falls back to its own default when a pin is unavailable, and
         that substitution is exactly what makes two runs incomparable."""
@@ -1897,7 +1897,7 @@ class TestClaudeUsageReporting(unittest.TestCase):
         response = self.adapter.execute("prompt", model="haiku")
         self.assertEqual(response.usage.model_reported, "claude-opus-5[1m]")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_several_models_report_none_rather_than_an_arbitrary_one(self, mock_run):
         envelope = dict(self.ENVELOPE, modelUsage={"claude-opus-5": {}, "claude-haiku-4-5": {}})
         mock_run.return_value = MagicMock(stdout=json.dumps(envelope), stderr="", returncode=0)
@@ -1905,7 +1905,7 @@ class TestClaudeUsageReporting(unittest.TestCase):
         self.assertIsNone(response.usage.model_reported)
         self.assertEqual(response.usage.input_tokens, 4597)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_failed_call_still_reports_what_it_consumed(self, mock_run):
         """A failed turn costs money; hiding it would understate every review with a retry."""
         envelope = dict(self.ENVELOPE, is_error=True, result="overloaded")
@@ -1915,7 +1915,7 @@ class TestClaudeUsageReporting(unittest.TestCase):
         self.assertFalse(response.succeeded)
         self.assertEqual(response.usage.cost_usd, 0.25971625)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_non_json_stdout_keeps_the_answer_and_reports_no_usage(self, mock_run):
         """A claude too old to emit the envelope must still return its answer."""
         mock_run.return_value = MagicMock(stdout="plain answer\n", stderr="", returncode=0)
@@ -1924,7 +1924,7 @@ class TestClaudeUsageReporting(unittest.TestCase):
         self.assertEqual(response.stdout, "plain answer")
         self.assertIsNone(response.usage)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_structured_call_reports_usage_alongside_the_schema_answer(self, mock_run):
         envelope = dict(self.ENVELOPE, structured_output={"findings": []})
         mock_run.return_value = MagicMock(stdout=json.dumps(envelope), stderr="", returncode=0)
@@ -1958,7 +1958,7 @@ class TestGrokUsageReporting(unittest.TestCase):
         result_event.update(overrides)
         return "\n".join([json.dumps({"type": "system", "model": "grok-4.7"}), json.dumps(result_event)])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_reports_usage_from_the_terminal_event(self, mock_run):
         mock_run.return_value = MagicMock(stdout=self._stream(), stderr="", returncode=0)
         response = self.adapter.execute("prompt")
@@ -1969,7 +1969,7 @@ class TestGrokUsageReporting(unittest.TestCase):
         self.assertEqual(response.usage.cost_usd, 0.080964)
         self.assertEqual(response.usage.model_reported, "grok-4.7")
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_failed_run_still_reports_usage(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=self._stream(is_error=True, errors=["rate limited"]), stderr="", returncode=0
@@ -1979,7 +1979,7 @@ class TestGrokUsageReporting(unittest.TestCase):
         self.assertFalse(response.succeeded)
         self.assertEqual(response.usage.cost_usd, 0.080964)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_stream_without_a_terminal_event_reports_no_usage(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"type": "system", "model": "grok-4.7"}), stderr="", returncode=0
@@ -2005,7 +2005,7 @@ class TestCodexUsageReporting(unittest.TestCase):
         }}),
     ])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_reports_counts_but_no_cost(self, mock_run):
         mock_run.return_value = MagicMock(stdout=self.STREAM, stderr="", returncode=0)
         response = self.adapter.execute("prompt")
@@ -2017,7 +2017,7 @@ class TestCodexUsageReporting(unittest.TestCase):
         self.assertIsNone(response.usage.cost_usd)
         self.assertFalse(response.usage.has_cost)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_stream_without_turn_completed_reports_no_usage(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "ok"}}),
@@ -2044,7 +2044,7 @@ class TestOpenCodeUsageReporting(unittest.TestCase):
             }}),
         ])
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_reports_counts_and_cost(self, mock_run):
         mock_run.return_value = MagicMock(stdout=self._stream(), stderr="", returncode=0)
         response = self.adapter.execute("prompt")
@@ -2055,7 +2055,7 @@ class TestOpenCodeUsageReporting(unittest.TestCase):
         self.assertEqual(response.usage.cache_read_tokens, 12)
         self.assertEqual(response.usage.cost_usd, 0.0042)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_reported_zero_cost_is_kept_as_zero(self, mock_run):
         """On a local or free model that zero is the true price, and turning it into
         None would make a free run indistinguishable from a silent CLI."""
@@ -2065,7 +2065,7 @@ class TestOpenCodeUsageReporting(unittest.TestCase):
         self.assertEqual(usage.cost_usd, 0.0)
         self.assertTrue(usage.has_cost)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_a_multi_step_run_is_the_sum_of_its_steps(self, mock_run):
         """Each step_finish reports its own turn (measured: 26,664 then 29,154 input on a
         two-read call); keeping only the last one under-reported a whole deep review."""
@@ -2092,7 +2092,7 @@ class TestOpenCodeUsageReporting(unittest.TestCase):
         self.assertAlmostEqual(usage.cost_usd, 0.03)
         self.assertEqual(usage.cache_write_tokens, 0)
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_stream_without_step_finish_reports_no_usage(self, mock_run):
         mock_run.return_value = MagicMock(
             stdout=json.dumps({"type": "text", "part": {"text": "ok"}}), stderr="", returncode=0
@@ -2121,7 +2121,7 @@ class TestAntigravityUsageReporting(unittest.TestCase):
         self.adapter = AntigravityHeadlessAdapter()
 
     @patch("titan_cli.external_cli.adapters.antigravity.AntigravityHeadlessAdapter._ensure_read_permissions")
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_plain_call_reports_usage_and_answer(self, mock_run, _perms):
         mock_run.return_value = MagicMock(stdout=json.dumps(self.ENVELOPE), stderr="", returncode=0)
         response = self.adapter.execute("prompt")
@@ -2132,7 +2132,7 @@ class TestAntigravityUsageReporting(unittest.TestCase):
         self.assertIsNone(response.usage.cost_usd)
 
     @patch("titan_cli.external_cli.adapters.antigravity.AntigravityHeadlessAdapter._ensure_read_permissions")
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_non_json_stdout_keeps_the_answer_and_reports_no_usage(self, mock_run, _perms):
         mock_run.return_value = MagicMock(stdout="plain answer\n", stderr="", returncode=0)
         response = self.adapter.execute("prompt")
@@ -2148,7 +2148,7 @@ class TestGeminiReportsNoUsage(unittest.TestCase):
     up as cost-unknown instead of cost-free.
     """
 
-    @patch("subprocess.run")
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_usage_is_absent(self, mock_run):
         mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
         self.assertIsNone(GeminiHeadlessAdapter().execute("prompt").usage)

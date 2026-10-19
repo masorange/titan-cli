@@ -227,7 +227,9 @@ How to read these contracts:
 
     **Inputs (from ctx.data)**
 
-    None documented.
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `jira_issue_key` | str, optional | A full issue key to use without asking |
 
     **Outputs (saved to ctx.data)**
 

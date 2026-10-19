@@ -80,6 +80,19 @@ client.search_issues(
 - `jql`: Required. JQL query string.
 - `max_results`: Optional. Maximum number of issues to return.
 - `fields`: Optional. Fields to request from Jira.
+  When omitted, `DEFAULT_SEARCH_FIELDS` from
+  `titan_plugin_jira.constants` (summary, status, assignee, priority,
+  created, updated); add `"description"` to get `UIJiraIssue.description` filled.
+
+### Get an issue's web URL
+
+```python
+client.issue_url("APP-123")  # "https://acme.atlassian.net/browse/APP-123"
+```
+
+**Parameters:**
+
+- `issue_key`: Required. The issue key. No network call: it is built from the configured base URL.
 
 ### Create an issue
 
@@ -296,6 +309,39 @@ client.list_project_versions(project_key="APP")
 
 - `project_key`: Optional. Project key. Uses the configured default project when omitted.
 
+### List project components
+
+Returns the project's components (`UIJiraComponent`: `id`, `name`, `description`).
+`components_condition(names)` from `titan_plugin_jira.operations` turns some of them into
+a JQL condition (`component in (...)`).
+
+**Call:**
+
+```python
+client.list_components(project_key="APP")
+```
+
+**Parameters:**
+
+- `project_key`: Optional. Project key. Uses the configured default project when omitted.
+
+### List favourite filters
+
+Returns the saved filters the authenticated user starred in Jira (`UIJiraFilter`: `id`,
+`name`, `jql`, `url`). Filters shared without their query are left out. A filter's `jql`
+can be passed as one of the `conditions` of
+`build_issue_jql(status=None, project=None, conditions=())` from `titan_plugin_jira.operations`,
+which ANDs everything it is given (no status: any status); pass it through
+`strip_order_by(jql)` first, as a saved filter's query may end in an ORDER BY.
+
+**Call:**
+
+```python
+client.list_favourite_filters()
+```
+
+**Parameters:** none.
+
 ### Create a version
 
 Creates a Jira version in a project.
@@ -308,6 +354,7 @@ client.create_version(
     project_key="APP",
     description="Weekly mobile release",
     release_date="2026-04-30",
+    start_date="2026-04-24",
 )
 ```
 
@@ -317,6 +364,7 @@ client.create_version(
 - `project_key`: Optional. Project key. Uses the configured default project when omitted.
 - `description`: Optional. Version description.
 - `release_date`: Optional. Jira release date in `YYYY-MM-DD` format.
+- `start_date`: Optional. Jira start date in `YYYY-MM-DD` format. Declared after `release_date` to keep existing positional calls working; pass it by keyword.
 
 ### Ensure a version exists
 
@@ -338,6 +386,7 @@ client.ensure_version_exists(
 - `project_key`: Optional. Project key. Uses the configured default project when omitted.
 - `description`: Optional. Description to use if the version must be created.
 - `release_date`: Optional. Release date to use if the version must be created.
+- `start_date`: Optional. Start date to use if the version must be created. Pass it by keyword.
 
 ### Assign a fixVersion
 
@@ -359,6 +408,21 @@ client.assign_fix_version(
 - `version_id`: Optional. Jira version ID.
 - `version_name`: Optional. Version name. Required when `version_id` is not provided.
 - `project_key`: Optional. Project key used to resolve `version_name`. Uses the configured default project when omitted.
+
+### Set the fixVersion
+
+Replaces the issue's fixVersions with one version (`assign_fix_version` adds to them). `None` clears the field.
+
+**Call:**
+
+```python
+client.set_fix_version(issue_key="APP-123", version_id="10001")
+```
+
+**Parameters:**
+
+- `issue_key`: Required. Issue key.
+- `version_id`: Required. Jira version ID, or `None` to clear the field. List a project's versions with `list_project_versions`.
 
 ### Assign an issue to a user
 

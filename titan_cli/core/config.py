@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-import re
 from typing import List, Optional
 import tomli
 from .models import AIConfig, AIPreferences, TitanConfigModel
@@ -13,7 +12,7 @@ from .plugins.plugin_registry import PluginRegistry
 from .workflows import WorkflowRegistry, ProjectStepSource, UserStepSource
 from .security import create_broker_factory
 from .errors import ConfigParseError, ConfigWriteError
-from .utils import find_project_root
+from .utils import find_project_root, project_source_scope_key
 from .logging import get_logger
 from .plugins.community_sources import PluginChannel
 
@@ -1169,11 +1168,7 @@ class TitanConfig:
 
     def _get_project_source_scope_key(self) -> str:
         """Return the global-config key used to scope local plugin overrides per project."""
-        project_path = str((self._project_root or Path.cwd()).resolve())
-        project_name = (self._project_root or Path.cwd()).resolve().name or "project"
-        safe_name = re.sub(r"[^a-zA-Z0-9]+", "_", project_name).strip("_").lower() or "project"
-        digest = hashlib.sha256(project_path.encode("utf-8")).hexdigest()[:8]
-        return f"p_{safe_name}_{digest}"
+        return project_source_scope_key(self._project_root or Path.cwd())
 
     def _get_project_source_scope_data(self) -> dict:
         """Return the scoped project source block for the active project."""

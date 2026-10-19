@@ -154,3 +154,10 @@ class GitPlugin(TitanPlugin):
         Returns the path to the workflows directory for this plugin.
         """
         return Path(__file__).parent / "workflows"
+
+    @property
+    def mods_path(self) -> Optional[Path]:
+        """
+        Returns the path to the mods directory this plugin ships.
+        """
+        return Path(__file__).parent / "mods"

@@ -6,7 +6,7 @@ These functions can be used by any step and are easily testable.
 """
 
 import re
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 
 def substitute_jql_variables(jql: str, context_data: Dict[str, any]) -> str:
@@ -155,9 +155,101 @@ def build_query_not_found_message(
     return error_msg
 
 
+def jql_string(value: str) -> str:
+    """`value` as a quoted JQL string, its quotes and backslashes escaped."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _scope_condition(field: str, value: Union[str, Sequence[str], None]) -> Optional[str]:
+    """`field = "x"` for one value, `field in ("x", "y")` for several, nothing for none."""
+    values = [value] if isinstance(value, str) else list(value or [])
+    if len(values) == 1:
+        return f"{field} = {jql_string(values[0])}"
+    if values:
+        return f"{field} in ({', '.join(jql_string(v) for v in values)})"
+    return None
+
+
+def build_issue_jql(
+    status: Union[str, Sequence[str], None] = None,
+    project: Union[str, Sequence[str], None] = None,
+    conditions: Sequence[str] = (),
+    order_by: str = "priority DESC, updated DESC",
+) -> str:
+    """
+    JQL for the issues in `project` and `status` (each one key, several, or none for
+    every one the user can see), matching every one of `conditions`.
+    """
+    where = [c for c in (_scope_condition("project", project), _scope_condition("status", status)) if c]
+    where += [f"({condition})" for condition in conditions]
+    jql = " AND ".join(where)
+    return " ".join(part for part in (jql, f"ORDER BY {order_by}" if order_by else "") if part)
+
+
+# A quoted string is skipped whole, so an "order by" inside a value is not a clause.
+_QUOTED_OR_ORDER_BY = re.compile(
+    r"""(?P<quoted>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<order>\bORDER\s+BY\b)""",
+    re.IGNORECASE,
+)
+
+
+def strip_order_by(jql: str) -> str:
+    """`jql` without its ORDER BY clause, so it can be one condition of another query."""
+    for match in _QUOTED_OR_ORDER_BY.finditer(jql):
+        if match.group("order"):
+            return jql[: match.start()].strip()
+    return jql.strip()
+
+
+def components_condition(names: Sequence[str]) -> str:
+    """JQL for issues in any of the components `names` (empty when there are none)."""
+    if not names:
+        return ""
+    return f"component in ({', '.join(jql_string(n) for n in names)})"
+
+
+_ISSUE_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9]*-\d+$")
+_ISSUE_NUMBER = re.compile(r"^[A-Za-z]*-?(\d+)$")  # a bare number, or any prefix (typo'd or not) before it
+
+
+_TEXT_SEARCH_RESERVED = re.compile(r'([+\-&|!(){}\[\]^~*?\\:])')
+
+
+def _text_term(term: str) -> str:
+    """`term` with Jira's text-search operators escaped, so it is searched as typed."""
+    return _TEXT_SEARCH_RESERVED.sub(r"\\\1", term)
+
+
+def search_condition(query: str, projects: Sequence[str] = ()) -> str:
+    """
+    JQL for free-text `query`. Just a number, or a number with any letters/dash in
+    front of it (a typo'd project prefix included), matches that number in every one
+    of `projects` - so typing "2268" or "ESHOPP-2268" with ECAPP and ESHOP picked
+    finds ECAPP-2268 and/or ESHOP-2268 without needing the right prefix. A well-formed
+    key with no project picked matches exactly; anything else matches summary,
+    description and comments, each word as a prefix. Empty when `query` is blank.
+    """
+    query = query.strip()
+    if not query:
+        return ""
+    number_match = _ISSUE_NUMBER.match(query)
+    if number_match and projects:
+        keys = [f"{p}-{number_match.group(1)}" for p in projects]
+        return _scope_condition("key", keys)
+    if _ISSUE_KEY.match(query):
+        return f"key = {jql_string(query)}"
+    return f"text ~ {jql_string(' '.join(_text_term(t) + '*' for t in query.split()))}"
+
+
 __all__ = [
     "substitute_jql_variables",
     "format_jql_with_project",
     "merge_query_collections",
     "build_query_not_found_message",
+    "jql_string",
+    "build_issue_jql",
+    "strip_order_by",
+    "components_condition",
+    "search_condition",
 ]

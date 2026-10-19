@@ -100,7 +100,9 @@ def test_verify_issue_state_step_mismatch_returns_error(sample_ui_issue):
 
 def test_create_version_step_success():
     jira = Mock()
-    version = UIJiraVersion(id="10", name="1.0.0", description="", released=False, release_date="Not set")
+    version = UIJiraVersion(
+        id="10", name="1.0.0", description="", released=False, start_date="Not set", release_date="Not set"
+    )
     jira.create_version.return_value = ClientSuccess(data=version, message="ok")
     ctx = make_context(jira, project_key="TEST", version_name="1.0.0")
 
@@ -112,7 +114,9 @@ def test_create_version_step_success():
 
 def test_ensure_version_exists_step_success():
     jira = Mock()
-    version = UIJiraVersion(id="10", name="1.0.0", description="", released=False, release_date="Not set")
+    version = UIJiraVersion(
+        id="10", name="1.0.0", description="", released=False, start_date="Not set", release_date="Not set"
+    )
     jira.ensure_version_exists.return_value = ClientSuccess(data=version, message="ok")
     ctx = make_context(jira, project_key="TEST", version_name="1.0.0")
 
