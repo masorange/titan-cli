@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from titan_cli.core.mods import AIAnswer, Button, Link, ModBus
-from titan_cli.core.result import ClientSuccess
+from titan_cli.core.mods import AIAnswer, Button, Input, Link, ModBus
+from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIMergeQueueEntry
 
 
@@ -17,12 +17,23 @@ def test_draw_shows_every_section(mod, flatten, pr):
     m.state.set("queue", mod.models.Queue(configured=True, branch="master", total=1,
                                    entries=[UIMergeQueueEntry(1, 2, "PR 2", "ana", "AWAITING_CHECKS", "running checks", 300, "~5m", True)]))
 
-    lines = flatten(mod.draw.draw(m, 44, {"diagnosis_jobs": 3, "review_workflow": "review-pr"}))
+    opts = {"diagnosis_jobs": 3, "review_workflow": "review-pr"}
+    lines = flatten(mod.draw.draw(m, 44, opts))
 
-    assert "Review #5" in lines
-    assert "Review #2" not in lines  # your own PRs are not yours to review
-    assert "#5 PR 5" in lines
-    links = [e for e in elements(mod.draw.draw(m, 44, {"diagnosis_jobs": 3, "review_workflow": "review-pr"})) if isinstance(e, Link)]
+    # Closed, a PR is its two lines: what it is, and where it stands.
+    assert "▸ #5 PR 5" in lines
+    assert not any("Approve" in line for line in lines)
+
+    open_row(mod, m, 5, opts)
+    lines = flatten(mod.draw.draw(m, 44, opts))
+    pressed = labels(mod.draw.draw(m, 44, opts), flatten)
+    assert "▾ #5 PR 5" in lines
+    # In this order, one under the other, every label padded to one width.
+    actions = ("Review", "✓ Approve", "✗ Request changes", "✎ Comment")
+    assert [label for label in pressed if label in actions] == list(actions)
+    assert len({len(line) for line in lines if line.strip() in actions}) == 1
+    assert "↗ Open on GitHub" in lines
+    links = [e for e in elements(mod.draw.draw(m, 44, opts)) if isinstance(e, Link)]
     assert links[0].url == "https://github.com/o/r/pull/5"
     assert "⇄ Pull requests o/r · 3 open  ⚠ 1 to review" in lines
     assert "▾ Needs your review (1)" in lines
@@ -40,9 +51,8 @@ def test_review_runs_the_review_workflow_on_that_pr(mod, flatten, pr):
     m = bus.api("github")
     m.state.set("prs", mod.models.Prs(to_review=[pr(5)]))
 
-    tree = mod.draw.draw(m, 44, {"diagnosis_jobs": 3, "review_workflow": "review-pr"})
-    button = next(b for b in buttons(tree) if b.label == "Review #5")
-    button.on_press()
+    open_row(mod, m, 5)
+    press(mod, m, "Review")
 
     assert runs == [("github", "review-pr", {"review_pr_number": 5})]
 
@@ -50,7 +60,10 @@ def test_review_runs_the_review_workflow_on_that_pr(mod, flatten, pr):
 def test_no_review_button_without_a_review_workflow(mod, flatten, pr):
     m = ModBus().api("github")
     m.state.set("prs", mod.models.Prs(to_review=[pr(5)]))
-    assert not any("Review #" in line for line in flatten(mod.draw.draw(m, 44, {"review_workflow": ""})))
+    open_row(mod, m, 5, {"review_workflow": ""})
+    lines = labels(mod.draw.draw(m, 44, {"review_workflow": ""}), flatten)
+    assert "Review" not in lines
+    assert "✓ Approve" in lines  # the GitHub actions do not need a workflow
 
 
 def elements(element):
@@ -61,6 +74,23 @@ def elements(element):
 
 def buttons(element):
     return [e for e in elements(element) if isinstance(e, Button)]
+
+
+def labels(element, flatten):
+    """Every line a tree would show, without the padding that lines the buttons up."""
+    return [line.strip() for line in flatten(element)]
+
+
+def press(mod, m, label, opts=None):
+    """Press the button with this label, as drawn now."""
+    tree = mod.draw.draw(m, 44, opts or {"review_workflow": "review-pr"})
+    next(b for b in buttons(tree) if b.label.strip() == label).on_press()
+
+
+def open_row(mod, m, number, opts=None):
+    """Press a PR's title line, which is its fold."""
+    tree = mod.draw.draw(m, 44, opts or {"review_workflow": "review-pr"})
+    next(b for b in buttons(tree) if b.label.startswith(("▸ #", "▾ #")) and f"#{number} " in b.label).on_press()
 
 
 LOG = "\n".join(
@@ -119,6 +149,7 @@ def test_diagnose_reads_each_failed_job_and_asks_the_routed_model(mod, tmp_path,
     assert sorted(logs) == [0, 1, 2]  # three jobs at most, by the job id in each check's URL
     assert {model for _, model in host.prompts} == {None}  # the mod never forces a model: AI routing decides
     mod.diagnosis.refresh_ai_label(m)
+    open_row(mod, m, 2, {"diagnosis_jobs": 3})
     lines = flatten(mod.draw.draw(m, 44, {"diagnosis_jobs": 3}))
     assert "✦ Diagnose again (last: m1)" in lines
     assert "FooTest.bar fails" in lines
@@ -287,10 +318,10 @@ def test_a_switched_off_section_is_not_drawn(mod, flatten, pr):
     opts = {"review_workflow": "review-pr"}
 
     lines = flatten(mod.draw.draw(m, 44, opts, {"prs": True, "queue": False}))
-    assert "Review #5" in lines and not any("Merge queue" in line for line in lines)
+    assert "▸ #5 PR 5" in lines and not any("Merge queue" in line for line in lines)
 
     lines = flatten(mod.draw.draw(m, 44, opts, {"prs": False, "queue": True}))
-    assert "Review #5" not in lines
+    assert "▸ #5 PR 5" not in lines
     assert "⇉ Merge queue" in lines and any(line.startswith(("▸ Merge queue", "▾ Merge queue")) for line in lines)
 
 
@@ -351,3 +382,105 @@ def test_a_second_diagnosis_press_before_the_repaint_starts_nothing(mod, pr):
 
     assert len(runs) == 1
     assert m.state.get("diagnoses")["2"].status == "running"
+
+
+def _acting(mod, pr, github, toasts):
+    """A pane showing one review request, over a github client that records what it is asked."""
+    bus = ModBus()
+    bus.host = SimpleNamespace(
+        repaint=lambda mod: None,
+        run=lambda mod, fn: fn(),  # the background thread, run here and now
+        client=lambda name: github,
+        toast=lambda mod, text, severity: toasts.append((text, severity)),
+    )
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(to_review=[pr(5)]))
+    open_row(mod, m, 5)  # the buttons are under the PR's fold
+    return m
+
+
+def test_approve_submits_an_approval_and_rereads_the_prs(mod, pr):
+    submitted, toasts, reread = [], [], []
+    github = SimpleNamespace(
+        submit_review=lambda number, review_id, event, body: submitted.append((number, review_id, event, body))
+        or ClientSuccess(data=None),
+    )
+    m = _acting(mod, pr, github, toasts)
+    m.state.set("refresh_prs", lambda: reread.append(True))
+
+    press(mod, m, "✓ Approve")
+
+    assert submitted == [(5, None, "APPROVE", "")]
+    assert toasts == [("Approved #5", "information")]
+    assert reread == [True]  # the row's review state is stale until the lists are read again
+    assert mod.draw.actions.running(m, 5) is None
+
+
+def test_comment_opens_a_field_and_accept_posts_it_as_a_general_comment(mod, flatten, pr):
+    posted, toasts = [], []
+    github = SimpleNamespace(
+        add_issue_comment=lambda number, body: posted.append((number, body)) or ClientSuccess(data=None),
+    )
+    m = _acting(mod, pr, github, toasts)
+
+    press(mod, m, "✎ Comment")
+    assert "Comment on #5" in flatten(mod.draw.draw(m, 44, {"review_workflow": "review-pr"}))
+
+    field = next(e for e in elements(mod.draw.draw(m, 44, {"review_workflow": "review-pr"}))
+                 if isinstance(e, Input))
+    field.on_change("looks good to me")
+    press(mod, m, "Accept")
+
+    assert posted == [(5, "looks good to me")]
+    assert toasts == [("Commented on #5", "information")]
+    assert mod.draw.actions.composer(m) is None  # the field closes once it is sent
+
+
+def test_cancel_closes_the_field_and_sends_nothing(mod, flatten, pr):
+    posted, toasts = [], []
+    github = SimpleNamespace(add_issue_comment=lambda number, body: posted.append((number, body)))
+    m = _acting(mod, pr, github, toasts)
+
+    press(mod, m, "✎ Comment")
+    press(mod, m, "Cancel")
+
+    assert posted == [] and toasts == []
+    assert "✎ Comment" in labels(mod.draw.draw(m, 44, {"review_workflow": "review-pr"}), flatten)
+
+
+def test_request_changes_submits_with_no_body(mod, flatten, pr):
+    submitted, toasts = [], []
+    github = SimpleNamespace(
+        submit_review=lambda number, review_id, event, body: submitted.append((number, review_id, event, body))
+        or ClientSuccess(data=None),
+    )
+    m = _acting(mod, pr, github, toasts)
+
+    # One press is enough: no field, as the review-pr workflow submits it too.
+    press(mod, m, "✗ Request changes")
+
+    assert submitted == [(5, None, "REQUEST_CHANGES", "")]
+    assert toasts == [("Changes requested on #5", "information")]
+    assert mod.draw.actions.composer(m) is None
+
+
+def test_an_empty_comment_sends_nothing(mod, pr):
+    posted, toasts = [], []
+    github = SimpleNamespace(add_issue_comment=lambda number, body: posted.append((number, body)))
+    m = _acting(mod, pr, github, toasts)
+
+    press(mod, m, "✎ Comment")
+    press(mod, m, "Accept")
+
+    assert posted == [] and toasts == [("Write something first", "warning")]
+
+
+def test_a_failed_action_says_so_and_frees_the_pr(mod, pr):
+    toasts = []
+    github = SimpleNamespace(submit_review=lambda *a: ClientError(error_message="403 Forbidden"))
+    m = _acting(mod, pr, github, toasts)
+
+    press(mod, m, "✓ Approve")
+
+    assert toasts == [("Could not approve #5: 403 Forbidden", "error")]
+    assert mod.draw.actions.running(m, 5) is None  # pressing again is allowed

@@ -1,11 +1,12 @@
 """The pane's element tree, drawn from `m.state` only: it never waits on the network."""
 from typing import Optional
 
-from titan_cli.core.mods import Box, Button, Link, Text
+from titan_cli.core.mods import Box, Button, Input, Link, Text
 from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest
 
 from .diagnosis import Diagnosis, diagnosis_text, refresh_ai_label, start_diagnosis
-from .models import Prs, Queue
+from .models import Composer, Prs, Queue
+from .sections.prs import actions
 
 QUEUE_TONE = {"QUEUED": "subtle", "AWAITING_CHECKS": "warning", "MERGEABLE": "success", "UNMERGEABLE": "error", "LOCKED": "error"}
 # A PR with no review decision yet is waiting for one, as GitHub's own lists put it.
@@ -65,9 +66,62 @@ def diagnosis_of(m, pr: UIPullRequest, options) -> Box:
     )
 
 
-def review_button(m, pr: UIPullRequest, workflow: str) -> Button:
-    """Runs the review workflow on this PR, skipping its PR picker."""
-    return Button(f"Review #{pr.number}", lambda: m.workflows.run(workflow, {"review_pr_number": pr.number}), variant="primary")
+def composer_box(m, c: Composer) -> Box:
+    """GitHub's own comment box: a field, then Accept (sends it) or Cancel (back to the buttons)."""
+    return Box(
+        Text(f"Comment on #{c.number}", dim=True),
+        Input(
+            c.text,
+            placeholder="Write a comment…",
+            on_change=lambda text: actions.write(m, text),
+            on_submit=lambda text: actions.submit(m, text),
+        ),
+        Box(
+            Button("Accept", lambda: actions.send(m), variant="success"),
+            Button("Cancel", lambda: actions.close_composer(m), variant="default"),
+            row=True,
+        ),
+        indent=3,
+    )
+
+
+# One under the other, every label padded to the widest: four buttons of one size,
+# with one left and one right edge, instead of a ragged row that a narrow pane cuts.
+ACTION_WIDTH = max(len(label) for label in ("Review", "✓ Approve", "✗ Request changes", "✎ Comment"))
+
+
+def action_button(label: str, on_press, variant: str) -> Button:
+    return Button(label.ljust(ACTION_WIDTH), on_press, variant=variant)
+
+
+def review_actions(m, pr: UIPullRequest, options) -> Box:
+    """What can be done about a review request: review it in a workflow, or answer GitHub right here."""
+    in_flight = actions.running(m, pr.number)
+    if in_flight:
+        return Box(Text(f"… {actions.PROGRESS[in_flight]}", dim=True), indent=3)
+    c = actions.composer(m)
+    if c is not None and c.number == pr.number:
+        return composer_box(m, c)
+    workflow = (options or {}).get("review_workflow")
+    return Box(
+        # Review runs the workflow on this PR, skipping its PR picker.
+        workflow and action_button("Review", lambda: m.workflows.run(workflow, {"review_pr_number": pr.number}), "default"),
+        action_button("✓ Approve", lambda: actions.start(m, pr.number, "approve"), "success"),
+        # Request changes goes out with no body, exactly as the review-pr workflow submits it.
+        action_button("✗ Request changes", lambda: actions.start(m, pr.number, "request_changes"), "error"),
+        action_button("✎ Comment", lambda: actions.open_composer(m, pr.number), "default"),
+        indent=3,
+    )
+
+
+def row_open(m, number: int) -> bool:
+    """Whether this PR shows what can be done about it; closed until it is pressed."""
+    return bool((m.state.get("rows_open") or {}).get(str(number)))
+
+
+def toggle_row(m, number: int) -> None:
+    key = str(number)
+    m.state.update("rows_open", lambda all_: {**(all_ or {}), key: not bool((all_ or {}).get(key))}, default={})
 
 
 def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None) -> Box:
@@ -78,9 +132,16 @@ def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None)
         else Text(f"● {REVIEW_LABEL.get(pr.review_status_summary, 'awaiting review')}",
                   color=REVIEW_TONE.get(pr.review_status_summary, "warning"))
     )
+    # An action in flight keeps its row open, however the row was last left.
+    expanded = m is not None and (row_open(m, pr.number) or actions.running(m, pr.number) is not None)
+    title = (
+        Text(pr_link(pr.number, pr.url), " ", pr.title)
+        if m is None
+        else Button(f"{'▾' if expanded else '▸'} #{pr.number} {pr.title}", lambda: toggle_row(m, pr.number))
+    )
     return Box(
         Text(" "),
-        Text(pr_link(pr.number, pr.url), " ", pr.title),
+        title,
         Text(
             not is_mine and Text(f"@{pr.author_name} · ", dim=True),
             review,
@@ -91,10 +152,13 @@ def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None)
             pr.has_conflicts and Text("  ⚠ conflicts", color="error"),
         ),
         entry and Text(f"   ⇢ in merge queue #{entry.position}" + (f" · {entry.eta_label}" if entry.eta_label else ""), color="info"),
-        # Fixing a red check is the author's job, so only my own PRs get a diagnosis.
-        is_mine and pr.checks_state == "failing" and m is not None and diagnosis_of(m, pr, options),
-        not is_mine and m is not None and (options or {}).get("review_workflow")
-        and Box(review_button(m, pr, options["review_workflow"]), indent=3),
+        expanded and [
+            # The number is the fold now, so the way to GitHub lives in here.
+            pr.url and Box(Text(Link("↗ Open on GitHub", pr.url)), indent=3),
+            # Fixing a red check is the author's job, so only my own PRs get a diagnosis.
+            is_mine and pr.checks_state == "failing" and diagnosis_of(m, pr, options),
+            not is_mine and review_actions(m, pr, options),
+        ],
     )
 
 

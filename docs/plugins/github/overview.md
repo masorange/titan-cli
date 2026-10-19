@@ -40,7 +40,7 @@ auto_assign_prs = true
 
 ## Mod
 
-The plugin ships the `github` [mod](../../concepts/mods.md): a side-panel pane with the PRs waiting for your review (each with a Review button that opens `review-pr`), your PRs, the merge queue and an AI diagnosis of failed checks (AI routing task `mods.github`, "PR check diagnosis"). Its rail icon shows how many reviews wait for you. Sections `prs` and `queue` can be switched off one by one. Options (`[mods.github.options]`): `review_workflow` (`review-pr`, empty for no button), `prs_refresh_seconds`, `queue_refresh_seconds`, `queue_shown`, `refresh_key` (`f5`).
+The plugin ships the `github` [mod](../../concepts/mods.md): a side-panel pane with the PRs waiting for your review (pressing a PR's line unfolds what can be done about it: a link to GitHub, a Review button that opens `review-pr`, Approve and Request changes — both submitted with no body — and Comment, which opens a field with Accept/Cancel and posts a general PR comment), your PRs, the merge queue and an AI diagnosis of failed checks (AI routing task `mods.github`, "PR check diagnosis"). Its rail icon shows how many reviews wait for you. Sections `prs` and `queue` can be switched off one by one. Options (`[mods.github.options]`): `review_workflow` (`review-pr`, empty for no button), `prs_refresh_seconds`, `queue_refresh_seconds`, `queue_shown`, `refresh_key` (`f5`).
 
 ## Accessing the client
 

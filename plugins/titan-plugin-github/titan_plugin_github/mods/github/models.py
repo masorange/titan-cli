@@ -22,3 +22,12 @@ class Queue:
     total: int = 0
     entries: List[UIMergeQueueEntry] = field(default_factory=list)
     error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Composer:
+    """What is being written in the pane right now, and the PR it answers."""
+
+    number: int
+    kind: str  # the only one with a field of its own: "comment"
+    text: str = ""
