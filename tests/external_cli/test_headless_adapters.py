@@ -128,7 +128,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         response = self.adapter.execute("review this", cwd="/tmp", timeout=30)
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config"],
+            ["claude", "--print", "--output-format", "stream-json", "--verbose", "--setting-sources", "user", "--strict-mcp-config"],
             input="review this",
             capture_output=True,
             text=True,
@@ -174,7 +174,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_adds_output_format_flags(self, mock_run):
         mock_run.return_value = MagicMock(
-            stdout=json.dumps({"structured_output": {"findings": []}}),
+            stdout=json.dumps({"type": "result", "structured_output": {"findings": []}}),
             stderr="",
             returncode=0,
         )
@@ -182,7 +182,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, json_schema=schema)
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config", "--json-schema", json.dumps(schema)],
+            ["claude", "--print", "--output-format", "stream-json", "--verbose", "--setting-sources", "user", "--strict-mcp-config", "--json-schema", json.dumps(schema)],
             input="review this",
             capture_output=True,
             text=True,
@@ -193,7 +193,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_unwraps_structured_output(self, mock_run):
         mock_run.return_value = MagicMock(
-            stdout=json.dumps({"structured_output": {"findings": [{"title": "Bug"}]}, "is_error": False}),
+            stdout=json.dumps({"type": "result", "structured_output": {"findings": [{"title": "Bug"}]}, "is_error": False}),
             stderr="",
             returncode=0,
         )
@@ -205,7 +205,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_falls_back_to_result_text_when_tool_not_called(self, mock_run):
         mock_run.return_value = MagicMock(
-            stdout=json.dumps({"result": "I won't call that tool.", "is_error": False}),
+            stdout=json.dumps({"type": "result", "result": "I won't call that tool.", "is_error": False}),
             stderr="",
             returncode=0,
         )
@@ -217,7 +217,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_with_json_schema_surfaces_cli_error(self, mock_run):
         mock_run.return_value = MagicMock(
-            stdout=json.dumps({"is_error": True, "result": "API Error: 400 bad schema"}),
+            stdout=json.dumps({"type": "result", "is_error": True, "result": "API Error: 400 bad schema"}),
             stderr="",
             returncode=1,
         )
@@ -241,7 +241,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
     def test_the_prompt_never_travels_on_argv(self, mock_run):
         """Linux caps one argv string at 131,072 bytes; a 145k-char triage prompt failed
         the exec with E2BIG before claude started. On stdin there is no such ceiling."""
-        mock_run.return_value = MagicMock(stdout=json.dumps({"result": "ok"}), stderr="", returncode=0)
+        mock_run.return_value = MagicMock(stdout=json.dumps({"type": "result", "result": "ok"}), stderr="", returncode=0)
         prompt = "x" * 200_000
         self.adapter.execute(prompt)
         argv = mock_run.call_args.args[0]
@@ -256,7 +256,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         )
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config", "--disallowedTools=Bash,Agent"],
+            ["claude", "--print", "--output-format", "stream-json", "--verbose", "--setting-sources", "user", "--strict-mcp-config", "--disallowedTools=Bash,Agent"],
             input="review this",
             capture_output=True,
             text=True,
@@ -281,7 +281,7 @@ class TestClaudeHeadlessAdapter(unittest.TestCase):
         self.adapter.execute("review this", cwd="/tmp", timeout=45, effort="medium")
 
         mock_run.assert_called_once_with(
-            ["claude", "--print", "--output-format", "json", "--setting-sources", "user", "--strict-mcp-config", "--effort", "medium"],
+            ["claude", "--print", "--output-format", "stream-json", "--verbose", "--setting-sources", "user", "--strict-mcp-config", "--effort", "medium"],
             input="review this",
             capture_output=True,
             text=True,
@@ -1744,9 +1744,10 @@ class TestCliUsage(unittest.TestCase):
 
 
 class TestClaudeUsageReporting(unittest.TestCase):
-    """claude reports usage only inside the --output-format json envelope."""
+    """claude reports usage only in the `result` event that closes its stream."""
 
     ENVELOPE = {
+        "type": "result",
         "result": "ok",
         "is_error": False,
         "total_cost_usd": 0.25971625,
@@ -1829,6 +1830,125 @@ class TestClaudeUsageReporting(unittest.TestCase):
 
         self.assertEqual(json.loads(response.stdout), {"findings": []})
         self.assertEqual(response.usage.cost_usd, 0.25971625)
+
+
+class TestClaudeSalvagesAnInterruptedSession(unittest.TestCase):
+    """A session killed mid-flight has already said most of what it was paid for.
+
+    `--max-budget-usd` ends a run with `is_error` and no `result`, and leaves no
+    transcript to resume: measured 2026-10-19, two reviews of a 79-file PR cost $6.12
+    and $6.20 and returned zero characters. Over the stream the same run has already
+    emitted every subagent's hand-back, which is the review itself.
+    """
+
+    def setUp(self):
+        self.adapter = ClaudeHeadlessAdapter()
+
+    @staticmethod
+    def _stream(*events: dict) -> str:
+        return "\n".join(json.dumps(event) for event in events)
+
+    @staticmethod
+    def _handback(text: str, *, task_id: str = "toolu_1") -> dict:
+        return {
+            "type": "user",
+            "parent_tool_use_id": None,
+            "message": {"content": [{"type": "tool_result", "tool_use_id": task_id,
+                                     "content": [{"type": "text", "text": text}]}]},
+        }
+
+    @patch("titan_cli.core.interrupt.run_tracked")
+    def test_a_ceiling_hit_still_hands_back_what_the_subagents_reported(self, mock_run):
+        stdout = self._stream(
+            {"type": "assistant", "parent_tool_use_id": None,
+             "message": {"content": [{"type": "tool_use", "name": "Agent", "input": {}}]}},
+            self._handback("auth.py:40 the token is logged in cleartext"),
+            {"type": "result", "subtype": "error_max_budget_usd", "is_error": True,
+             "errors": ["Reached maximum budget ($6)"], "total_cost_usd": 6.01,
+             "terminal_reason": "budget_exhausted"},
+        )
+        mock_run.return_value = MagicMock(stdout=stdout, stderr="", returncode=1)
+
+        response = self.adapter.execute("review this", max_budget_usd=6.0)
+
+        self.assertFalse(response.succeeded)
+        self.assertEqual(response.stdout, "")
+        self.assertIn("the token is logged in cleartext", response.partial_output)
+        self.assertEqual(response.usage.cost_usd, 6.01)
+
+    @patch("titan_cli.core.interrupt.run_tracked")
+    def test_a_subagents_own_steps_are_counted_but_not_salvaged(self, mock_run):
+        """Its file reads are the work, not the report: keeping them would bury the
+        reports in dumps of the files the review happened to open."""
+        stdout = self._stream(
+            {"type": "assistant", "parent_tool_use_id": "toolu_1",
+             "message": {"content": [{"type": "text", "text": "Now let me open the next file"}]}},
+            {"type": "user", "parent_tool_use_id": "toolu_1",
+             "message": {"content": [{"type": "tool_result", "content": "1\tdef main():"}]}},
+            self._handback("the real report"),
+            {"type": "result", "is_error": True, "errors": ["Reached maximum budget ($6)"]},
+        )
+        mock_run.return_value = MagicMock(stdout=stdout, stderr="", returncode=1)
+
+        partial = self.adapter.execute("review this").partial_output
+
+        self.assertIn("the real report", partial)
+        self.assertNotIn("Now let me open the next file", partial)
+        self.assertNotIn("def main():", partial)
+
+    @patch("titan_cli.core.interrupt.run_tracked")
+    def test_the_leads_own_prose_is_salvaged_too(self, mock_run):
+        """A small PR is reviewed without subagents: then the lead's own notes are all
+        there is."""
+        stdout = self._stream(
+            {"type": "assistant", "parent_tool_use_id": None,
+             "message": {"content": [{"type": "text", "text": "config.py:12 drops the timeout"}]}},
+            {"type": "result", "is_error": True, "errors": ["Reached maximum budget ($6)"]},
+        )
+        mock_run.return_value = MagicMock(stdout=stdout, stderr="", returncode=1)
+
+        self.assertIn("drops the timeout", self.adapter.execute("review").partial_output)
+
+    @patch("titan_cli.core.interrupt.run_tracked")
+    def test_a_session_that_said_nothing_salvages_nothing(self, mock_run):
+        """None, not "", so a caller cannot mistake it for an empty review."""
+        stdout = self._stream({"type": "result", "is_error": True, "errors": ["boom"]})
+        mock_run.return_value = MagicMock(stdout=stdout, stderr="", returncode=1)
+
+        self.assertIsNone(self.adapter.execute("review").partial_output)
+
+    @patch("titan_cli.core.interrupt.run_tracked")
+    def test_the_fan_out_and_how_the_session_ended_reach_the_activity_log(self, mock_run):
+        """`usage` covers the lead alone; the subagents it spawned are where a review
+        spends almost everything, and `subagent_stats` is the only place they are
+        reported at all."""
+        stdout = self._stream(
+            {"type": "system", "subtype": "task_started"},
+            {"type": "assistant", "parent_tool_use_id": None,
+             "message": {"content": [{"type": "tool_use", "name": "Bash",
+                                      "input": {"command": "git log -3"}}]}},
+            {"type": "result", "is_error": False, "result": "done",
+             "terminal_reason": "budget_exhausted", "num_turns": 7,
+             "subagent_stats": {"spawned": 4, "completed": 3}},
+        )
+        mock_run.return_value = MagicMock(stdout=stdout, stderr="", returncode=0)
+
+        activity = self.adapter.execute("review").activity
+
+        self.assertEqual(activity["subagent_stats"]["spawned"], 4)
+        self.assertEqual(activity["terminal_reason"], "budget_exhausted")
+        self.assertEqual(activity["items"]["system.task_started"], 1)
+        self.assertEqual(activity["commands"], ["git log -3"])
+
+    @patch("titan_cli.core.interrupt.run_tracked")
+    def test_a_stream_without_a_closing_event_falls_back_to_its_raw_output(self, mock_run):
+        """A claude too old to stream, or one that died before writing the envelope."""
+        mock_run.return_value = MagicMock(stdout="plain answer\n", stderr="", returncode=0)
+
+        response = self.adapter.execute("prompt")
+
+        self.assertEqual(response.stdout, "plain answer")
+        self.assertIsNone(response.usage)
 
 
 class TestGrokUsageReporting(unittest.TestCase):

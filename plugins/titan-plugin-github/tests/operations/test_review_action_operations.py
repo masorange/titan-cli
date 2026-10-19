@@ -1,6 +1,7 @@
 from titan_plugin_github.models.review_enums import FindingSeverity, ReviewActionSource, ReviewActionType
 from titan_plugin_github.models.review_models import Finding, ReviewActionProposal
 from titan_plugin_github.operations.review_action_operations import (
+    assess_review_completeness,
     build_new_comment_actions,
     build_review_action_payload,
     detect_head_sha_drift,
@@ -625,3 +626,62 @@ def test_severity_badge_is_skipped_for_thread_severity_none():
     view = CommentView(body="x", severity=ThreadSeverity.NONE)
 
     assert view._severity_badge() is None
+
+
+# ── Approve is only offered for a review that finished ───────────────────────
+
+def test_a_finished_review_with_nothing_to_say_may_approve():
+    assessment = assess_review_completeness(
+        has_findings=False, findings_failed=False, salvaged=False
+    )
+
+    assert assessment.may_approve is True
+    assert assessment.notice is None
+
+
+def test_a_finished_review_with_findings_does_not_offer_approve():
+    assessment = assess_review_completeness(
+        has_findings=True, findings_failed=False, salvaged=False
+    )
+
+    assert assessment.may_approve is False
+    assert assessment.notice is None
+
+
+def test_a_review_that_never_ran_is_not_a_clean_pr():
+    assessment = assess_review_completeness(
+        has_findings=False, findings_failed=True, salvaged=False
+    )
+
+    assert assessment.may_approve is False
+    assert "NOT been reviewed" in assessment.notice
+
+
+def test_a_cut_short_review_that_found_nothing_is_not_a_clean_pr():
+    """The dangerous case: a session that burns its ceiling before reporting hands
+    back an empty list, which read as "no issues" would approve unreviewed code."""
+    assessment = assess_review_completeness(
+        has_findings=False, findings_failed=False, salvaged=True
+    )
+
+    assert assessment.may_approve is False
+    assert "cut short" in assessment.notice
+
+
+def test_a_cut_short_review_with_findings_keeps_them_but_still_warns():
+    assessment = assess_review_completeness(
+        has_findings=True, findings_failed=False, salvaged=True
+    )
+
+    assert assessment.may_approve is False
+    assert "part of this PR was never reviewed" in assessment.notice
+
+
+def test_a_failed_review_outranks_a_salvaged_one():
+    """Both flags set means the salvage itself failed; the stronger warning wins."""
+    assessment = assess_review_completeness(
+        has_findings=False, findings_failed=True, salvaged=True
+    )
+
+    assert assessment.may_approve is False
+    assert "did not run" in assessment.notice

@@ -113,12 +113,12 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `build_change_manifest`: build a structured manifest of changed files and targets
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings
 - `write_review_material`: write the review material into the worktree (`.titan-review/`: `pr.md` with the description and every review comment, `pr.diff`, per-file diffs, base versions); the review needs the worktree and stops with an error without one
-- `ai_review_findings`: the review — one free-form session of the configured CLI in the worktree, prompted as a user would ask for a review. It may use subagents and read-only git (`log`, `show`, `diff`, `blame`, `grep`), does not run tests (CI does), and returns a plain list of findings that the later steps dedupe, anchor and put to you for approval. Ceilings: 30 minutes, and $6 where the CLI enforces a budget (Claude)
+- `ai_review_findings`: the review — one free-form session of the configured CLI in the worktree, prompted as a user would ask for a review. It may use subagents and read-only git (`log`, `show`, `diff`, `blame`, `grep`), does not run tests (CI does), and returns a plain list of findings that the later steps dedupe, anchor and put to you for approval. Ceilings: 30 minutes, and $6 where the CLI enforces a budget (Claude). On a large PR it is asked to split the work across subagents — at most 6, one per group of related files — and to run them on a cheaper model than its own, because the subagents are where such a session spends almost everything. If the session is cut short anyway (its budget ceiling, an interrupt), what it had already found is recovered from the stream by a small separate call and reported as `Review cut short`, never as a clean review
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
 - `dedupe_findings`: remove duplicate or overlapping findings before submission
 - `build_new_comment_actions`: translate findings into GitHub review actions
 - `validate_review_actions`: validate those review actions before posting
-- `submit_review_actions`: submit review comments or review actions to GitHub
+- `submit_review_actions`: submit review comments or review actions to GitHub. Approve is offered only after a review that ran to the end and found nothing: one that did not run, or that was cut short, warns that the PR has not been fully reviewed and offers Comment or Request Changes only
 - `build_thread_review_candidates`: collect review threads that may need follow-up decisions
 - `build_thread_review_contexts`: expand context needed to evaluate thread resolution
 - `ai_thread_resolution`: ask AI whether open threads should be resolved or reopened
