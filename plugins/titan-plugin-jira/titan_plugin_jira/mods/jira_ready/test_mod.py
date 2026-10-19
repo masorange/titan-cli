@@ -286,6 +286,42 @@ def test_several_projects_are_or_ed():
     assert ready.project == "ECAPP, ESHOP"
 
 
+def test_search_fields_adds_the_parent_link_field_when_the_site_has_one():
+    jira = Mock()
+    jira.get_parent_link_field_id.return_value = ClientSuccess(data="customfield_10100")
+    assert mod.search_fields(jira) == [*mod.FIELDS, "customfield_10100"]
+
+
+def test_search_fields_falls_back_when_the_site_has_none_or_the_lookup_fails():
+    jira = Mock()
+    jira.get_parent_link_field_id.return_value = ClientSuccess(data=None)
+    assert mod.search_fields(jira) == mod.FIELDS
+
+    jira.get_parent_link_field_id.return_value = ClientError(error_message="boom")
+    assert mod.search_fields(jira) == mod.FIELDS
+
+
+def test_read_ready_requests_the_parent_link_field_in_its_search():
+    jira = Mock(project_key="PROJ")
+    jira.get_parent_link_field_id.return_value = ClientSuccess(data="customfield_10100")
+    jira.search_issues.return_value = ClientSuccess(data=[])
+
+    mod.read_ready(jira, {"project": "", "shown": 10}, [], [], CHOICES, ["PROJ"])
+
+    jira.search_issues.assert_called_once_with(
+        'project = "PROJ" ORDER BY key ASC', max_results=11, fields=[*mod.FIELDS, "customfield_10100"]
+    )
+
+
+def test_find_issue_returns_the_matching_issue_or_none():
+    a, b = issue(), issue()
+    a.key, b.key = "PROJ-1", "PROJ-2"
+
+    assert mod.find_issue([a, b], "PROJ-2") is b
+    assert mod.find_issue([a, b], "PROJ-9") is None
+    assert mod.find_issue([], "PROJ-1") is None
+
+
 def test_components_are_or_ed_and_the_rest_and_ed_without_their_order():
     filters = ["mine", "component:Android", "component:iOS", "filter:10023"]
 

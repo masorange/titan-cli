@@ -162,6 +162,70 @@ def test_get_issue_api_error(issue_service, mock_network):
     assert "TEST-123" in result.error_message
 
 
+def test_get_issue_fills_parent_key_from_parent_link_field(mock_network, sample_api_issue_response):
+    """A story linked to its epic through the "Parent Link" custom field (no native
+    "parent" field, since it isn't a subtask) still gets `parent_key` populated."""
+    metadata_service = Mock()
+    metadata_service.find_field_id.return_value = ClientSuccess(data="customfield_10100")
+    issue_service = IssueService(mock_network, metadata_service)
+    sample_api_issue_response["fields"]["customfield_10100"] = {"key": "TEST-1", "id": "10000"}
+    mock_network.make_request.return_value = sample_api_issue_response
+
+    result = issue_service.get_issue("TEST-123")
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.parent_key == "TEST-1"
+    metadata_service.find_field_id.assert_called_once_with("Parent Link")
+
+
+def test_get_issue_keeps_native_parent_key_over_parent_link_field(mock_network, sample_api_issue_response):
+    """A subtask's native "parent" field wins; the custom field is only a fallback."""
+    metadata_service = Mock()
+    metadata_service.find_field_id.return_value = ClientSuccess(data="customfield_10100")
+    issue_service = IssueService(mock_network, metadata_service)
+    sample_api_issue_response["fields"]["parent"] = {"key": "TEST-1"}
+    sample_api_issue_response["fields"]["customfield_10100"] = {"key": "TEST-2"}
+    mock_network.make_request.return_value = sample_api_issue_response
+
+    result = issue_service.get_issue("TEST-123")
+
+    assert result.data.parent_key == "TEST-1"
+    metadata_service.find_field_id.assert_not_called()
+
+
+def test_get_issue_without_metadata_service_skips_parent_link_lookup(issue_service, mock_network, sample_api_issue_response):
+    """No metadata service (e.g. construction order in a test double): falls back cleanly."""
+    mock_network.make_request.return_value = sample_api_issue_response
+
+    result = issue_service.get_issue("TEST-123")
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data.parent_key is None
+
+
+def test_get_parent_link_field_id_resolves_once(mock_network):
+    """The field id is looked up once via `GET /field` and cached after that."""
+    metadata_service = Mock()
+    metadata_service.find_field_id.return_value = ClientSuccess(data="customfield_10100")
+    issue_service = IssueService(mock_network, metadata_service)
+
+    first = issue_service.get_parent_link_field_id()
+    second = issue_service.get_parent_link_field_id()
+
+    assert first.data == second.data == "customfield_10100"
+    metadata_service.find_field_id.assert_called_once_with("Parent Link")
+
+
+def test_get_parent_link_field_id_propagates_error(mock_network):
+    metadata_service = Mock()
+    metadata_service.find_field_id.return_value = ClientError(error_message="boom", error_code="LIST_FIELDS_ERROR")
+    issue_service = IssueService(mock_network, metadata_service)
+
+    result = issue_service.get_parent_link_field_id()
+
+    assert isinstance(result, ClientError)
+
+
 def test_search_issues_success(issue_service, mock_network, sample_api_issue_response):
     """Test successful issue search"""
     # Setup mock

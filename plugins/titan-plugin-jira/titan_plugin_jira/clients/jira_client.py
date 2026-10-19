@@ -103,6 +103,17 @@ class JiraClient:
         """The issue's page in the Jira web UI (e.g. https://acme.atlassian.net/browse/PROJ-123)."""
         return f"{self.base_url}/browse/{issue_key}"
 
+    def get_parent_link_field_id(self) -> ClientResult[Optional[str]]:
+        """
+        The id of this Jira site's "Parent Link" custom field, or None if it has
+        none. Pass it in `search_issues`' `fields` to get `parent_key` populated
+        for issues whose parent is an epic rather than a subtask's parent task.
+
+        Returns:
+            ClientResult[Optional[str]]
+        """
+        return self._issue_service.get_parent_link_field_id()
+
     def search_issues(
         self,
         jql: str,

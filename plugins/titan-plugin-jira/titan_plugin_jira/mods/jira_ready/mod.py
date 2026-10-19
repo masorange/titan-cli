@@ -5,10 +5,11 @@ pane itself. All but search read Jira: every project you can see, the statuses
 and components of the project (when exactly one is picked), and the saved
 filters you starred, plus "Mine". Nothing has to be picked: no project means
 every one you can see, no status means any status, no filter means every
-issue. Opening an issue shows its summary, assignee, status and folded
-description, and lets you plan it (the plan workflow opens on it, skipping its
-issue prompt), take it (assigned to you and moved to the working status) or
-move it to any status Jira allows from where it is.
+issue. Opening an issue shows its summary, assignee, status, its parent issue
+when it has one, and folded description, and lets you plan it (the plan
+workflow opens on it, skipping its issue prompt), take it (assigned to you and
+moved to the working status) or move it to any status Jira allows from where
+it is.
 
 Everything Jira-specific (the JQL, taking an issue, the description and name
 formatting, the issue URL) comes from the jira plugin; this file only polls
@@ -46,7 +47,7 @@ from titan_plugin_jira.operations import (
 
 PANE = "jira-ready"
 TITLE = "Jira"
-FIELDS = [*DEFAULT_SEARCH_FIELDS, "description", "fixVersions"]
+FIELDS = [*DEFAULT_SEARCH_FIELDS, "description", "fixVersions", "parent"]
 DESCRIPTION_LINES = 200
 PREVIEW_LINES = 2
 COMMENT_LINES = 60
@@ -77,6 +78,16 @@ class Comments:
     """An issue's comments, read when its card opens: loading, done or error."""
     status: str
     items: List[UIJiraComment] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Parent:
+    """An issue's parent, read once its child card opens: loading, done or error.
+    Cached by parent key, so two children of the same parent share one read."""
+    status: str
+    issue: Optional[UIJiraIssue] = None
+    url: str = ""
     error: Optional[str] = None
 
 
@@ -242,6 +253,16 @@ def conditions(filters: List[str], choices: Optional[Choices], query: str = "", 
     return out
 
 
+def search_fields(jira) -> List[str]:
+    """`FIELDS`, plus the site's "Parent Link" custom field when it has one - some
+    Jira sites link a story to its epic there instead of the native "parent" field."""
+    match jira.get_parent_link_field_id():
+        case ClientSuccess(data=field_id) if field_id:
+            return [*FIELDS, field_id]
+        case _:
+            return FIELDS
+
+
 def read_ready(jira, options, statuses: List[str], filters: List[str], choices: Optional[Choices],
                projects: List[str] = (), search: str = "", limit: Optional[int] = None) -> Ready:
     """The first `limit` issues (the `shown` option unless "Show all" raised it); one extra is read to know if more remain."""
@@ -252,7 +273,7 @@ def read_ready(jira, options, statuses: List[str], filters: List[str], choices: 
     if search.strip():
         statuses, filters = [], []  # a search looks through the whole of the chosen projects
     query = build_issue_jql(list(statuses), list(projects), conditions(filters, choices, search, projects), order_by=ORDER_BY)
-    match jira.search_issues(query, max_results=limit + 1, fields=FIELDS):
+    match jira.search_issues(query, max_results=limit + 1, fields=search_fields(jira)):
         case ClientSuccess(data=found):
             issues = found[:limit]
             return Ready(query, issues, scope, urls={i.key: jira.issue_url(i.key) for i in issues},
@@ -277,6 +298,21 @@ def description(issue: UIJiraIssue, unfolded: bool, fold) -> Optional[Box]:
         more = len([line for line in lines if line]) > PREVIEW_LINES
         return Box(toggle, Box(*(Text(line.strip(), dim=True) for line in preview), more and Text("…", dim=True), indent=2))
     return Box(toggle, Box(*(Text(line or " ", wrap=True) for line in lines), border="subtle"))
+
+
+def parent_section(parent_key: Optional[str], parent: Optional[Parent]) -> Optional[Box]:
+    """A line naming the issue's parent, when it has one: its key, summary, status and a link."""
+    if not parent_key:
+        return None
+    if parent is None or parent.status == "loading":
+        return Box(Text(f"⬆ {parent_key} · loading…", dim=True))
+    if parent.status == "error":
+        return Box(Text(f"⬆ {parent_key} · {parent.error}", color="error", wrap=True))
+    p = parent.issue
+    return Box(
+        Text(Text(f"⬆ {p.key} ", dim=True), Text(p.summary, wrap=True), Text(f" · {p.status_icon} {p.status}", dim=True)),
+        parent.url and Text(Link("↗ Open", parent.url)),
+    )
 
 
 def comments_section(key: str, comments: Optional[Comments], is_open: bool, toggle) -> Optional[Box]:
@@ -335,6 +371,15 @@ def summary_section(issue: UIJiraIssue, summary: Optional[Summary], ai_label: Op
 def project_key(issue_key: str) -> str:
     """`ECAPP` for `ECAPP-2262`."""
     return issue_key.rsplit("-", 1)[0]
+
+
+def find_issue(issues: List[UIJiraIssue], key: str) -> Optional[UIJiraIssue]:
+    """The issue with this key, or None. A plain loop, not the builtin `next`:
+    `render`'s own hook parameter is named `next` and shadows it in this scope."""
+    for i in issues:
+        if i.key == key:
+            return i
+    return None
 
 
 def move_options(issue: UIJiraIssue, transitions: List[UIJiraTransition]) -> List[UIJiraTransition]:
@@ -429,7 +474,8 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
                comments: Optional[Comments], comments_open: bool, summary: Optional[Summary],
                ai_label: Optional[str], act: CardActions, transitions: Optional[Transitions] = None,
                move_open: bool = False, moving: Optional[str] = None, versions: Optional[Versions] = None,
-               fix_open: bool = False, fixing: Optional[str] = None, fix_released: bool = False) -> Box:
+               fix_open: bool = False, fixing: Optional[str] = None, fix_released: bool = False,
+               parent: Optional[Parent] = None) -> Box:
     """
     The open issue: its line, summary, who has it, status, description, comments,
     the AI summary, the statuses it can move to once asked; the actions always last.
@@ -445,6 +491,7 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
                 Text("🏷 ", ", ".join(issue.fix_versions)) if issue.fix_versions else Text("🏷 No fix version", dim=True),
                 issue.priority and Text(f"Priority: {issue.priority}", dim=True),
             ),
+            parent_section(issue.parent_key, parent),
             description(issue, unfolded, act.fold),
             comments_section(issue.key, comments, comments_open, act.toggle_comments),
             summary_section(issue, summary, ai_label, act),
@@ -613,6 +660,7 @@ def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projec
             summaries = m.state.get("summaries") or {}
             transitions = m.state.get("transitions") or {}
             versions = m.state.get("versions") or {}
+            parents = m.state.get("parents") or {}
             more = ready.more and not m.state.get("loading")
             at_cap = (m.state.get("limit") or 0) >= SHOW_ALL
             results_section = section(
@@ -625,7 +673,8 @@ def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projec
                                    m.state.get("ai_label"), act, transitions.get(i.key),
                                    m.state.get("move_open") == i.key, m.state.get("moving"),
                                    versions.get(project_key(i.key)), m.state.get("fix_open") == i.key,
-                                   m.state.get("fixing"), bool(m.state.get("fix_released")))
+                                   m.state.get("fixing"), bool(m.state.get("fix_released")),
+                                   parents.get(i.parent_key) if i.parent_key else None)
                         if i.key == selected else issue_line(i, False, act.select)
                         for i in ready.issues
                     ),
@@ -685,6 +734,23 @@ def register(on, options):
             case ClientError(error_message=message):
                 put(Comments("error", error=message))
                 return []
+
+    def load_parent(m, key) -> None:
+        """Read `key`'s issue into `parents`, keyed by `key` itself (a parent key) so
+        two children of the same parent share one read; off the UI thread."""
+        def put(p):
+            m.state.update("parents", lambda all_: {**(all_ or {}), key: p}, default={})
+
+        jira = m.client("jira")
+        if jira is None:
+            put(Parent("error", error="Jira is not available here"))
+            return
+        put(Parent("loading"))
+        match jira.get_issue(key):
+            case ClientSuccess(data=parent_issue):
+                put(Parent("done", parent_issue, jira.issue_url(key)))
+            case ClientError(error_message=message):
+                put(Parent("error", error=message))
 
     def load_transitions(m, key) -> None:
         """Read the statuses `key` can move to into state; off the UI thread, fresh every time the picker opens."""
@@ -823,6 +889,13 @@ def register(on, options):
             known: Optional[Comments] = (m.state.get("comments") or {}).get(key)
             if opening and (known is None or known.status == "error"):
                 m.run(lambda: load_comments(m, key))
+            ready: Optional[Ready] = m.state.get("ready")
+            issue = find_issue(ready.issues, key) if ready else None
+            parent_key = issue.parent_key if issue else None
+            if opening and parent_key:
+                known_parent: Optional[Parent] = (m.state.get("parents") or {}).get(parent_key)
+                if known_parent is None or known_parent.status == "error":
+                    m.run(lambda: load_parent(m, parent_key))
 
         def toggle_comments(key):
             m.state.set("comments_open", None if m.state.get("comments_open") == key else key)
