@@ -167,7 +167,7 @@ Box(
 | `Text(*parts, color, bold, dim, wrap)` | Parts are strings, `Link`s or nested `Text` spans. Truncates with an ellipsis unless `wrap=True`. |
 | `Link(label, url)` | Opens an http(s) URL. URLs in any text are links even when wrapped. |
 | `Box(*children, border, row, indent, gap)` | Vertical group; `border` is a colour name; `row=True` puts children on one line: the first at the left, the rest pushed to the right (a title with a switch beside it). |
-| `Button(label, on_press, dim, variant)` | With a `variant` (`primary`, `default`, `success`, `warning`, `error`) it is Titan's own button, for something that does work; without one it reads as a line of the pane, right for a fold or picker. |
+| `Button(label, on_press, dim, variant)` | With a `variant` (`primary`, `default`, `success`, `warning`, `error`) it is Titan's own button, for something that does work; without one it reads as a line of the pane, right for a fold or picker. `label` is a string, or a `Text` when parts of the line need their own style (a name plain, its date dim); a variant button flattens a `Text` to its words. |
 | `Input(value, placeholder, on_change, on_submit)` | A one-line text field. `on_change` fires on every keystroke — keep it to an `m.state` update, never a network or disk call; `on_submit` (optional) fires on Enter, the right place to kick off a search or write to `m.store`. |
 
 Colours are semantic: `primary`, `accent`, `success`, `warning`, `error`, `info`, `subtle`. Lists are flattened and falsy children (`None`, `False`, `""`, `0`, `[]`) dropped, so conditionals and comprehensions read naturally.

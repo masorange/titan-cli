@@ -556,3 +556,41 @@ def test_hook_steps_skipped_during_execution(create_workflow_file, workflow_regi
     # Verify we got past step 1 without "Invalid step configuration" error
     # (or at least attempted both steps, even if they failed)
     assert ctx.current_step >= 1, "No steps were executed"
+
+
+def test_nested_workflow_params_resolve_from_context(create_workflow_file, workflow_registry, mock_plugin_registry):
+    """A "${...}" in a nested workflow's params becomes its value, not the placeholder."""
+    create_workflow_file("child_echo", {
+        "name": "child_echo",
+        "description": "Child with its own default",
+        "params": {"source_branch": ""},
+        "steps": [
+            {
+                "id": "echo",
+                "name": "Echo",
+                "command": "echo nested"
+            }
+        ]
+    })
+
+    create_workflow_file("parent_passing_param", {
+        "name": "parent_passing_param",
+        "description": "Parent forwarding one of its params",
+        "params": {"source_branch": "develop"},
+        "steps": [
+            {
+                "id": "call_child",
+                "name": "Call Child",
+                "workflow": "child_echo",
+                "params": {"source_branch": "${source_branch}"},
+            }
+        ]
+    })
+
+    executor = WorkflowExecutor(workflow_registry, mock_plugin_registry)
+    ctx = WorkflowContext(data={}, plugin_manager=None)
+
+    executor.execute(workflow_registry.get_workflow("parent_passing_param"), ctx)
+
+    # The child's own `params` default would otherwise blank it out again.
+    assert ctx.data["source_branch"] == "develop"

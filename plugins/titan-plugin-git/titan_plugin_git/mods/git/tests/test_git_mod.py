@@ -3,6 +3,19 @@ from types import SimpleNamespace
 
 import pytest
 
+# What the loader hands `register`: every option in mod.toml, at its default.
+OPTIONS = {
+    "repo_refresh_seconds": 30,
+    "refresh_key": "f5",
+    "recent_commits": 10,
+    "branches_refresh_seconds": 60,
+    "recent_branches": 8,
+    "branch_filter_threshold": 8,
+    "commit_workflow": "commit-ai",
+    "merge_workflow": "merge-into-branch",
+    "worktrees_refresh_seconds": 120,
+}
+
 
 def test_draw_shows_branch_and_commits(mod, flatten):
     from titan_cli.core.mods import ModBus
@@ -37,7 +50,7 @@ def test_refresh_key_is_bound_at_start_and_refreshes_the_repo(mod, tmp_path):
     )
     bus = ModBus()
     bus.host = host
-    options = {"repo_refresh_seconds": 30, "refresh_key": "f5", "recent_commits": 10}
+    options = dict(OPTIONS, refresh_key="f5")
     mod.register(bus.on_for("git"), options)
 
     bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
@@ -61,7 +74,7 @@ def test_a_finished_or_aborted_workflow_refreshes_off_its_thread(mod, tmp_path):
     )
     bus = ModBus()
     bus.host = host
-    mod.register(bus.on_for("git"), {"repo_refresh_seconds": 30, "refresh_key": "", "recent_commits": 10})
+    mod.register(bus.on_for("git"), dict(OPTIONS, refresh_key=""))
     bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
     state = bus.api("git").state
     runs.clear()
@@ -82,3 +95,209 @@ def test_a_finished_or_aborted_workflow_refreshes_off_its_thread(mod, tmp_path):
     with pytest.raises(KeyboardInterrupt):
         bus.dispatch("workflow.run", WorkflowRun("review-pr", "plugin", nested=False), aborted)
     assert len(runs) == 1  # an aborted run refreshes too
+
+
+def branches_state(mod, blocked=None, names=("main", "feature/login"), current=None):
+    return mod.models.Branches(
+        items=[SimpleNamespace(name=n, is_current=n == current, formatted_date="2 d")
+               for n in ((current,) + names if current else names)],
+        current="feat/x",
+        blocked=blocked,
+        main_branch="main",
+    )
+
+
+def test_the_switcher_folds_and_lists_the_branches(mod, flatten):
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod))
+
+    assert "▸ Switch branch (2)" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    m.state.set("branches_open", True)
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "▾ Switch branch (2)" in lines
+    assert "▸ main · 2 d" in lines and "▸ feature/login · 2 d" in lines
+
+
+def test_the_filter_keeps_only_the_branches_that_match(mod, flatten):
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod))
+    m.state.set("branches_open", True)
+    m.state.set("branch_filter", "login")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "▸ feature/login · 2 d" in lines and "▸ main · 2 d" not in lines
+
+
+def test_uncommitted_work_leaves_a_branch_with_no_actions(mod, flatten):
+    """The reason is shown, a row opens but offers nothing, and a commit is offered."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, blocked="2 uncommitted files - commit or stash before switching"))
+    m.state.set("branches_open", True)
+    m.state.set("open_branch", "main")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "⚠ 2 uncommitted files - commit or stash before switching" in lines
+    assert "✦ Commit with AI" in lines
+    assert "commit or stash to use this branch" in lines
+    assert "⎇ Switch to it" not in lines and not any("Merge" in line for line in lines)
+
+
+def test_a_branch_unfolds_into_its_actions(mod, flatten):
+    """Switching, merging the configured base branch, and picking another source."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod))
+    m.state.set("branches_open", True)
+
+    closed = flatten(mod.draw.draw(m, 44, OPTIONS))
+    assert "⎇ Switch to it" not in closed  # a row shows nothing until it is opened
+
+    m.state.set("open_branch", "feature/login")
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "▾ feature/login · 2 d" in lines
+    assert "⎇ Switch to it" in lines
+    assert "⤵ Merge main into it" in lines  # the plugin's configured base branch
+    assert "▸ Merge another branch…" in lines
+    assert "main" not in lines[lines.index("▸ Merge another branch…") + 1:]  # the picker is closed
+
+    m.state.set("merge_source_for", "feature/login")
+    picking = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "▾ Merge another branch…" in picking
+    assert "main" in picking[picking.index("▾ Merge another branch…") + 1:]
+
+
+def test_the_merge_action_runs_the_workflow_with_both_branches(mod):
+    from titan_cli.core.mods import ModBus
+
+    runs = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None,
+                               run_workflow=lambda mod, name, params: runs.append((name, dict(params))))
+    m = bus.api("git")
+
+    mod.sections.branches.branches.merge_into(m, "feature/login", "main", OPTIONS)
+
+    assert runs == [("merge-into-branch", {"target_branch": "feature/login", "source_branch": "main"})]
+
+
+def test_the_branch_you_are_on_sits_above_the_switcher_with_merges_only(mod, flatten):
+    """You cannot switch to where you already are, but it is the usual merge target."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert lines.index("▸ feat/x · 2 d · here") < lines.index("▸ Switch branch (2)")
+
+    m.state.set("open_branch", "feat/x")
+    opened = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "⤵ Merge main into it" in opened and "▸ Merge another branch…" in opened
+    assert "⎇ Switch to it" not in opened
+
+
+def test_each_card_can_be_turned_off_on_its_own(mod, flatten):
+    """The pane is two cards, so the Mods screen can hide either one."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod))
+
+    without_branches = flatten(mod.draw.draw(m, 44, dict(OPTIONS, sections={"repo": True, "branches": False})))
+    assert "⎇ feat/x no upstream" in without_branches
+    assert not any("Switch branch" in line for line in without_branches)
+
+    without_repo = flatten(mod.draw.draw(m, 44, dict(OPTIONS, sections={"repo": False, "branches": True})))
+    assert "▸ Switch branch (2)" in without_repo
+    assert not any("⎇ feat/x" in line for line in without_repo)
+
+
+def worktrees_state(mod, paths=("/repo", "/repo-review"), current=None):
+    return mod.models.Worktrees(
+        items=[SimpleNamespace(path=p, path_short=p.rsplit("/", 1)[-1], branch_display="main",
+                               commit_short="abc1234", is_bare=False, is_detached=False, status_icon="📂")
+               for p in paths],
+        main_path=paths[0],
+        current_path=current or paths[0],
+    )
+
+
+def test_the_worktrees_card_folds_into_its_rows(mod, flatten):
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("worktrees", worktrees_state(mod))
+
+    assert "▸ Worktrees (2)" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    m.state.set("worktrees_open", True)
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "▸ 📂 repo · main" in lines and "▸ 📂 repo-review · main" in lines
+    assert "⌦ Prune stale records" in lines
+
+    # The one Titan runs in says so, unless it is the main one (already untouchable).
+    m.state.set("worktrees", worktrees_state(mod, current="/repo-review"))
+    assert "▸ 📂 repo-review · main · here" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+def test_a_worktree_asks_before_it_is_removed(mod, flatten):
+    """One press arms the removal, a second one does it; the main worktree neither."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("worktrees", worktrees_state(mod))
+    m.state.set("worktrees_open", True)
+    m.state.set("open_worktree", "/repo-review")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    assert "/repo-review" in lines and "✗ Remove worktree" in lines
+    assert "✓ Confirm removal" not in lines
+
+    m.state.set("worktree_confirm", "/repo-review")
+    armed = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "✓ Confirm removal" in armed
+    assert "The directory is deleted. This cannot be undone." in armed
+    assert "⚠ Force removal (discards its changes)" not in armed  # only after git refuses
+
+    m.state.set("worktree_force", "/repo-review")
+    assert "⚠ Force removal (discards its changes)" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+def test_the_main_worktree_offers_no_removal(mod, flatten):
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("worktrees", worktrees_state(mod))
+    m.state.set("worktrees_open", True)
+    m.state.set("open_worktree", "/repo")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "Cannot be removed: the main worktree" in lines
+    assert "✗ Remove worktree" not in lines

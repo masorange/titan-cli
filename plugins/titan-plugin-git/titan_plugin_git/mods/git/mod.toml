@@ -1,15 +1,27 @@
 [mod]
 name = "git"
-version = "0.4.0"
+version = "0.5.0"
 icon = "⎇"
-description = "Side panel with the current branch, its upstream and the latest commits"
+description = "Side panel with the current branch, its upstream, the latest commits, a switcher for the branches you use most and the worktrees"
 requires_plugins = ["git"]
-events = ["app.start", "workflow.run", "ui.render"]
-slots = ["pane"]
+events = ["app.start", "workflow.run", "ui.render", "section.change"]
+slots = ["pane", "toast"]
+
+[sections.repo]
+title = "Repository"
+description = "The branch you are on, its upstream and the latest commits."
+
+[sections.branches]
+title = "Branch switcher"
+description = "The branches you used most recently, one press to switch to them."
+
+[sections.worktrees]
+title = "Worktrees"
+description = "The repository's worktrees, each folding into its removal."
 
 [options.repo_refresh_seconds]
 type = "int"
-title = "Refresh every (s)"
+title = "Repository refresh (s)"
 default = 30
 min = 1
 
@@ -24,3 +36,40 @@ type = "int"
 title = "Recent commits shown"
 default = 10
 min = 0
+
+[options.branches_refresh_seconds]
+type = "int"
+title = "Branches refresh (s)"
+default = 60
+min = 1
+
+[options.recent_branches]
+type = "int"
+title = "Branches shown"
+default = 8
+min = 1
+
+[options.branch_filter_threshold]
+type = "int"
+title = "Filter field from"
+description = "Show a filter field once the switcher lists this many branches."
+default = 8
+min = 1
+
+[options.commit_workflow]
+type = "string"
+title = "Commit workflow"
+description = "Workflow offered when uncommitted changes block a switch; empty for no button."
+default = "commit-ai"
+
+[options.merge_workflow]
+type = "string"
+title = "Merge workflow"
+description = "Workflow a branch's merge actions run, given target_branch and source_branch; empty for no merge actions."
+default = "merge-into-branch"
+
+[options.worktrees_refresh_seconds]
+type = "int"
+title = "Worktrees refresh (s)"
+default = 120
+min = 1

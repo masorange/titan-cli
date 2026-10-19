@@ -16,3 +16,5 @@ class UIGitBranch:
     is_remote: bool
     upstream: Optional[str] = None
     upstream_info: str = ""  # e.g., "→ origin/main"
+    last_commit_date: Optional[str] = None  # ISO 8601 of the branch's last commit
+    formatted_date: str = ""  # Human-readable: "today", "3 d", "2 w"

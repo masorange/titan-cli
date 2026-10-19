@@ -359,6 +359,57 @@ Checkout a Git branch.
 | `Success` | - | Branch checked out successfully |
 | `Error` | - | Git operation failed |
 
+### `switch_branch`
+
+Switch to another local branch, with the most recently used offered first.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: git
+  step: switch_branch
+```
+
+**Used by built-in workflows:** `merge-into-branch`, `switch-branch`
+
+**Available to later steps:** `branch`, `previous_branch`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.git` | - | An initialized GitClient. |
+| `ctx.textual` | - | The Textual UI context. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `branch` | str, optional | Branch to switch to; asks when absent |
+| `branch_limit` | int, optional | How many branches to offer (default: 10) |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `branch` | str | Branch now checked out |
+| `previous_branch` | str | Branch left behind |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `branch`, `previous_branch` | Branch switched |
+| `Skip` | `branch`, `previous_branch` | Already on that branch, or nothing was chosen |
+| `Exit` | - | The working tree has uncommitted changes, nothing was touched |
+| `Error` | - | Git client unavailable, or the branch could not be listed or checked out |
+
 ### `pull`
 
 Pull from Git remote.

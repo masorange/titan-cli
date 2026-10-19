@@ -5,7 +5,13 @@ Pure business logic for Git branch management.
 These functions can be used by any step and are easily testable.
 """
 
-from typing import List, Optional
+import re
+from typing import List, Optional, Sequence
+
+from ..models.view.branch import UIGitBranch
+from ..models.view.status import UIGitStatus
+
+_CHECKOUT_MESSAGE = re.compile(r"^checkout: moving from (?P<from>.+?) to (?P<to>.+)$")
 
 
 def check_branch_exists(branch_name: str, all_branches: List[str]) -> bool:
@@ -100,8 +106,96 @@ def should_delete_before_create(
     return branch_exists and delete_if_exists
 
 
+def parse_checkout_targets(reflog: str) -> List[str]:
+    """
+    The branches HEAD was moved to, newest first and each one only once, read from
+    `git reflog`'s subjects ("checkout: moving from X to Y"). A detached checkout
+    leaves a commit hash there, which is not a branch name any caller can use, but
+    telling the two apart is the caller's job: it has the branch list, this does not.
+    """
+    visited: List[str] = []
+    for line in reflog.splitlines():
+        match = _CHECKOUT_MESSAGE.match(line.strip())
+        if not match:
+            continue
+        target = match.group("to").strip()
+        if target and target not in visited:
+            visited.append(target)
+    return visited
+
+
+def order_branches_by_use(
+    branches: Sequence[UIGitBranch],
+    visited: Sequence[str],
+    limit: Optional[int] = None,
+) -> List[UIGitBranch]:
+    """
+    Order branches by how recently they were worked on: the ones HEAD was switched
+    to first, in `visited` order, then the rest as given (callers pass them sorted by
+    last commit). The current branch always leads, so the pane never hides where you are.
+
+    Args:
+        branches: Branches to order
+        visited: Branch names newest-visit-first, from `parse_checkout_targets`
+        limit: Keep at most this many; None keeps all
+
+    Returns:
+        The ordered branches, each appearing once
+    """
+    by_name = {b.name: b for b in branches}
+    ordered: List[UIGitBranch] = []
+
+    current = next((b for b in branches if b.is_current), None)
+    if current:
+        ordered.append(current)
+
+    for name in visited:
+        branch = by_name.get(name)
+        if branch and branch not in ordered:
+            ordered.append(branch)
+
+    for branch in branches:
+        if branch not in ordered:
+            ordered.append(branch)
+
+    return ordered[:limit] if limit else ordered
+
+
+def filter_branches(branches: Sequence[UIGitBranch], query: str) -> List[UIGitBranch]:
+    """Branches whose name contains `query`, ignoring case. An empty query keeps them all."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return list(branches)
+    return [b for b in branches if needle in b.name.lower()]
+
+
+def switching_blocked_by(status: UIGitStatus) -> Optional[str]:
+    """
+    Why the working tree cannot be left behind, or None when switching is safe.
+
+    Modified and staged files block: switching would carry them onto the other branch.
+    Untracked files do not - git keeps them wherever you go and never refuses the
+    checkout over them.
+
+    Args:
+        status: The repository status
+
+    Returns:
+        A one-line reason to show the user, or None
+    """
+    pending = {*status.modified_files, *status.staged_files}
+    if not pending:
+        return None
+    noun = "file" if len(pending) == 1 else "files"
+    return f"{len(pending)} uncommitted {noun} - commit or stash before switching"
+
+
 __all__ = [
     "check_branch_exists",
+    "parse_checkout_targets",
+    "order_branches_by_use",
+    "filter_branches",
+    "switching_blocked_by",
     "determine_safe_checkout_target",
     "should_delete_before_create",
 ]

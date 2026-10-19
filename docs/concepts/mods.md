@@ -20,7 +20,7 @@ Official plugins ship their own mods, and they load while the plugin is enabled:
 
 | Mod | Plugin | Shows |
 |---|---|---|
-| `git` | git | Branch, upstream, recent commits |
+| `git` | git | Branch, upstream, recent commits; a switcher for the branches you use most (switch, or merge another branch into one); the repository's worktrees, each folding into its removal |
 | `github` | github | PRs waiting for your review (with a Review button), your PRs, merge queue, AI diagnosis of failed checks |
 | `jira_ready` | jira | Issues narrowed by status and filters read from Jira, with description, comments and an AI summary |
 

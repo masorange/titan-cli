@@ -95,6 +95,12 @@ class GitClient:
         """List branches."""
         return self.branch_service.get_branches(remote=remote)
 
+    def list_recent_branches(
+        self, limit: int = 10, reflog_entries: int = 300
+    ) -> ClientResult[List[UIGitBranch]]:
+        """Local branches ordered by how recently they were worked on."""
+        return self.branch_service.list_recent_branches(limit=limit, reflog_entries=reflog_entries)
+
     def create_branch(
         self, branch_name: str, start_point: str = "HEAD"
     ) -> ClientResult[None]:

@@ -70,6 +70,21 @@ client.get_branches(remote=False)
 
 - `remote`: Optional. Set to `True` to list remote branches instead of local ones.
 
+### List recently used branches
+
+Returns local branches ordered by how recently they were worked on: the branches HEAD was switched to come first (read from the reflog), then the rest by the date of their last commit. Each branch carries that date both raw (`last_commit_date`) and ready to show (`formatted_date`, e.g. `"3 d"`).
+
+**Call:**
+
+```python
+client.list_recent_branches(limit=10, reflog_entries=300)
+```
+
+**Parameters:**
+
+- `limit`: Optional. Maximum number of branches to return.
+- `reflog_entries`: Optional. How far back in the reflog to look for checkouts.
+
 ### Create a branch
 
 Creates a new branch from a starting point.

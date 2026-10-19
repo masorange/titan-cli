@@ -26,6 +26,7 @@ For full contract details for every public step, including documented inputs, ou
 | `save_current_branch` | Branching | - |
 | `restore_original_branch` | Branching | - |
 | `checkout` | Branching | - |
+| `switch_branch` | Branching | `switch-branch`, `merge-into-branch` |
 | `pull` | Branching | - |
 | `create_branch` | Branching | - |
 | `resolve_merge_target` | Merging | `merge-branch` |
@@ -62,6 +63,7 @@ Use these steps to switch, create, and restore branches during a workflow.
 - `save_current_branch`: save the current branch in workflow context
 - `restore_original_branch`: restore the saved branch later in the workflow
 - `checkout`: switch to a branch from workflow context or params
+- `switch_branch`: pick one of the recently used branches and switch to it, refusing to move with uncommitted work
 - `pull`: update the current branch from the configured remote
 - `create_branch`: create a new branch from workflow-provided branch data
 
@@ -432,6 +434,51 @@ How to read these contracts:
     |--------|-----------------------|-------------|
     | `Success` | - | Branch checked out successfully |
     | `Error` | - | Git operation failed |
+
+
+??? info "`switch_branch`"
+    Switch to another local branch, with the most recently used offered first.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: switch_branch
+    ```
+
+    **Used by built-in workflows:** `merge-into-branch`, `switch-branch`
+
+    **Available to later steps:** `branch`, `previous_branch`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+    | `ctx.textual` | - | The Textual UI context. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `branch` | str, optional | Branch to switch to; asks when absent |
+    | `branch_limit` | int, optional | How many branches to offer (default: 10) |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `branch` | str | Branch now checked out |
+    | `previous_branch` | str | Branch left behind |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `branch`, `previous_branch` | Branch switched |
+    | `Skip` | `branch`, `previous_branch` | Already on that branch, or nothing was chosen |
+    | `Exit` | - | The working tree has uncommitted changes, nothing was touched |
+    | `Error` | - | Git client unavailable, or the branch could not be listed or checked out |
 
 
 ??? info "`pull`"

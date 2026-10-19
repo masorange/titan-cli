@@ -4,11 +4,31 @@ Tests for Branch Operations
 Tests for pure business logic related to Git branch management.
 """
 
+from titan_plugin_git.models.view.branch import UIGitBranch
+from titan_plugin_git.models.view.status import UIGitStatus
 from titan_plugin_git.operations.branch_operations import (
     check_branch_exists,
     determine_safe_checkout_target,
+    filter_branches,
+    order_branches_by_use,
+    parse_checkout_targets,
     should_delete_before_create,
+    switching_blocked_by,
 )
+
+
+def branch(name, current=False):
+    return UIGitBranch(name=name, display_name=name, is_current=current, is_remote=False)
+
+
+def status(modified=(), staged=(), untracked=()):
+    return UIGitStatus(
+        branch="feature",
+        is_clean=not (modified or staged or untracked),
+        modified_files=list(modified),
+        untracked_files=list(untracked),
+        staged_files=list(staged),
+    )
 
 
 class TestCheckBranchExists:
@@ -126,3 +146,129 @@ class TestShouldDeleteBeforeCreate:
             branch_exists=False,
             delete_if_exists=False
         ) is False
+
+
+class TestParseCheckoutTargets:
+    """Tests for parse_checkout_targets function."""
+
+    def test_reads_the_branches_head_moved_to(self):
+        """Should return checkout targets, newest first."""
+        reflog = "\n".join([
+            "checkout: moving from main to feature",
+            "commit: feat: something",
+            "checkout: moving from feature to main",
+        ])
+        assert parse_checkout_targets(reflog) == ["feature", "main"]
+
+    def test_keeps_each_branch_once(self):
+        """Should keep only the most recent visit to a branch."""
+        reflog = "\n".join([
+            "checkout: moving from main to feature",
+            "checkout: moving from feature to main",
+            "checkout: moving from main to feature",
+        ])
+        assert parse_checkout_targets(reflog) == ["feature", "main"]
+
+    def test_ignores_everything_that_is_not_a_checkout(self):
+        """Should ignore commits, merges, resets and empty output."""
+        assert parse_checkout_targets("commit: feat: x\nmerge main: Fast-forward") == []
+        assert parse_checkout_targets("") == []
+
+
+class TestOrderBranchesByUse:
+    """Tests for order_branches_by_use function."""
+
+    def test_current_branch_leads_then_the_visited_ones(self):
+        """Should put the current branch first and the rest in visit order."""
+        branches = [branch("main"), branch("feature", current=True), branch("old")]
+
+        ordered = order_branches_by_use(branches, ["main", "feature"])
+
+        assert [b.name for b in ordered] == ["feature", "main", "old"]
+
+    def test_unvisited_branches_keep_the_order_given(self):
+        """Should fall back to the caller's order (last commit date) for the rest."""
+        branches = [branch("recent"), branch("older"), branch("oldest")]
+
+        ordered = order_branches_by_use(branches, [])
+
+        assert [b.name for b in ordered] == ["recent", "older", "oldest"]
+
+    def test_unknown_visited_branches_are_dropped(self):
+        """Should ignore reflog entries that are not local branches (a detached hash)."""
+        ordered = order_branches_by_use([branch("main")], ["a1b2c3d", "gone"])
+
+        assert [b.name for b in ordered] == ["main"]
+
+    def test_limit_cuts_the_tail(self):
+        """Should return at most `limit` branches."""
+        branches = [branch("a"), branch("b"), branch("c")]
+
+        assert len(order_branches_by_use(branches, [], limit=2)) == 2
+        assert len(order_branches_by_use(branches, [], limit=None)) == 3
+
+
+class TestFilterBranches:
+    """Tests for filter_branches function."""
+
+    def test_matches_part_of_the_name_ignoring_case(self):
+        branches = [branch("feature/login"), branch("main")]
+
+        assert [b.name for b in filter_branches(branches, "LOG")] == ["feature/login"]
+
+    def test_empty_query_keeps_everything(self):
+        branches = [branch("feature/login"), branch("main")]
+
+        assert len(filter_branches(branches, "  ")) == 2
+
+
+class TestSwitchingBlockedBy:
+    """Tests for switching_blocked_by function."""
+
+    def test_clean_tree_does_not_block(self):
+        assert switching_blocked_by(status()) is None
+
+    def test_untracked_files_do_not_block(self):
+        """Untracked files follow HEAD anywhere, so git never refuses over them."""
+        assert switching_blocked_by(status(untracked=["notes.md"])) is None
+
+    def test_modified_and_staged_files_block(self):
+        reason = switching_blocked_by(status(modified=["a.py"], staged=["b.py"]))
+
+        assert reason == "2 uncommitted files - commit or stash before switching"
+
+    def test_a_file_both_modified_and_staged_counts_once(self):
+        reason = switching_blocked_by(status(modified=["a.py"], staged=["a.py"]))
+
+        assert reason == "1 uncommitted file - commit or stash before switching"
+
+
+def test_format_relative_reads_git_timestamps():
+    from datetime import datetime, timedelta, timezone
+
+    from titan_plugin_git.models.formatting import format_relative
+
+    now = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+
+    assert format_relative("2026-10-19T09:00:00+00:00", now) == "today"
+    assert format_relative("2026-10-18T09:00:00+00:00", now) == "yesterday"
+    assert format_relative("2026-10-16T09:00:00+00:00", now) == "3 d"
+    assert format_relative("2026-10-01T09:00:00+00:00", now) == "2 w"
+    assert format_relative("2026-06-01T09:00:00+00:00", now) == "4 mo"
+    assert format_relative("2024-06-01T09:00:00+00:00", now) == "2 y"
+    # `--date=iso8601` prints a space before the zone, and a zone of its own
+    assert format_relative("2026-10-16 09:00:00 +0200", now) == "3 d"
+    # Nothing readable is shown as nothing, never as an error
+    assert format_relative("", now) == ""
+    assert format_relative("not a date", now) == ""
+    assert format_relative(now - timedelta(days=2), now) == "2 d"
+
+
+def test_branch_mapper_formats_the_last_commit_date():
+    from titan_plugin_git.models.mappers.branch_mapper import from_network_branch
+    from titan_plugin_git.models.network.branch import NetworkGitBranch
+
+    mapped = from_network_branch(NetworkGitBranch(name="feature", last_commit_date="2026-10-19T09:00:00+00:00"))
+
+    assert mapped.last_commit_date == "2026-10-19T09:00:00+00:00"
+    assert mapped.formatted_date  # the relative wording itself is tested above

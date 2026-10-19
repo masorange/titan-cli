@@ -8,6 +8,7 @@ Modules:
     commit_operations: Operations for commit message handling
     diff_operations: Operations for diff parsing and formatting
     branch_operations: Operations for branch management
+    worktree_operations: Operations for inspecting and removing worktrees
     merge_operations: Operations for merging branches and resolving conflicts
 """
 
@@ -30,8 +31,19 @@ from .diff_operations import (
 
 from .branch_operations import (
     check_branch_exists,
+    parse_checkout_targets,
+    order_branches_by_use,
+    filter_branches,
+    switching_blocked_by,
     determine_safe_checkout_target,
     should_delete_before_create,
+)
+
+from .worktree_operations import (
+    main_worktree_path,
+    removal_blocked_by,
+    same_path,
+    removable_worktrees,
 )
 
 from .merge_operations import (
@@ -61,8 +73,18 @@ __all__ = [
 
     # Branch operations
     "check_branch_exists",
+    "parse_checkout_targets",
+    "order_branches_by_use",
+    "filter_branches",
+    "switching_blocked_by",
     "determine_safe_checkout_target",
     "should_delete_before_create",
+
+    # Worktree operations
+    "main_worktree_path",
+    "removal_blocked_by",
+    "same_path",
+    "removable_worktrees",
 
     # Merge operations
     "resolve_merge_source",

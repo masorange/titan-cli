@@ -25,7 +25,7 @@ from textual.widgets import Input as TextualInput
 from textual.widgets import Static
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods.elements import Box, Button, Input, Link, Text
+from titan_cli.core.mods.elements import Box, Button, Input, Link, Text, plain
 from titan_cli.ui.tui import colors
 from titan_cli.ui.tui.widgets.button import Button as TitanButton
 
@@ -174,6 +174,8 @@ class _Pressable(_Line, can_focus=True):
     @staticmethod
     def _label(button: Button) -> RichText:
         style = Style(dim=True) if button.dim else Style()
+        if isinstance(button.label, Text):
+            return to_rich(button.label, style)
         return RichText(button.label, style=style, no_wrap=True, overflow="ellipsis")
 
     def set_button(self, button: Button) -> None:
@@ -188,7 +190,7 @@ class _Pressable(_Line, can_focus=True):
         try:
             self._button.on_press()
         except Exception:
-            logger.exception("mod_button_failed", label=self._button.label)
+            logger.exception("mod_button_failed", label=plain(self._button.label))
 
 
 class _ModButton(TitanButton):
@@ -213,7 +215,7 @@ class _ModButton(TitanButton):
     """
 
     def __init__(self, button: Button):
-        super().__init__(button.label, variant=self._variant(button))
+        super().__init__(plain(button.label), variant=self._variant(button))
         self._button = button
 
     @classmethod
@@ -222,7 +224,7 @@ class _ModButton(TitanButton):
 
     def set_button(self, button: Button) -> None:
         self._button = button
-        self.label = button.label
+        self.label = plain(button.label)
         self.variant = self._variant(button)
 
     def on_button_pressed(self, event: TitanButton.Pressed) -> None:
@@ -230,7 +232,7 @@ class _ModButton(TitanButton):
         try:
             self._button.on_press()
         except Exception:
-            logger.exception("mod_button_failed", label=self._button.label)
+            logger.exception("mod_button_failed", label=plain(self._button.label))
 
 
 class _ModInput(Widget, can_focus=True, can_focus_children=True):

@@ -1,0 +1,13 @@
+name: "Switch Branch"
+description: "Switch to another local branch, the most recently used ones first"
+
+params:
+  # Empty means "ask": the step offers the branches ordered by recent use.
+  branch: ""
+  branch_limit: 10
+
+steps:
+  - id: switch
+    name: "Switch Branch"
+    plugin: git
+    step: switch_branch

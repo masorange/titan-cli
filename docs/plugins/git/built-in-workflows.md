@@ -1,6 +1,6 @@
 # Git Built-in Workflows
 
-The Git plugin ships two workflows: one for commit creation and push automation, and one for merging a branch into the current one.
+The Git plugin ships four workflows: one for commit creation and push automation, one for merging a branch into the current one, one for switching to another local branch, and one for merging into a branch you are not on.
 
 ## `commit-ai`
 
@@ -145,3 +145,66 @@ Note that `ctx.data` is shared with nested workflows: a key set by `merge-branch
 - `fetch_merge_source`
 - `merge_source_branch`
 - `complete_merge`
+
+## `switch-branch`
+
+Switches to another local branch. The branches you worked on most recently are offered first: the ones HEAD was switched to (from the reflog), then the rest by the date of their last commit, each one shown with how long ago that was and where it pushes.
+
+The workflow refuses to move while the working tree has modified or staged files - those would travel to the other branch and mix with its work. Untracked files follow HEAD anywhere, so they never block it.
+
+**Source workflow:** `plugins/titan-plugin-git/titan_plugin_git/workflows/switch-branch.yaml`
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `branch` | `""` | Branch to switch to. Empty asks, offering the recently used ones. |
+| `branch_limit` | `10` | How many branches to offer. |
+
+### Default flow
+
+1. `git.switch_branch`
+
+### Example extension
+
+```yaml
+extends: "plugin:git/switch-branch"
+
+params:
+  branch: "develop"
+```
+
+### Related public steps
+
+- `switch_branch`
+
+## `merge-into-branch`
+
+Merges a branch into another branch you are not on. It switches to the target branch first and then runs `merge-branch`, so the merge itself - conflict resolution included - is the same one, hooks and project extensions and all.
+
+**Source workflow:** `plugins/titan-plugin-git/titan_plugin_git/workflows/merge-into-branch.yaml`
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `target_branch` | `""` | Branch to merge into. Empty asks, offering the recently used ones. |
+| `source_branch` | `""` | Branch to merge. Empty uses the configured base branch. |
+
+### Default flow
+
+1. `git.switch_branch`
+2. `merge-branch` (nested)
+
+### Example extension
+
+```yaml
+extends: "plugin:git/merge-into-branch"
+
+params:
+  source_branch: "develop"
+```
+
+### Related public steps
+
+- `switch_branch`

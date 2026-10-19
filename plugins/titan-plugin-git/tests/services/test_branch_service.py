@@ -212,3 +212,64 @@ class TestBranchServiceBranchExistsOnRemote:
 
         assert isinstance(result, ClientSuccess)
         assert result.data is False
+
+
+@pytest.mark.unit
+class TestBranchServiceListRecentBranches:
+    """Test BranchService.list_recent_branches()"""
+
+    def _outputs(self, for_each_ref: str, reflog: str = ""):
+        def run_command(args, **kwargs):
+            return reflog if args[1] == "reflog" else for_each_ref
+        return run_command
+
+    def test_parses_name_head_upstream_and_date(self, mock_git_network):
+        """Test each tab-separated field becomes part of the UI model"""
+        mock_git_network.run_command.side_effect = self._outputs(
+            "feature\t*\torigin/feature\t2026-10-19T09:00:00+00:00\n"
+            "main\t \torigin/main\t2026-10-01T09:00:00+00:00\n"
+        )
+
+        service = BranchService(mock_git_network)
+        result = service.list_recent_branches()
+
+        assert isinstance(result, ClientSuccess)
+        feature, main = result.data
+        assert (feature.name, feature.is_current, feature.upstream_info) == ("feature", True, "→ origin/feature")
+        assert feature.formatted_date and main.formatted_date
+        assert (main.name, main.is_current) == ("main", False)
+
+    def test_orders_by_the_reflog_and_cuts_at_the_limit(self, mock_git_network):
+        """Test the branches HEAD was switched to come first, current one leading"""
+        mock_git_network.run_command.side_effect = self._outputs(
+            "newest\t \t\t2026-10-19T09:00:00+00:00\n"
+            "visited\t \t\t2026-01-01T09:00:00+00:00\n"
+            "here\t*\t\t2026-05-01T09:00:00+00:00\n",
+            reflog="checkout: moving from here to visited\ncommit: feat: x\n",
+        )
+
+        service = BranchService(mock_git_network)
+        result = service.list_recent_branches(limit=2)
+
+        assert [b.name for b in result.data] == ["here", "visited"]
+
+    def test_a_repo_without_reflog_keeps_the_date_order(self, mock_git_network):
+        """Test an empty reflog (a fresh clone) is not an error"""
+        mock_git_network.run_command.side_effect = self._outputs(
+            "newest\t \t\t2026-10-19T09:00:00+00:00\nolder\t \t\t2026-01-01T09:00:00+00:00\n"
+        )
+
+        service = BranchService(mock_git_network)
+        result = service.list_recent_branches()
+
+        assert [b.name for b in result.data] == ["newest", "older"]
+
+    def test_git_failure_becomes_a_client_error(self, mock_git_network):
+        """Test a failing git command is reported, not raised"""
+        mock_git_network.run_command.side_effect = GitCommandError("boom")
+
+        service = BranchService(mock_git_network)
+        result = service.list_recent_branches()
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "BRANCH_LIST_ERROR"

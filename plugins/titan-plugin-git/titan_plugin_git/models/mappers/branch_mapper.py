@@ -1,4 +1,5 @@
 """Mapper for Git branch: Network model → UI model."""
+from ..formatting import format_relative
 from ..network.branch import NetworkGitBranch
 from ..view.branch import UIGitBranch
 
@@ -36,4 +37,6 @@ def from_network_branch(network_branch: NetworkGitBranch) -> UIGitBranch:
         is_remote=network_branch.is_remote,
         upstream=network_branch.upstream,
         upstream_info=upstream_info,
+        last_commit_date=network_branch.last_commit_date,
+        formatted_date=format_relative(network_branch.last_commit_date),
     )
