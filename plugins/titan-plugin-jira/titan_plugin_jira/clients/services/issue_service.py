@@ -5,6 +5,7 @@ Handles issue-related operations.
 Network → NetworkModel → UIModel → ClientResult
 """
 
+from dataclasses import replace
 from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
@@ -35,6 +36,11 @@ class IssueService:
     Handles: get, search, create, update issues.
     """
 
+    # The display name of the custom field some Jira sites (Advanced Roadmaps hierarchy)
+    # use to link a story to its epic - distinct from the native "parent" field, which
+    # Jira only ever populates for a subtask's parent task.
+    PARENT_LINK_FIELD_NAME = "Parent Link"
+
     def __init__(self, network: JiraNetwork, metadata_service=None):
         """
         Initialize issue service.
@@ -45,6 +51,43 @@ class IssueService:
         """
         self.network = network
         self.metadata_service = metadata_service
+        self._parent_link_field_id: Optional[str] = None
+        self._parent_link_field_resolved = False
+
+    def get_parent_link_field_id(self) -> ClientResult[Optional[str]]:
+        """
+        The id of the "Parent Link" custom field, when this Jira site has one (some
+        sites link a story to its epic there instead of through the native "parent"
+        field, which Jira only ever populates for a subtask). Resolved once via
+        `GET /field` and cached for the life of this service.
+
+        Returns:
+            ClientResult[Optional[str]] - `data` is None when there is no such field
+        """
+        if not self._parent_link_field_resolved:
+            if self.metadata_service is None:
+                return ClientSuccess(data=None)
+            match self.metadata_service.find_field_id(self.PARENT_LINK_FIELD_NAME):
+                case ClientSuccess(data=field_id):
+                    self._parent_link_field_id = field_id
+                    self._parent_link_field_resolved = True
+                case ClientError() as error:
+                    return error
+        return ClientSuccess(data=self._parent_link_field_id)
+
+    def _with_parent_link(self, ui_issue: UIJiraIssue, fields_data: dict) -> UIJiraIssue:
+        """Fill `parent_key` from the "Parent Link" custom field when the native
+        parent field left it empty. Best-effort: any resolution failure is silently
+        skipped, since this only enriches a field that is already optional."""
+        if ui_issue.parent_key:
+            return ui_issue
+        match self.get_parent_link_field_id():
+            case ClientSuccess(data=field_id) if field_id:
+                value = fields_data.get(field_id)
+                key = value.get("key") if isinstance(value, dict) else None
+                if key:
+                    return replace(ui_issue, parent_key=key)
+        return ui_issue
 
     @log_client_operation()
     def get_issue(
@@ -75,6 +118,7 @@ class IssueService:
 
             # 3. Map to UI model (pass raw data for custom fields access)
             ui_issue = from_network_issue(network_issue, raw=data)
+            ui_issue = self._with_parent_link(ui_issue, data.get("fields", {}))
 
             # 4. Wrap in Result
             return ClientSuccess(
@@ -125,6 +169,7 @@ class IssueService:
                 network_issue = self._parse_network_issue(issue_data)
                 # Pass raw data to mapper for custom fields access
                 ui_issue = from_network_issue(network_issue, raw=issue_data)
+                ui_issue = self._with_parent_link(ui_issue, issue_data.get("fields", {}))
                 ui_issues.append(ui_issue)
 
             # 3. Wrap in Result

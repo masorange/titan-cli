@@ -5,7 +5,7 @@ Handles Jira metadata operations (issue types, statuses, etc.).
 Network → NetworkModel → UIModel → Result
 """
 
-from typing import List
+from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
@@ -439,6 +439,32 @@ class MetadataService:
                 )
             case ClientError() as error:
                 return error
+
+    @log_client_operation()
+    def find_field_id(self, name: str) -> ClientResult[Optional[str]]:
+        """
+        The id of the field named `name` (case-insensitive) - e.g. the "Parent Link"
+        custom field some Jira sites use to link a story to its epic, which has no
+        fixed id: it is generated per site. `data` is None when Jira has no such field.
+
+        Args:
+            name: The field's display name, as Jira admin shows it
+
+        Returns:
+            ClientResult[Optional[str]]
+        """
+        try:
+            data = self.network.make_request("GET", "field")
+            field_id = next(
+                (f.get("id") for f in data if (f.get("name") or "").strip().lower() == name.strip().lower()),
+                None,
+            )
+            return ClientSuccess(data=field_id, message=f"Field '{name}' {'found' if field_id else 'not found'}")
+        except JiraAPIError as e:
+            return ClientError(
+                error_message=f"Failed to list fields: {e.message}",
+                error_code="LIST_FIELDS_ERROR",
+            )
 
 
 __all__ = ["MetadataService"]

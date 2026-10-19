@@ -363,3 +363,34 @@ def test_list_favourite_filters_error(metadata_service, mock_network):
 
     assert isinstance(result, ClientError)
     assert result.error_code == "LIST_FILTERS_ERROR"
+
+
+def test_find_field_id_matches_by_name_case_insensitively(metadata_service, mock_network):
+    mock_network.make_request.return_value = [
+        {"id": "customfield_10014", "name": "Epic Link"},
+        {"id": "customfield_10100", "name": "Parent Link"},
+    ]
+
+    result = metadata_service.find_field_id("parent link")
+
+    mock_network.make_request.assert_called_once_with("GET", "field")
+    assert isinstance(result, ClientSuccess)
+    assert result.data == "customfield_10100"
+
+
+def test_find_field_id_none_when_jira_has_no_such_field(metadata_service, mock_network):
+    mock_network.make_request.return_value = [{"id": "customfield_10014", "name": "Epic Link"}]
+
+    result = metadata_service.find_field_id("Parent Link")
+
+    assert isinstance(result, ClientSuccess)
+    assert result.data is None
+
+
+def test_find_field_id_error(metadata_service, mock_network):
+    mock_network.make_request.side_effect = JiraAPIError("Unauthorized", status_code=401)
+
+    result = metadata_service.find_field_id("Parent Link")
+
+    assert isinstance(result, ClientError)
+    assert result.error_code == "LIST_FIELDS_ERROR"
