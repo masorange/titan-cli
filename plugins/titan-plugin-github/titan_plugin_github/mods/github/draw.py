@@ -6,7 +6,7 @@ from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest
 
 from .diagnosis import Diagnosis, diagnosis_text, refresh_ai_label, start_diagnosis
 from .models import Composer, Prs, Queue
-from .sections.prs import actions
+from .sections.prs import actions, conflicts
 
 QUEUE_TONE = {"QUEUED": "subtle", "AWAITING_CHECKS": "warning", "MERGEABLE": "success", "UNMERGEABLE": "error", "LOCKED": "error"}
 # A PR with no review decision yet is waiting for one, as GitHub's own lists put it.
@@ -61,6 +61,16 @@ def diagnosis_of(m, pr: UIPullRequest, options) -> Box:
             "⧉ Copy " + ("error" if d.status == "error" else "diagnosis"),
             lambda: m.ui.copy(diagnosis_text(pr, d), f"#{pr.number} " + ("error" if d.status == "error" else "diagnosis")),
             dim=True,
+        ),
+        # Saying why it broke is half the job; this hands the logs (and the
+        # diagnosis, when there is one) to an interactive session on the branch.
+        not running and (options or {}).get("checks_workflow") and action_button(
+            "⚒ Fix with AI",
+            lambda: m.workflows.run(options["checks_workflow"], {
+                "fix_pr_number": pr.number,
+                "check_diagnosis": diagnosis_text(pr, d) if done else "",
+            }),
+            "error",
         ),
         indent=3,
     )
@@ -148,6 +158,39 @@ def size_text(pr: UIPullRequest) -> Text:
     )
 
 
+def conflicts_fold(m, pr: UIPullRequest, options) -> Box:
+    """What clashes with the base branch, asked of git the first time it is opened."""
+    key = f"conflicts_open:{pr.number}"
+    is_open = bool(m.state.get(key))
+    found = conflicts.of(m, pr.number)
+    workflow = (options or {}).get("conflicts_workflow")
+
+    def toggle():
+        m.state.set(key, not is_open)
+        # Asking git costs a fetch, so it waits until someone wants to know.
+        if not is_open and found is None:
+            conflicts.start(m, pr)
+
+    counted = found is not None and found.status == "done" and found.files
+    return Box(
+        Button(f"{'▾' if is_open else '▸'} ⚠ Conflicts" + (f" ({len(found.files)})" if counted else ""),
+               toggle, dim=True),
+        is_open and Box(
+            (found is None or found.status == "running") and Text("… asking git", dim=True),
+            found is not None and found.status == "error" and Text(f"Could not tell: {found.error}", color="error", wrap=True),
+            found is not None and found.status == "done" and not found.files
+            and Text(f"Nothing clashes with {pr.base_ref} any more", color="success"),
+            counted and [Text(path, color="error", dim=True) for path in found.files],
+            workflow and action_button(
+                "⚒ Resolve conflicts",
+                lambda: m.workflows.run(workflow, {"conflict_pr_number": pr.number}),
+                "error",
+            ),
+            indent=2,
+        ),
+    )
+
+
 def my_pr_detail(m, pr: UIPullRequest, options) -> Box:
     """What is worth knowing about a PR of your own, and what can be done about it.
 
@@ -169,6 +212,7 @@ def my_pr_detail(m, pr: UIPullRequest, options) -> Box:
             row=True,
         ),
         pr.labels and Text(", ".join(pr.labels), color="info", dim=True),
+        pr.has_conflicts and conflicts_fold(m, pr, options),
         pr.reviewers and reviewers_fold(m, pr),
         pr.assignees and fold(m, f"assignees_open:{pr.number}", f"Assignees ({len(pr.assignees)})", False,
                               [Text(f"@{login}", dim=True) for login in pr.assignees]),

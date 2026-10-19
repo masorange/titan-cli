@@ -556,3 +556,110 @@ def test_a_reviewer_still_pending_cannot_be_asked_again(mod, flatten, pr):
     # Nothing to repeat: the line is text, and there is no button to ask them all again either.
     assert not any("@cat" in b.label for b in buttons(tree))
     assert not any("Re-request" in b.label for b in buttons(tree))
+
+
+def test_conflicts_are_asked_of_git_when_the_fold_is_opened(mod, flatten, pr):
+    asked, fetched = [], []
+    git = SimpleNamespace(
+        fetch=lambda remote, branch: fetched.append((remote, branch)),
+        list_merge_conflicts=lambda base, head: asked.append((base, head)) or ClientSuccess(
+            data=["app/Home.kt", "gradle/libs.versions.toml"]),
+    )
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, run=lambda mod, fn: fn(),
+                               client=lambda name: git if name == "git" else None)
+    m = bus.api("github")
+    mine = pr(2, conflicts=True)
+    mine.base_ref, mine.head_ref = "develop", "feat/2"
+    m.state.set("prs", mod.models.Prs(mine=[mine]))
+    opts = {"diagnosis_jobs": 3, "conflicts_workflow": "resolve-pr-conflicts"}
+
+    open_row(mod, m, 2, opts)
+    # Closed, git has not been asked: the fetch it needs is not worth a poll.
+    assert "▸ ⚠ Conflicts" in labels(mod.draw.draw(m, 44, opts), flatten)
+    assert asked == []
+
+    press(mod, m, "▸ ⚠ Conflicts", opts)
+    lines = labels(mod.draw.draw(m, 44, opts), flatten)
+
+    assert fetched == [("origin", "develop"), ("origin", "feat/2")]
+    assert asked == [("origin/develop", "origin/feat/2")]
+    assert "▾ ⚠ Conflicts (2)" in lines
+    assert "app/Home.kt" in lines and "gradle/libs.versions.toml" in lines
+    assert "⚒ Resolve conflicts" in lines
+
+
+def test_resolve_conflicts_runs_the_workflow_on_that_pr(mod, flatten, pr):
+    runs = []
+    git = SimpleNamespace(fetch=lambda remote, branch: None,
+                          list_merge_conflicts=lambda base, head: ClientSuccess(data=["a.kt"]))
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, run=lambda mod, fn: fn(),
+                               client=lambda name: git if name == "git" else None,
+                               run_workflow=lambda mod, name, params: runs.append((name, params)))
+    m = bus.api("github")
+    mine = pr(2, conflicts=True)
+    mine.base_ref, mine.head_ref = "develop", "feat/2"
+    m.state.set("prs", mod.models.Prs(mine=[mine]))
+    opts = {"diagnosis_jobs": 3, "conflicts_workflow": "resolve-pr-conflicts"}
+
+    open_row(mod, m, 2, opts)
+    press(mod, m, "▸ ⚠ Conflicts", opts)
+    press(mod, m, "⚒ Resolve conflicts", opts)
+
+    assert runs == [("resolve-pr-conflicts", {"conflict_pr_number": 2})]
+
+
+def test_without_the_git_plugin_the_fold_says_so(mod, flatten, pr):
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, run=lambda mod, fn: fn(),
+                               client=lambda name: None)
+    m = bus.api("github")
+    mine = pr(2, conflicts=True)
+    mine.base_ref, mine.head_ref = "develop", "feat/2"
+    m.state.set("prs", mod.models.Prs(mine=[mine]))
+    opts = {"diagnosis_jobs": 3, "conflicts_workflow": "resolve-pr-conflicts"}
+
+    open_row(mod, m, 2, opts)
+    press(mod, m, "▸ ⚠ Conflicts", opts)
+
+    assert "Could not tell: the git plugin is not enabled" in labels(mod.draw.draw(m, 44, opts), flatten)
+
+
+def test_fix_with_ai_hands_the_diagnosis_to_the_workflow(mod, tmp_path, monkeypatch, flatten, pr):
+    monkeypatch.setattr("titan_cli.core.mods.store.STORE_DIR", tmp_path)
+    runs = []
+    github = SimpleNamespace(get_actions_job_log=lambda job_id: ClientSuccess(data=LOG))
+
+    class RunHost(DiagnosisHost):
+        def run_workflow(self, mod, name, params):
+            runs.append((name, params))
+
+    bus = ModBus()
+    bus.host = RunHost(github, AIAnswer(text='{"cause": "FooTest.bar fails", "quote": "nope"}', model="m1"))
+    m = bus.api("github")
+    mine = pr(2, checks="failing", failed=1)
+    m.state.set("prs", mod.models.Prs(mine=[mine]))
+    opts = {"diagnosis_jobs": 3, "checks_workflow": "fix-pr-checks"}
+
+    open_row(mod, m, 2, opts)
+    # Before any diagnosis the button is already there: the workflow reads the logs itself.
+    press(mod, m, "⚒ Fix with AI", opts)
+    assert runs == [("fix-pr-checks", {"fix_pr_number": 2, "check_diagnosis": ""})]
+
+    mod.diagnosis.diagnose(m, 2, opts)
+    press(mod, m, "⚒ Fix with AI", opts)
+
+    name, params = runs[-1]
+    assert name == "fix-pr-checks" and params["fix_pr_number"] == 2
+    assert "FooTest.bar fails" in params["check_diagnosis"]  # what the pane found travels with it
+
+
+def test_no_fix_button_without_a_workflow(mod, flatten, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, checks="failing", failed=1)]))
+    opts = {"diagnosis_jobs": 3, "checks_workflow": ""}
+
+    open_row(mod, m, 2, opts)
+
+    assert "⚒ Fix with AI" not in labels(mod.draw.draw(m, 44, opts), flatten)

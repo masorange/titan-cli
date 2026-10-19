@@ -43,7 +43,9 @@
         {"name": "push_commits", "summary": "Push local follow-up commits back to the PR branch."},
         {"name": "send_comment_replies", "summary": "Submit replies for the reviewed comments."},
         {"name": "request_review", "summary": "Request another review after applying comment changes."},
-        {"name": "checkout_original_branch", "summary": "Restore the original branch after review work completes."}
+        {"name": "checkout_original_branch", "summary": "Restore the original branch after review work completes."},
+        {"name": "select_conflicted_pr", "summary": "Choose the PR whose conflicts to resolve, and list the files that clash."},
+        {"name": "select_failing_pr", "summary": "Choose the PR whose checks to fix and build the session's opening prompt."}
       ]
     },
     {

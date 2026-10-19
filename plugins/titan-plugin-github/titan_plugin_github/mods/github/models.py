@@ -31,3 +31,12 @@ class Composer:
     number: int
     kind: str  # the only one with a field of its own: "comment"
     text: str = ""
+
+
+@dataclass(frozen=True)
+class Conflicts:
+    """What clashes between a PR and its base branch, once git has been asked."""
+
+    status: str  # "running", "done" or "error"
+    files: List[str] = field(default_factory=list)
+    error: Optional[str] = None

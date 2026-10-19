@@ -691,6 +691,23 @@ client.get_unresolved_conflict_files()
 
 **Parameters:** none.
 
+### List the conflicts between two refs
+
+Returns the files that would conflict if `base_ref` were merged into `head_ref`, **without touching the working tree, the index or HEAD**: `git merge-tree` merges in memory, so this can be asked about a branch that is not checked out. An empty list means the merge would be clean. Requires git 2.38 or newer; an unknown ref (or an older git) comes back as a `MERGE_TREE_FAILED` error.
+
+Remote-tracking refs are used as they are, so fetch first if the answer must be current.
+
+**Call:**
+
+```python
+client.list_merge_conflicts("origin/develop", "origin/feature/x")
+```
+
+**Parameters:**
+
+- `base_ref`: Required. Ref that would be merged in.
+- `head_ref`: Required. Ref receiving the merge.
+
 ### Check whether a merge is in progress
 
 Returns `True` while `MERGE_HEAD` exists, that is, while a merge is stopped and waiting to be completed or aborted.

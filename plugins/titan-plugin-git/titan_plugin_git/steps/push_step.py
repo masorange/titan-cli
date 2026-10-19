@@ -11,6 +11,7 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         remote (str, optional): The name of the remote to push to. Defaults to the client's default remote.
         branch (str, optional): The name of the branch to push. Defaults to the current branch.
         set_upstream (bool, optional): Whether to set the upstream tracking branch. Defaults to False.
+        confirm_push (bool, optional): Ask before pushing. Defaults to False.
         push_tags (bool, optional): Whether to push tags along with the branch. Defaults to False.
 
     Requires:
@@ -78,6 +79,16 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
         case ClientError(error_message=err):
             ctx.textual.end_step("error")
             return Error(f"Failed to check remote branch: {err}")
+
+    # A workflow that pushes as a last step (a merge, a release) asks first: the
+    # user has the result in front of them and may want to look before it leaves.
+    if ctx.get("confirm_push", False) and not ctx.textual.ask_confirm(
+        msg.Steps.Push.ASK_PUSH.format(branch=branch_to_use, remote=remote_to_use),
+        default=True,
+    ):
+        ctx.textual.dim_text(msg.Steps.Push.DECLINED)
+        ctx.textual.end_step("skip")
+        return Skip(msg.Steps.Push.DECLINED)
 
     # Push branch (and tags if requested)
     push_result = ctx.git.push(
