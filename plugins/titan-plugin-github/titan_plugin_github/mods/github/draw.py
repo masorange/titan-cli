@@ -114,6 +114,71 @@ def review_actions(m, pr: UIPullRequest, options) -> Box:
     )
 
 
+REVIEWER_TONE = {"changes_requested": "error", "approved": "success", "commented": "info", "pending": "subtle"}
+
+
+def reviewer_line(m, pr: UIPullRequest, reviewer):
+    """One reviewer; pressable to ask them again, which only means something once they have reviewed."""
+    label = f"{reviewer.icon} @{reviewer.login}" + (f" · {reviewer.when}" if reviewer.when else "")
+    if not reviewer.has_reviewed:
+        return Text(label, color=REVIEWER_TONE[reviewer.state], dim=True)
+    return Button(f"{label}  ⟳", lambda: actions.rerequest(m, pr.number, [reviewer.login]), dim=True)
+
+
+def reviewers_fold(m, pr: UIPullRequest) -> Box:
+    """Who is reviewing, counted in the title so the tally shows without opening it."""
+    tally = " ".join(
+        f"{icon}{sum(1 for r in pr.reviewers if r.state == state)}"
+        for state, icon in (("changes_requested", "✗"), ("approved", "✓"), ("commented", "✎"), ("pending", "○"))
+        if any(r.state == state for r in pr.reviewers)
+    )
+    return fold(
+        m, f"reviewers_open:{pr.number}", f"Reviewers {tally}" if tally else "Reviewers · nobody asked yet", False,
+        [reviewer_line(m, pr, r) for r in pr.reviewers],
+    )
+
+
+def size_text(pr: UIPullRequest) -> Text:
+    """What the PR touches: added lines in green, removed in red, as a diff reads."""
+    return Text(
+        pr.additions and Text(f"+{pr.additions}", color="success"),
+        pr.additions and pr.deletions and " ",
+        pr.deletions and Text(f"−{pr.deletions}", color="error"),
+        pr.files_changed and Text(f"{' · ' if pr.additions or pr.deletions else ''}{pr.files_changed} files", dim=True),
+    )
+
+
+def my_pr_detail(m, pr: UIPullRequest, options) -> Box:
+    """What is worth knowing about a PR of your own, and what can be done about it.
+
+    Two lines carry four facts: what it lands on and how old it is, what it
+    changes and when it was last touched ("↻"), each pair on one line with the
+    time pushed to the right edge.
+    """
+    reviewed = [r.login for r in pr.reviewers if r.has_reviewed]
+    in_flight = actions.running(m, pr.number)
+    return Box(
+        (pr.branch_info or pr.opened_age) and Box(
+            Text(pr.branch_info or " ", dim=True),
+            Text(pr.opened_age or " ", dim=True),
+            row=True,
+        ),
+        (pr.additions or pr.deletions or pr.files_changed or pr.updated_age) and Box(
+            size_text(pr),
+            Text(pr.updated_age and f"↻ {pr.updated_age}" or " ", dim=True),
+            row=True,
+        ),
+        pr.labels and Text(", ".join(pr.labels), color="info", dim=True),
+        pr.reviewers and reviewers_fold(m, pr),
+        pr.assignees and fold(m, f"assignees_open:{pr.number}", f"Assignees ({len(pr.assignees)})", False,
+                              [Text(f"@{login}", dim=True) for login in pr.assignees]),
+        in_flight and Text(f"… {actions.PROGRESS[in_flight]}", dim=True),
+        not in_flight and reviewed and action_button(
+            f"⟳ Re-request review ({len(reviewed)})", lambda: actions.rerequest(m, pr.number), "default"),
+        indent=3,
+    )
+
+
 def row_open(m, number: int) -> bool:
     """Whether this PR shows what can be done about it; closed until it is pressed."""
     return bool((m.state.get("rows_open") or {}).get(str(number)))
@@ -155,6 +220,7 @@ def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None)
         expanded and [
             # The number is the fold now, so the way to GitHub lives in here.
             pr.url and Box(Text(Link("↗ Open on GitHub", pr.url)), indent=3),
+            is_mine and my_pr_detail(m, pr, options),
             # Fixing a red check is the author's job, so only my own PRs get a diagnosis.
             is_mine and pr.checks_state == "failing" and diagnosis_of(m, pr, options),
             not is_mine and review_actions(m, pr, options),

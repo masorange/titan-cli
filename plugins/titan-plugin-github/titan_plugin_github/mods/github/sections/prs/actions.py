@@ -9,16 +9,19 @@ Sending blocks on the network, so it runs through `m.run`; the pane shows the
 action in flight and the PR lists are read again once it lands.
 """
 from dataclasses import replace
-from typing import Optional
+from typing import List, Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 
 from ...models import Composer
 
 # What the pane shows while the action is in flight, and what the toast says after.
-PROGRESS = {"approve": "approving", "request_changes": "requesting changes", "comment": "commenting"}
-VERB = {"approve": "approve", "request_changes": "request changes on", "comment": "comment on"}
-DONE = {"approve": "Approved", "request_changes": "Changes requested on", "comment": "Commented on"}
+PROGRESS = {"approve": "approving", "request_changes": "requesting changes", "comment": "commenting",
+            "rerequest": "asking for a review again"}
+VERB = {"approve": "approve", "request_changes": "request changes on", "comment": "comment on",
+        "rerequest": "ask for a review again on"}
+DONE = {"approve": "Approved", "request_changes": "Changes requested on", "comment": "Commented on",
+        "rerequest": "Review requested again on"}
 # The review events this pane submits; a comment takes the issue-comment path instead.
 EVENT = {"approve": "APPROVE", "request_changes": "REQUEST_CHANGES"}
 
@@ -70,7 +73,16 @@ def running(m, number: int) -> Optional[str]:
     return (m.state.get("acting") or {}).get(str(number))
 
 
-def start(m, number: int, kind: str, body: str = "") -> None:
+def rerequest(m, number: int, logins: Optional[List[str]] = None) -> None:
+    """Ask for a review again: from `logins`, or from everyone who already reviewed.
+
+    GitHub only re-requests someone who has a review to repeat, so a reviewer
+    still pending is never offered here.
+    """
+    start(m, number, "rerequest", logins=logins)
+
+
+def start(m, number: int, kind: str, body: str = "", logins: Optional[List[str]] = None) -> None:
     """Claim the PR and send on a background thread; a second press while it runs does nothing.
 
     The button's state is from the last repaint, so two quick presses both saw
@@ -90,22 +102,24 @@ def start(m, number: int, kind: str, body: str = "") -> None:
     if not claimed:
         return
     close_composer(m)
-    m.run(lambda: _send(m, number, kind, body))
+    m.run(lambda: _send(m, number, kind, body, logins))
 
 
-def _send(m, number: int, kind: str, body: str) -> None:
+def _send(m, number: int, kind: str, body: str, logins: Optional[List[str]] = None) -> None:
     github = m.client("github")
     try:
         if github is None:
             raise RuntimeError("github plugin not available")
-        result = (
-            github.add_issue_comment(number, body)
-            if kind == "comment"
-            else github.submit_review(number, None, EVENT[kind], body)
-        )
+        if kind == "comment":
+            result = github.add_issue_comment(number, body)
+        elif kind == "rerequest":
+            result = github.request_pr_review(number, logins)
+        else:
+            result = github.submit_review(number, None, EVENT[kind], body)
         match result:
             case ClientSuccess():
-                m.ui.toast(f"{DONE[kind]} #{number}")
+                who = f" from @{', @'.join(logins)}" if logins else ""
+                m.ui.toast(f"{DONE[kind]} #{number}{who}")
                 refresh(m)
             case ClientError(error_message=err):
                 m.ui.toast(f"Could not {VERB[kind]} #{number}: {err}", severity="error")

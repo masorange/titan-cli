@@ -49,6 +49,8 @@ class NetworkPullRequest:
         reviews: List of reviews
         labels: List of label objects with 'name' field
         requestedReviewers: List of users requested to review the PR
+        latestReviews: The latest review per person, as gh's `latestReviews` gives them
+        assignees: Users assigned to the PR
         url: The PR's web page
     """
     number: int
@@ -75,6 +77,8 @@ class NetworkPullRequest:
     headRepositoryOwnerLogin: Optional[str] = None
     headRepositoryName: Optional[str] = None
     requestedReviewers: List[NetworkUser] = field(default_factory=list)  # Users requested to review
+    latestReviews: List[NetworkReview] = field(default_factory=list)  # One per person, the latest
+    assignees: List[NetworkUser] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> 'NetworkPullRequest':
@@ -104,6 +108,11 @@ class NetworkPullRequest:
         # Parse requested reviewers (gh CLI JSON field is "reviewRequests")
         requested_reviewers_data = data.get("reviewRequests", [])
         requested_reviewers = [NetworkUser.from_json(r) for r in requested_reviewers_data]
+
+        # Parse the latest review per person (gh CLI JSON field is "latestReviews")
+        latest_reviews = [NetworkReview.from_gh_json(r) for r in data.get("latestReviews", [])]
+
+        assignees = [NetworkUser.from_json(a) for a in data.get("assignees", [])]
 
         return cls(
             number=data.get("number", 0),
@@ -138,6 +147,8 @@ class NetworkPullRequest:
             headRepositoryOwnerLogin=(data.get("headRepositoryOwner") or {}).get("login"),
             headRepositoryName=(data.get("headRepository") or {}).get("name"),
             requestedReviewers=requested_reviewers,
+            latestReviews=latest_reviews,
+            assignees=assignees,
         )
 
 

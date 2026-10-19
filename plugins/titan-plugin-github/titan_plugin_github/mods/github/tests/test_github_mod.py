@@ -484,3 +484,75 @@ def test_a_failed_action_says_so_and_frees_the_pr(mod, pr):
 
     assert toasts == [("Could not approve #5: 403 Forbidden", "error")]
     assert mod.draw.actions.running(m, 5) is None  # pressing again is allowed
+
+
+def reviewers(*specs):
+    """UIReviewers as the github plugin maps them, from (login, state) pairs."""
+    from titan_plugin_github.models.view import UIReviewer
+
+    icons = {"approved": "✓", "changes_requested": "✗", "commented": "✎", "pending": "○"}
+    return [UIReviewer(login=login, state=state, icon=icons[state], when="" if state == "pending" else "2d ago")
+            for login, state in specs]
+
+
+def test_my_pr_shows_who_is_reviewing_it_under_its_own_fold(mod, flatten, pr):
+    m = ModBus().api("github")
+    mine = pr(2, reviewers=reviewers(("ana", "approved"), ("bob", "changes_requested"), ("cat", "pending")),
+              assignees=["ana"], labels=["bug", "App"])
+    m.state.set("prs", mod.models.Prs(mine=[mine]))
+    opts = {"diagnosis_jobs": 3, "review_workflow": "review-pr"}
+
+    open_row(mod, m, 2, opts)
+    lines = labels(mod.draw.draw(m, 44, opts), flatten)
+
+    # Two lines, four facts: what it lands on and its age, what it changes and its last touch.
+    assert "feat/2 → develop 5d ago" in lines
+    assert "+10 −2 · 3 files ↻ 2h ago" in lines
+    assert "bug, App" in lines
+    # The tally is in the fold's own title, so it shows without opening it.
+    assert "▸ Reviewers ✗1 ✓1 ○1" in lines
+    assert "▸ Assignees (1)" in lines
+    assert "⟳ Re-request review (2)" in lines  # only the two who already reviewed
+    assert not any("@ana · 2d ago" in line for line in lines)  # the names are behind the fold
+
+    press(mod, m, "▸ Reviewers ✗1 ✓1 ○1", opts)
+    lines = labels(mod.draw.draw(m, 44, opts), flatten)
+    # In the order the plugin's mapper hands them over; the pane does not reorder.
+    assert ["✓ @ana · 2d ago  ⟳", "✗ @bob · 2d ago  ⟳", "○ @cat"] == [
+        line for line in lines if line.startswith(("✗ @", "✓ @", "○ @"))]
+
+
+def test_re_request_asks_everyone_who_reviewed_or_just_one(mod, flatten, pr):
+    asked, toasts = [], []
+    github = SimpleNamespace(
+        request_pr_review=lambda number, logins: asked.append((number, logins)) or ClientSuccess(data=None))
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, run=lambda mod, fn: fn(),
+                               client=lambda name: github,
+                               toast=lambda mod, text, severity: toasts.append((text, severity)))
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, reviewers=reviewers(("ana", "approved"), ("cat", "pending")))]))
+    opts = {"diagnosis_jobs": 3}
+    open_row(mod, m, 2, opts)
+
+    press(mod, m, "⟳ Re-request review (1)", opts)
+    assert asked == [(2, None)]  # None = everyone who already reviewed
+    assert toasts == [("Review requested again on #2", "information")]
+
+    press(mod, m, "▸ Reviewers ✓1 ○1", opts)
+    press(mod, m, "✓ @ana · 2d ago  ⟳", opts)
+    assert asked[-1] == (2, ["ana"])
+    assert toasts[-1] == ("Review requested again on #2 from @ana", "information")
+
+
+def test_a_reviewer_still_pending_cannot_be_asked_again(mod, flatten, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, reviewers=reviewers(("cat", "pending")))]))
+    opts = {"diagnosis_jobs": 3}
+    open_row(mod, m, 2, opts)
+    press(mod, m, "▸ Reviewers ○1", opts)
+
+    tree = mod.draw.draw(m, 44, opts)
+    # Nothing to repeat: the line is text, and there is no button to ask them all again either.
+    assert not any("@cat" in b.label for b in buttons(tree))
+    assert not any("Re-request" in b.label for b in buttons(tree))

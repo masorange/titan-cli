@@ -1,9 +1,13 @@
 """
 Unit tests for formatting utilities
 """
+from datetime import datetime, timezone
+
+import pytest
 
 from titan_plugin_github.models.formatting import (
     format_date,
+    format_relative,
     get_pr_status_icon,
     format_pr_stats,
     format_branch_info,
@@ -231,3 +235,21 @@ class TestClassifyStatusCheckRollup:
         passed = [{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SKIPPED"},
                   {"__typename": "StatusContext", "state": "SUCCESS"}]
         assert classify_status_check_rollup(passed) == ("passing", [])
+
+
+class TestFormatRelative:
+    """How long ago something happened, for the pane's glanceable labels."""
+
+    NOW = datetime(2026, 10, 19, 12, 0, 0, tzinfo=timezone.utc)
+
+    @pytest.mark.parametrize("iso,expected", [
+        ("2026-10-19T11:59:30Z", "just now"),
+        ("2026-10-19T11:30:00Z", "30m ago"),
+        ("2026-10-19T09:00:00Z", "3h ago"),
+        ("2026-10-14T12:00:00Z", "5d ago"),
+        ("2024-10-14T12:00:00Z", "2y ago"),
+        (None, ""),
+        ("not a date", ""),
+    ])
+    def test_labels(self, iso, expected):
+        assert format_relative(iso, now=self.NOW) == expected
