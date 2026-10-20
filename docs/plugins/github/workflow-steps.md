@@ -48,6 +48,10 @@ For full contract details for every public step, including documented inputs, ou
 | `build_change_manifest` | Code Review | - |
 | `build_existing_comments_index` | Code Review | - |
 | `write_review_material` | Code Review | - |
+| `build_review_checklist` | Code Review | - |
+| `ai_review_plan` | Code Review | - |
+| `validate_review_plan` | Code Review | - |
+| `resolve_review_context` | Code Review | - |
 | `ai_review_findings` | Code Review | - |
 | `normalize_findings` | Code Review | - |
 | `dedupe_findings` | Code Review | - |
@@ -280,7 +284,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `merge_queue_enabled` | bool \| None | Whether the base branch requires a merge queue, or None when the lookup failed. |
+    | `merge_queue_enabled` | bool | None | Whether the base branch requires a merge queue, or None when the lookup failed. |
     | `merge_queue_state` | - | The merge queue state object, when the lookup succeeded. |
 
     **Returns**

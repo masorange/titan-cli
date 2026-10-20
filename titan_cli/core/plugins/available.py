@@ -29,6 +29,12 @@ KNOWN_PLUGINS: List[KnownPlugin] = [
         "dependencies": []
     },
     {
+        "name": "firebase",
+        "description": "Firebase ADC auth and Remote Config integration.",
+        "package_name": "titan-plugin-firebase",
+        "dependencies": []
+    },
+    {
         "name": "slack",
         "description": "Slack integration for personal messaging and workspace access.",
         "package_name": "titan-plugin-slack",

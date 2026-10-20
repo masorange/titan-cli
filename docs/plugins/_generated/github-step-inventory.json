@@ -151,6 +151,32 @@
         {
           "name": "write_review_material",
           "summary": "Write the PR, its comments, its diffs and the base versions into the worktree under .titan-review/."
+          "name": "classify_pr",
+          "summary": "Classify PR size and composition before review planning."
+        },
+        {
+          "name": "score_review_candidates",
+          "summary": "Rank changed files and exclude low-value review candidates."
+        },
+        {
+          "name": "build_review_checklist",
+          "summary": "Prepare a review checklist from PR context."
+        },
+        {
+          "name": "select_review_strategy",
+          "summary": "Choose the review execution strategy from deterministic PR signals."
+        },
+        {
+          "name": "ai_review_plan",
+          "summary": "Ask AI to plan the directed review strategy."
+        },
+        {
+          "name": "validate_review_plan",
+          "summary": "Validate the AI review plan before execution."
+        },
+        {
+          "name": "resolve_review_context",
+          "summary": "Expand the precise review contexts needed for targeted analysis."
         },
         {
           "name": "ai_review_findings",
@@ -1298,7 +1324,8 @@
         ],
         "Inputs (from ctx.data)": [
           "    pr_number (int): Pull request number to inspect.",
-          "    merge_queued (bool): Set by `merge_pull_request`; True when the PR was added to the merge queue. Required - a missing value is treated as a workflow configuration error."
+          "    merge_queued (bool): Set by `merge_pull_request`; True when the PR was added to the merge queue.",
+          "        Required - a missing value is treated as a workflow configuration error."
         ],
         "Outputs (saved to ctx.data)": [
           "    verified_pr_info: The pull request object; saved only on the regular merge path (merge_queued falsy).",

@@ -139,7 +139,7 @@ Check whether the pull request's base branch requires a merge queue.
 
 | Name | Type | Description |
 |------|------|-------------|
-| `merge_queue_enabled` | bool \| None | Whether the base branch requires a merge queue, or None when the lookup failed. |
+| `merge_queue_enabled` | bool | None | Whether the base branch requires a merge queue, or None when the lookup failed. |
 | `merge_queue_state` | - | The merge queue state object, when the lookup succeeded. |
 
 **Returns**
