@@ -12,6 +12,7 @@ OPTIONS = {
     "recent_branches": 8,
     "branch_filter_threshold": 8,
     "commit_workflow": "commit-ai",
+    "create_pr_workflow": "create-pr-ai",
     "merge_workflow": "merge-branch",
     "worktrees_refresh_seconds": 120,
 }
@@ -195,6 +196,62 @@ def test_the_merge_action_runs_the_workflow_with_both_branches(mod):
     mod.sections.branches.branches.merge_into(m, "feature/login", "main", OPTIONS)
 
     assert runs == [("merge-branch", {"target_branch": "feature/login", "source_branch": "main"})]
+
+
+def test_the_create_pr_button_runs_the_workflow_titan_would_pick(mod, flatten):
+    """The repo may extend the plugin's workflow: the button runs what the menu entry runs."""
+    from titan_cli.core.mods import ModBus
+
+    runs = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(
+        repaint=lambda mod: None,
+        resolve_workflow=lambda mod, name: "create-pr" if name == "create-pr-ai" else None,
+        run_workflow=lambda mod, name, params: runs.append((name, dict(params))),
+    )
+    m = bus.api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+    m.state.set("open_branch", "feat/x")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    assert "⬈ Create PR" in lines
+
+    # The mod asks by the name it knows; resolving to the repo's own is Titan's job.
+    mod.sections.branches.branches.create_pr(m, OPTIONS)
+    assert runs == [("create-pr-ai", {})]
+
+
+def test_without_a_pr_workflow_there_is_no_create_pr_button(mod, flatten):
+    """Nothing to run (no github plugin, or the option cleared) means nothing to press."""
+    from titan_cli.core.mods import ModBus
+
+    def pane(options):
+        bus = ModBus()
+        bus.host = SimpleNamespace(repaint=lambda mod: None, resolve_workflow=lambda mod, name: None)
+        m = bus.api("git")
+        m.state.set("repo", mod.models.Repo(branch="feat/x"))
+        m.state.set("branches", branches_state(mod, current="feat/x"))
+        m.state.set("open_branch", "feat/x")
+        return flatten(mod.draw.draw(m, 44, options))
+
+    assert "⬈ Create PR" not in pane(OPTIONS)  # the host resolves it to nothing
+    assert "⬈ Create PR" not in pane(dict(OPTIONS, create_pr_workflow=""))
+
+
+def test_only_the_branch_you_are_on_offers_the_create_pr(mod, flatten):
+    """It acts on the checked-out tree, as the pull and the push do."""
+    from titan_cli.core.mods import ModBus
+
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, resolve_workflow=lambda mod, name: name)
+    m = bus.api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+    m.state.set("branches_open", True)
+    m.state.set("open_branch", "feature/login")
+
+    assert "⬈ Create PR" not in flatten(mod.draw.draw(m, 44, OPTIONS))
 
 
 def test_the_branch_you_are_on_sits_above_the_switcher_with_merges_only(mod, flatten):

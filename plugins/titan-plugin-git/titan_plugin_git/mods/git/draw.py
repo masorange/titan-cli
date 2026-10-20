@@ -7,7 +7,7 @@ from titan_plugin_git.operations import filter_branches, merge_sources
 
 from .models import Branches, Repo, Worktrees
 from .sections.branches import branches as branch_actions_api
-from .sections.branches.branches import merge_into, switch_to
+from .sections.branches.branches import create_pr, merge_into, switch_to
 from .sections.worktrees.worktrees import blocked_removal, prune_worktrees, remove_worktree
 
 
@@ -22,15 +22,15 @@ def commit_line(c) -> Text:
                 f" {subject}", Text(f" · {c.formatted_date}", dim=True))
 
 
-def remote_actions(m, branch):
+def remote_actions(m, branch, options):
     """
-    Pull and push for the branch you are on, or the one line saying which of
-    them is running right now.
+    Pull, push and the PR for the branch you are on, or the one line saying
+    which of pull and push is running right now.
 
-    Only the current branch: both act on the checked-out tree, so offering them
-    on another row would move the wrong one. While one is in flight the buttons
-    are gone, so there is nothing to press twice and the card says what it is
-    doing until the toast answers.
+    Only the current branch: they all act on the checked-out tree, so offering
+    them on another row would move the wrong one. While a pull or a push is in
+    flight the buttons are gone, so there is nothing to press twice and the card
+    says what it is doing until the toast answers.
     """
     if not branch.is_current:
         return None
@@ -38,6 +38,10 @@ def remote_actions(m, branch):
     in_flight = branch_actions_api.running(m)
     if in_flight:
         return Text(f"… {branch_actions_api.PROGRESS[in_flight]} origin/{branch.name}", dim=True)
+
+    # The workflow may live in the github plugin or in the repo: ask for the one
+    # that would run, and offer the button only when there is one.
+    pr_workflow = options.get("create_pr_workflow") and m.workflows.resolve(options["create_pr_workflow"])
 
     return [
         Button(
@@ -48,6 +52,11 @@ def remote_actions(m, branch):
         Button(
             f"⇧ Push origin/{branch.name}",
             lambda: branch_actions_api.start_remote(m, "push", branch.name),
+            dim=True,
+        ),
+        pr_workflow and Button(
+            "⬈ Create PR",
+            lambda: create_pr(m, options),
             dim=True,
         ),
     ]
@@ -64,7 +73,7 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
         # the pulls that would overwrite the work and says so in the toast.
         return Box(
             Text("commit or stash to use this branch", dim=True),
-            remote_actions(m, branch),
+            remote_actions(m, branch, options),
             indent=2,
         )
 
@@ -76,7 +85,7 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
 
     return Box(
         switchable and Button("⎇ Switch to it", lambda: m.run(lambda: switch_to(m, branch.name)), dim=True),
-        remote_actions(m, branch),
+        remote_actions(m, branch, options),
         merges and sources and Button(
             f"{'▾' if picking else '▸'} Merge a branch into it…",
             lambda: m.state.set("merge_source_for", None if picking else branch.name),

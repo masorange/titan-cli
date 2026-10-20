@@ -130,6 +130,7 @@ Every hook receives the same `m` for its mod.
 | `m.client(name)` | The client of an installed, enabled plugin (`"git"`, `"github"`, `"jira"`), or `None` |
 | `m.keys.bind(key, description, fn)` | App-wide key in Textual's spelling (`"f5"`, `"ctrl+k"`); refused if Titan or another mod has it, returning `False` |
 | `m.workflows.run(name, params)` | Open a workflow as if the user picked it, with `params` over its own; refused while another runs |
+| `m.workflows.resolve(name)` | The workflow `run(name)` would open (a repo's extension of it, if any), or None when this Titan has none |
 | `m.ai` | See [AI](#ai) |
 | `m.deny(reason)` | The answer for a `step.call` hook that blocks a step |
 | `m.log` | A structured logger bound to the mod |

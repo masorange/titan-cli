@@ -141,6 +141,26 @@ class WorkflowRegistry:
         """
         return [wf.name for wf in self.discover()]
 
+    def effective_name(self, name: str) -> Optional[str]:
+        """
+        The workflow the menu runs for `name`: `name` itself when it is listed,
+        or the workflow that extends it under another name and hides it from the
+        menu (a project "create-pr" over "plugin:github/create-pr-ai"). A
+        same-name override needs no mapping - discover() already picks the
+        project copy. None when nothing runnable derives from `name`: no such
+        workflow, or its plugin is disabled or filtered it out.
+
+        Callers that run a workflow by a fixed name (a mod button, a key) go
+        through this so they run what the person would have picked.
+        """
+        discovered = self.discover()
+        if any(wf.name == name for wf in discovered):
+            return name
+        for wf in discovered:
+            if wf.extends_ref and self._normalize_extends_ref(wf.extends_ref) == name:
+                return wf.name
+        return None
+
     def get_workflow(self, name: str) -> Optional[ParsedWorkflow]:
         """
         Gets a fully parsed and resolved workflow by its name.

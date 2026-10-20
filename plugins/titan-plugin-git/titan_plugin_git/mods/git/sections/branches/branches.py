@@ -119,6 +119,21 @@ def run_remote(m, kind: str, branch: str) -> None:
             refresh()
 
 
+def create_pr(m, options) -> None:
+    """
+    Run the PR workflow for the branch you are on.
+
+    Named by option, resolved through `m.workflows`, so a repo extending the
+    plugin's workflow gets its own run - the same one its menu entry opens. The
+    commit and the push are the workflow's, which is why a dirty tree does not
+    hide the button.
+    """
+    workflow = options.get("create_pr_workflow")
+    if not workflow:
+        return
+    m.workflows.run(workflow)
+
+
 def merge_into(m, target: str, source: str, options) -> None:
     """
     Run the merge workflow: it switches to `target` and merges `source` into it.

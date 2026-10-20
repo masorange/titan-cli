@@ -2,7 +2,7 @@
 name = "git"
 version = "0.5.0"
 icon = "⎇"
-description = "Side panel with the current branch, its pull, push and merges, the latest commits, a switcher for the branches you use most and the worktrees"
+description = "Side panel with the current branch, its pull, push, pull request and merges, the latest commits, a switcher for the branches you use most and the worktrees"
 requires_plugins = ["git"]
 events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
@@ -61,6 +61,12 @@ type = "string"
 title = "Commit workflow"
 description = "Workflow offered when uncommitted changes block a switch; empty for no button."
 default = "commit-ai"
+
+[options.create_pr_workflow]
+type = "string"
+title = "Create PR workflow"
+description = "Workflow the Create PR button runs on the branch you are on; a repo extending it runs instead. Empty for no button."
+default = "create-pr-ai"
 
 [options.merge_workflow]
 type = "string"

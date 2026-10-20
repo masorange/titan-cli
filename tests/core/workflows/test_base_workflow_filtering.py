@@ -290,3 +290,34 @@ class TestDiscoverFiltersBaseWorkflows:
         names = [w.name for w in registry.discover()]
         assert "commit-ai" in names
         assert "play-store-release" in names
+
+
+class TestEffectiveName:
+    """What a caller running a workflow by a fixed name (a mod button, a key) must run."""
+
+    def test_a_listed_workflow_is_its_own_effective_name(self, registry, workflows_dir):
+        create_project_workflow(workflows_dir, "create-pr-ai", {
+            "name": "Create PR",
+            "description": "Standalone",
+            "steps": [{"id": "s1", "command": "echo hi"}],
+        })
+
+        assert registry.effective_name("create-pr-ai") == "create-pr-ai"
+
+    def test_a_renamed_extension_takes_the_base_name_s_place(self, registry, workflows_dir):
+        """The base is hidden from the menu, so running it by name would run the wrong one."""
+        create_project_workflow(workflows_dir, "create-pr-ai", {
+            "name": "Create PR",
+            "description": "Base",
+            "steps": [{"id": "s1", "command": "echo hi"}],
+        })
+        create_project_workflow(workflows_dir, "create-pr", {
+            "name": "Create PR (this repo)",
+            "description": "Extension",
+            "extends": "create-pr-ai",
+        })
+
+        assert registry.effective_name("create-pr-ai") == "create-pr"
+
+    def test_an_unknown_workflow_has_none(self, registry):
+        assert registry.effective_name("create-pr-ai") is None

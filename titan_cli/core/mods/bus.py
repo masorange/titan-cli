@@ -76,6 +76,8 @@ class ModHost(Protocol):
 
     def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]: ...
 
+    def resolve_workflow(self, mod: str, name: str) -> Optional[str]: ...
+
     def unload(self, mod: str) -> None:
         """Drop everything `mod` put on screen or scheduled: timers, keys, panes, badges, its dock tile, its home card."""
         ...
@@ -172,6 +174,9 @@ class _HeadlessHost:
 
     def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]:
         return "there is no screen to run it on"
+
+    def resolve_workflow(self, mod: str, name: str) -> Optional[str]:
+        return None
 
     def unload(self, mod: str) -> None:
         pass
@@ -360,15 +365,24 @@ class _ModWorkflows:
         """
         Open the workflow `name` on its execution screen, as if the person had
         picked it, with `params` over its own params (so a step that reads them
-        skips asking, e.g. `review_pr_number` for `review-pr`). Refused, with a
-        toast, while another workflow runs: the return says whether it opened.
-        Call it from a button or a key.
+        skips asking, e.g. `review_pr_number` for `review-pr`). A project
+        workflow extending `name` under another name runs in its place, exactly
+        as the menu would. Refused, with a toast, while another workflow runs:
+        the return says whether it opened. Call it from a button or a key.
         """
         refusal = self._bus.host.run_workflow(self._mod, name, dict(params or {}))
         if refusal is not None:
             logger.warning("mod_workflow_refused", mod=self._mod, workflow=name, reason=refusal)
             return False
         return True
+
+    def resolve(self, name: str) -> Optional[str]:
+        """
+        The workflow `run(name)` would open - `name`, or the one extending it
+        under another name - or None when this Titan has none. Draw a button
+        that runs a workflow only when this says there is one.
+        """
+        return self._bus.host.resolve_workflow(self._mod, name)
 
 
 class ModAPI:
