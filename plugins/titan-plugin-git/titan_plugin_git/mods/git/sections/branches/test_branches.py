@@ -31,6 +31,7 @@ def bus_for(git):
         repaint=lambda mod: None,
         client=lambda name: git,
         toast=lambda mod, text, severity: toasts.append((text, severity)),
+        run=lambda mod, fn: fn(),  # straight through, so a press is testable without a thread
     )
     return bus.api("git"), toasts
 
@@ -97,57 +98,92 @@ def test_switch_to_reports_a_failed_checkout(mod):
     assert refreshed == [True]  # the pane is redrawn from git either way
 
 
-def test_pull_current_pulls_the_branch_from_origin_and_refreshes(mod):
+def test_a_press_shows_the_progress_until_the_answer_arrives(mod):
+    """The claim is what the card draws its progress line from, and it is released after."""
+    pulled, seen = [], []
+    git = fake_git(pulled=pulled)
+    m, toasts = bus_for(git)
+    m.state.set("refresh", lambda: seen.append(mod.sections.branches.branches.running(m)))
+
+    # m.run is synchronous here, so the claim is observed through the refresh.
+    mod.sections.branches.branches.start_remote(m, "pull", "feature")
+
+    assert pulled == [("origin", "feature")]
+    assert toasts == [("Pulled origin/feature", "information")]
+    assert seen == [None]  # cleared before the card is read again
+    assert mod.sections.branches.branches.running(m) is None
+
+
+def test_a_second_press_while_one_runs_does_nothing(mod):
+    """Two quick presses both saw the branch free; only the first one sends."""
+    pulled = []
+    m, _ = bus_for(fake_git(pulled=pulled))
+    m.state.set("remote_action", "pull")  # one already in flight
+
+    mod.sections.branches.branches.start_remote(m, "pull", "feature")
+
+    assert pulled == []
+    assert mod.sections.branches.branches.running(m) == "pull"
+
+
+def test_pull_pulls_the_branch_from_origin_and_refreshes(mod):
     pulled, refreshed = [], []
     m, toasts = bus_for(fake_git(pulled=pulled))
     m.state.set("refresh", lambda: refreshed.append(True))
 
-    mod.sections.branches.branches.pull_current(m, "feature")
+    mod.sections.branches.branches.run_remote(m, "pull", "feature")
 
     assert pulled == [("origin", "feature")]
     assert toasts == [("Pulled origin/feature", "information")]
     assert refreshed == [True]
 
 
-def test_pull_current_reports_a_refused_pull(mod):
+def test_pull_reports_a_refused_pull(mod):
     """Git refuses a pull over uncommitted work; the card says so instead of hiding it."""
     refreshed = []
     m, toasts = bus_for(fake_git(pull=ClientError(error_message="local changes would be overwritten")))
     m.state.set("refresh", lambda: refreshed.append(True))
 
-    mod.sections.branches.branches.pull_current(m, "feature")
+    mod.sections.branches.branches.run_remote(m, "pull", "feature")
 
     assert toasts == [("Could not pull origin/feature: local changes would be overwritten", "error")]
     assert refreshed == [True]
 
 
-def test_push_current_pushes_the_branch_to_origin_and_refreshes(mod):
-    pushed, refreshed = [], []
+def test_push_pushes_the_branch_to_origin(mod):
+    pushed = []
     m, toasts = bus_for(fake_git(pushed=pushed))
-    m.state.set("refresh", lambda: refreshed.append(True))
 
-    mod.sections.branches.branches.push_current(m, "feature")
+    mod.sections.branches.branches.run_remote(m, "push", "feature")
 
     assert pushed == [("origin", "feature")]
     assert toasts == [("Pushed feature to origin", "information")]
-    assert refreshed == [True]
 
 
-def test_push_current_explains_a_rejected_push_instead_of_forcing_it(mod):
+def test_push_explains_a_rejected_push_instead_of_forcing_it(mod):
     """A force push would drop the remote's commits, so the pane only says so."""
     rejected = "! [rejected] feature -> feature (non-fast-forward)"
     m, toasts = bus_for(fake_git(push=ClientError(error_message=rejected)))
 
-    mod.sections.branches.branches.push_current(m, "feature")
+    mod.sections.branches.branches.run_remote(m, "push", "feature")
 
     (text, severity), = toasts
     assert severity == "error"
     assert rejected in text and "force push by hand" in text
 
 
-def test_push_current_reports_any_other_failure_as_git_worded_it(mod):
+def test_push_reports_any_other_failure_as_git_worded_it(mod):
     m, toasts = bus_for(fake_git(push=ClientError(error_message="fatal: no remote named origin")))
 
-    mod.sections.branches.branches.push_current(m, "feature")
+    mod.sections.branches.branches.run_remote(m, "push", "feature")
 
     assert toasts == [("Could not push feature: fatal: no remote named origin", "error")]
+
+
+def test_a_failure_still_releases_the_claim(mod):
+    """A card stuck on its progress line would need a restart to press again."""
+    m, _ = bus_for(fake_git(push=ClientError(error_message="boom")))
+
+    mod.sections.branches.branches.run_remote(m, "push", "feature")
+
+    assert mod.sections.branches.branches.running(m) is None

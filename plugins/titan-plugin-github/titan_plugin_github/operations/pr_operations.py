@@ -9,7 +9,7 @@ import re
 from dataclasses import replace
 from typing import List
 from titan_cli.core.result import ClientSuccess, ClientError
-from ..models.view import UICommentThread
+from ..models.view import UICommentThread, UIPullRequest
 
 # One section of a Titan-generated general review body, as built by
 # build_review_action_payload: "**path** (line N):\n<body>" (or "General:" when
@@ -18,6 +18,43 @@ _TITAN_BODY_SECTION_RE = re.compile(
     r"^(?:\*\*(?P<path>[^*\n]+)\*\*|General)(?: \(line (?P<line>\d+)\))?:\n(?P<body>.+)$",
     re.DOTALL,
 )
+
+
+def prs_authored_by(prs: List[UIPullRequest], login: str) -> List[UIPullRequest]:
+    """
+    The PRs `login` opened, in the order they were listed.
+
+    Args:
+        prs: The repository's PRs
+        login: GitHub login to match, compared case-insensitively as GitHub does
+
+    Returns:
+        The ones authored by that login; empty when the login is empty
+    """
+    who = (login or "").strip().lower()
+    if not who:
+        return []
+    return [pr for pr in prs if pr.author_name.lower() == who]
+
+
+def prs_awaiting_review_from(prs: List[UIPullRequest], login: str) -> List[UIPullRequest]:
+    """
+    The PRs that have a review request standing for `login`.
+
+    Only requests addressed to the person: GitHub also lists the teams asked to
+    review, and whether the user is in one of them is not in the PR itself.
+
+    Args:
+        prs: The repository's PRs
+        login: GitHub login to match, compared case-insensitively as GitHub does
+
+    Returns:
+        The ones whose requested reviewers include that login; empty when the login is empty
+    """
+    who = (login or "").strip().lower()
+    if not who:
+        return []
+    return [pr for pr in prs if any(r.lower() == who for r in pr.requested_reviewers)]
 
 
 def split_titan_review_body(thread: UICommentThread) -> List[UICommentThread]:

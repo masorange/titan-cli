@@ -355,3 +355,25 @@ def test_the_picker_offers_the_base_branch_first(mod, flatten):
     offered = lines[lines.index("▾ Merge a branch into it…") + 1:]
 
     assert offered[:2] == ["main", "feature/login"]
+
+
+def test_a_running_pull_replaces_the_buttons_with_what_it_is_doing(mod, flatten):
+    """From the press to the toast the card says it is working, and there is nothing to press twice."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+    m.state.set("open_branch", "feat/x")
+    m.state.set("remote_action", "pull")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "… pulling origin/feat/x" in lines
+    assert not any(line.startswith(("⇩ Pull", "⇧ Push")) for line in lines)
+
+    m.state.set("remote_action", "push")
+    assert "… pushing origin/feat/x" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    m.state.set("remote_action", None)
+    assert "⇩ Pull origin/feat/x" in flatten(mod.draw.draw(m, 44, OPTIONS))

@@ -6,7 +6,8 @@ from titan_plugin_git.models.formatting import split_squash_pr_suffix
 from titan_plugin_git.operations import filter_branches, merge_sources
 
 from .models import Branches, Repo, Worktrees
-from .sections.branches.branches import merge_into, pull_current, push_current, switch_to
+from .sections.branches import branches as branch_actions_api
+from .sections.branches.branches import merge_into, switch_to
 from .sections.worktrees.worktrees import blocked_removal, prune_worktrees, remove_worktree
 
 
@@ -21,6 +22,37 @@ def commit_line(c) -> Text:
                 f" {subject}", Text(f" · {c.formatted_date}", dim=True))
 
 
+def remote_actions(m, branch):
+    """
+    Pull and push for the branch you are on, or the one line saying which of
+    them is running right now.
+
+    Only the current branch: both act on the checked-out tree, so offering them
+    on another row would move the wrong one. While one is in flight the buttons
+    are gone, so there is nothing to press twice and the card says what it is
+    doing until the toast answers.
+    """
+    if not branch.is_current:
+        return None
+
+    in_flight = branch_actions_api.running(m)
+    if in_flight:
+        return Text(f"… {branch_actions_api.PROGRESS[in_flight]} origin/{branch.name}", dim=True)
+
+    return [
+        Button(
+            f"⇩ Pull origin/{branch.name}",
+            lambda: branch_actions_api.start_remote(m, "pull", branch.name),
+            dim=True,
+        ),
+        Button(
+            f"⇧ Push origin/{branch.name}",
+            lambda: branch_actions_api.start_remote(m, "push", branch.name),
+            dim=True,
+        ),
+    ]
+
+
 def branch_actions(m, branch, state: Branches, options, switchable: bool = True) -> Box:
     """
     What can be done with a branch, under its unfolded line. The branch you are
@@ -32,16 +64,7 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
         # the pulls that would overwrite the work and says so in the toast.
         return Box(
             Text("commit or stash to use this branch", dim=True),
-            branch.is_current and Button(
-                f"⇩ Pull origin/{branch.name}",
-                lambda: m.run(lambda: pull_current(m, branch.name)),
-                dim=True,
-            ),
-            branch.is_current and Button(
-                f"⇧ Push origin/{branch.name}",
-                lambda: m.run(lambda: push_current(m, branch.name)),
-                dim=True,
-            ),
+            remote_actions(m, branch),
             indent=2,
         )
 
@@ -53,18 +76,7 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
 
     return Box(
         switchable and Button("⎇ Switch to it", lambda: m.run(lambda: switch_to(m, branch.name)), dim=True),
-        # Only the branch you are on: pull and push act on the checked-out tree,
-        # so offering them on another branch would move the wrong one.
-        branch.is_current and Button(
-            f"⇩ Pull origin/{branch.name}",
-            lambda: m.run(lambda: pull_current(m, branch.name)),
-            dim=True,
-        ),
-        branch.is_current and Button(
-            f"⇧ Push origin/{branch.name}",
-            lambda: m.run(lambda: push_current(m, branch.name)),
-            dim=True,
-        ),
+        remote_actions(m, branch),
         merges and sources and Button(
             f"{'▾' if picking else '▸'} Merge a branch into it…",
             lambda: m.state.set("merge_source_for", None if picking else branch.name),

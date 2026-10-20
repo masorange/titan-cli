@@ -1,8 +1,55 @@
-from titan_plugin_github.models.view import UIComment, UICommentThread
+from titan_plugin_github.models.view import UIComment, UICommentThread, UIPullRequest
 from titan_plugin_github.operations.pr_operations import (
     build_quote_reply,
+    prs_authored_by,
+    prs_awaiting_review_from,
     split_titan_review_body,
 )
+
+
+def _pr(number: int, author: str, requested=()) -> UIPullRequest:
+    return UIPullRequest(
+        number=number,
+        title=f"PR {number}",
+        body="",
+        status_icon="🟢",
+        state="OPEN",
+        author_name=author,
+        head_ref="feat/x",
+        base_ref="main",
+        branch_info="feat/x → main",
+        stats="",
+        files_changed=0,
+        is_mergeable=True,
+        is_draft=False,
+        review_summary="",
+        labels=[],
+        formatted_created_at="",
+        formatted_updated_at="",
+        requested_reviewers=list(requested),
+    )
+
+
+def test_prs_authored_by_matches_the_login_ignoring_case():
+    """GitHub treats logins case-insensitively, so a listing may word one either way."""
+    prs = [_pr(1, "finxo"), _pr(2, "someone"), _pr(3, "FinXo")]
+
+    assert [pr.number for pr in prs_authored_by(prs, "finxo")] == [1, 3]
+
+
+def test_prs_authored_by_without_a_login_keeps_nothing():
+    """Nobody to match means nothing is mine - never everything."""
+    assert prs_authored_by([_pr(1, "finxo")], "  ") == []
+
+
+def test_prs_awaiting_review_from_keeps_the_ones_that_asked_me():
+    prs = [_pr(1, "a", requested=["finxo", "other"]), _pr(2, "a", requested=["other"]), _pr(3, "a")]
+
+    assert [pr.number for pr in prs_awaiting_review_from(prs, "FINXO")] == [1]
+
+
+def test_prs_awaiting_review_from_without_a_login_keeps_nothing():
+    assert prs_awaiting_review_from([_pr(1, "a", requested=["finxo"])], "") == []
 
 
 def _general_thread(body: str, comment_id: int = 555) -> UICommentThread:

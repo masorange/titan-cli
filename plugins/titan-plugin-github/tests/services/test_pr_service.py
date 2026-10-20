@@ -640,15 +640,90 @@ def test_get_actions_job_log_zero_tail_returns_nothing(pr_service, mock_gh_netwo
     assert pr_service.get_actions_job_log(42, tail_chars=-5).data == ""
 
 
-def test_list_my_prs_filters_by_author_on_the_server(pr_service, mock_gh_network):
-    """A busy repo's first N PRs are not mine: gh must be asked for mine only"""
+def listing_gh(mock_gh_network, prs, login="finxo"):
+    """`gh api user` answers the login, `gh pr list` the repository's PRs."""
     mock_gh_network.get_repo_arg.return_value = []
-    mock_gh_network.run_command.return_value = "[]"
+
+    def run(args, *rest, **kwargs):
+        return login if args[0] == "api" else json.dumps(prs)
+
+    mock_gh_network.run_command.side_effect = run
+    return mock_gh_network
+
+
+def listed_pr(number, author, requested=()):
+    return {
+        "number": number,
+        "title": f"PR {number}",
+        "author": {"login": author},
+        "reviewRequests": [{"__typename": "User", "login": login} for login in requested],
+        "state": "OPEN",
+    }
+
+
+def test_list_my_prs_keeps_only_the_ones_i_opened(pr_service, mock_gh_network):
+    """Mine are picked out of the repository's listing, whoever else's are in it"""
+    listing_gh(mock_gh_network, [listed_pr(1, "finxo"), listed_pr(2, "someone"), listed_pr(3, "FINXO")])
+
+    result = pr_service.list_my_prs()
+
+    assert [pr.number for pr in result.data] == [1, 3]  # GitHub logins are case-insensitive
+
+
+def test_list_my_prs_never_asks_github_search(pr_service, mock_gh_network):
+    """An org can keep its repositories out of the search index, and a search that
+    cannot see them answers nothing rather than failing - so the listing is plain"""
+    listing_gh(mock_gh_network, [])
 
     pr_service.list_my_prs()
 
     args = mock_gh_network.run_command.call_args.args[0]
-    assert args[args.index("--author") + 1] == "@me"
+    assert "--author" not in args and "--search" not in args
+
+
+def test_list_my_prs_reads_deeper_than_it_returns(pr_service, mock_gh_network):
+    """Asking for exactly N would drop mine behind other people's in a busy repo"""
+    listing_gh(mock_gh_network, [])
+
+    pr_service.list_my_prs(max_results=5)
+
+    args = mock_gh_network.run_command.call_args.args[0]
+    assert int(args[args.index("--limit") + 1]) >= 200
+
+
+def test_list_my_prs_returns_at_most_what_was_asked(pr_service, mock_gh_network):
+    listing_gh(mock_gh_network, [listed_pr(n, "finxo") for n in range(10)])
+
+    assert len(pr_service.list_my_prs(max_results=3).data) == 3
+
+
+def test_list_pending_review_prs_keeps_the_ones_asking_me(pr_service, mock_gh_network):
+    listing_gh(mock_gh_network, [
+        listed_pr(1, "someone", requested=["finxo"]),
+        listed_pr(2, "someone", requested=["other"]),
+        listed_pr(3, "someone"),
+    ])
+
+    result = pr_service.list_pending_review_prs()
+
+    assert [pr.number for pr in result.data] == [1]
+
+
+def test_list_pending_review_prs_never_asks_github_search(pr_service, mock_gh_network):
+    listing_gh(mock_gh_network, [])
+
+    pr_service.list_pending_review_prs()
+
+    assert "--search" not in mock_gh_network.run_command.call_args.args[0]
+
+
+def test_a_listing_that_cannot_name_the_user_is_an_error(pr_service, mock_gh_network):
+    """Without a login there is nobody to filter by, and an empty list would lie"""
+    mock_gh_network.get_repo_arg.return_value = []
+    mock_gh_network.run_command.return_value = "  "
+
+    assert isinstance(pr_service.list_my_prs(), ClientError)
+    assert pr_service.list_pending_review_prs().error_code == "NO_CURRENT_USER"
 
 
 def test_get_actions_job_log_not_found(pr_service, mock_gh_network):

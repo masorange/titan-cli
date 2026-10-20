@@ -87,11 +87,9 @@ class GitHubClient:
         """Get a pull request by number."""
         return self._pr_service.get_pull_request(pr_number)
 
-    def list_pending_review_prs(
-        self, max_results: int = 50, include_team_reviews: bool = False
-    ) -> ClientResult[List[UIPullRequest]]:
-        """List PRs pending your review."""
-        return self._pr_service.list_pending_review_prs(max_results, include_team_reviews)
+    def list_pending_review_prs(self, max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
+        """List the open PRs waiting for your review."""
+        return self._pr_service.list_pending_review_prs(max_results)
 
     def list_my_prs(
         self, state: str = "open", max_results: int = 50
@@ -399,15 +397,7 @@ class GitHubClient:
         Returns:
             ClientResult[str] with GitHub username
         """
-        try:
-            output = self._gh_network.run_command(["api", "user", "-q", ".login"])
-            username = output.strip()
-            return ClientSuccess(data=username, message="Current user retrieved")
-        except Exception as e:
-            return ClientError(
-                error_message=f"Failed to get current user: {e}",
-                error_code="API_ERROR"
-            )
+        return self._pr_service.get_current_user()
 
     def get_user_display_name(self, login: str) -> ClientResult[str]:
         """

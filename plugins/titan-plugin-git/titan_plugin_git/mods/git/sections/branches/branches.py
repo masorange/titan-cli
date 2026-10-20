@@ -1,4 +1,6 @@
-"""The branches to switch to, and the switching itself, through the git plugin client."""
+"""The branches to switch to, the switching itself, and pull/push, through the git plugin client."""
+from typing import Optional
+
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_git.operations import push_rejected_hint, switching_blocked_by
 
@@ -51,52 +53,70 @@ def switch_to(m, branch: str) -> None:
         refresh()
 
 
-def pull_current(m, branch: str) -> None:
-    """
-    Bring `branch` up to date with origin and tell the user how it went.
+# The two remote actions the pane runs on the branch you are on: what it shows
+# while one is in flight, and what the toast says when it ends.
+PROGRESS = {"pull": "pulling", "push": "pushing"}
+DONE = {"pull": "Pulled origin/{branch}", "push": "Pushed {branch} to origin"}
+FAILED = {"pull": "Could not pull origin/{branch}", "push": "Could not push {branch}"}
 
-    Runs off the UI thread (`m.run`), like `switch_to`: the pane is redrawn from
-    the refresh left in `m.state`, after git has been asked again, so a failed
-    pull shows the tree as it really is.
+
+def running(m) -> Optional[str]:
+    """The remote action in flight, `"pull"`, `"push"` or None."""
+    return m.state.get("remote_action")
+
+
+def start_remote(m, kind: str, branch: str) -> None:
+    """
+    Claim the branch and run `kind` on a background thread.
+
+    The button's state is from the last repaint, so two quick presses both saw
+    the branch free: claiming in state here closes that window, and the claim is
+    what the pane draws its progress line from.
+    """
+    claimed = []
+
+    def claim(current):
+        if current:
+            return current
+        claimed.append(True)
+        return kind
+
+    m.state.update("remote_action", claim)
+    if not claimed:
+        return
+    m.run(lambda: run_remote(m, kind, branch))
+
+
+def run_remote(m, kind: str, branch: str) -> None:
+    """
+    Pull or push `branch` against origin and tell the user how it went.
+
+    A refused push is reported as git worded it, with the reason: the pane never
+    forces one, since that would throw the remote's commits away on a press. The
+    claim is released whatever happens, so a failure never leaves the card stuck
+    on its progress line.
     """
     git = m.client("git")
-    if git is None:
-        m.ui.toast("git plugin not available", "error")
-        return
+    try:
+        if git is None:
+            m.ui.toast("git plugin not available", "error")
+            return
 
-    match git.pull("origin", branch):
-        case ClientSuccess():
-            m.ui.toast(f"Pulled origin/{branch}", "information")
-        case ClientError(error_message=err):
-            m.ui.toast(f"Could not pull origin/{branch}: {err}", "error")
-
-    refresh = m.state.get("refresh")
-    if refresh:
-        refresh()
-
-
-def push_current(m, branch: str) -> None:
-    """
-    Push `branch` to origin and tell the user how it went.
-
-    A refused push is reported as git worded it, with the hint: the pane never
-    forces one, since that would throw the remote's commits away on a press.
-    """
-    git = m.client("git")
-    if git is None:
-        m.ui.toast("git plugin not available", "error")
-        return
-
-    match git.push("origin", branch):
-        case ClientSuccess():
-            m.ui.toast(f"Pushed {branch} to origin", "information")
-        case ClientError(error_message=err):
-            hint = push_rejected_hint(err)
-            m.ui.toast(f"Could not push {branch}: {err}" + (f" {hint}" if hint else ""), "error")
-
-    refresh = m.state.get("refresh")
-    if refresh:
-        refresh()
+        result = git.pull("origin", branch) if kind == "pull" else git.push("origin", branch)
+        match result:
+            case ClientSuccess():
+                m.ui.toast(DONE[kind].format(branch=branch), "information")
+            case ClientError(error_message=err):
+                hint = push_rejected_hint(err) if kind == "push" else None
+                message = f"{FAILED[kind].format(branch=branch)}: {err}"
+                m.ui.toast(message + (f" {hint}" if hint else ""), "error")
+    finally:
+        # Cleared before the refresh, so the card goes from the progress line
+        # straight to what git says now, in one repaint.
+        m.state.set("remote_action", None)
+        refresh = m.state.get("refresh")
+        if refresh:
+            refresh()
 
 
 def merge_into(m, target: str, source: str, options) -> None:

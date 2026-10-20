@@ -26,8 +26,18 @@ from ...models.mappers import (
     from_network_pr_file,
     from_network_pr_created,
 )
+from ...operations.pr_operations import prs_authored_by, prs_awaiting_review_from
 from ...exceptions import GitHubAPIError
 from ...messages import msg
+
+# Everything any PR listing shows, asked for once so the three of them answer
+# with the same model whichever one the caller picked.
+PR_LIST_FIELDS = (
+    "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,"
+    "reviewRequests,statusCheckRollup,reviewDecision,mergeable,url"
+)
+# How deep a filtered listing reads before picking, see PRService._scan_limit.
+PR_SCAN_LIMIT = 200
 
 
 class PRService:
@@ -106,64 +116,30 @@ class PRService:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
-    def list_pending_review_prs(
-        self, max_results: int = 50, include_team_reviews: bool = False
-    ) -> ClientResult[List[UIPullRequest]]:
+    def list_pending_review_prs(self, max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
         """
-        List PRs pending your review.
+        List the open PRs waiting for your review.
 
         Args:
             max_results: Maximum number of results
-            include_team_reviews: If True, includes PRs where only your team is requested
 
         Returns:
             ClientResult[List[UIPullRequest]]
         """
-        try:
-            # Get current user
-            user_output = self.gh.run_command(["api", "user", "--jq", ".login"])
-            current_user = user_output.strip()
+        match self.get_current_user():
+            case ClientSuccess(data=login):
+                pass
+            case ClientError() as error:
+                return error
 
-            # Fetch PRs
-            args = [
-                "pr", "list",
-                "--search", f"review-requested:{current_user}",
-                "--state", "open",
-                "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,reviewRequests,statusCheckRollup,reviewDecision,mergeable,url",
-            ] + self.gh.get_repo_arg()
+        match self._list_repo_prs("open", self._scan_limit(max_results)):
+            case ClientSuccess(data=prs):
+                pass
+            case ClientError() as error:
+                return error
 
-            output = self.gh.run_command(args)
-            all_prs = json.loads(output)
-
-            # Filter if needed
-            if not include_team_reviews:
-                filtered_prs = []
-                for pr_data in all_prs:
-                    review_requests = pr_data.get("reviewRequests", [])
-                    if any(req and req.get("login") == current_user for req in review_requests):
-                        filtered_prs.append(pr_data)
-                all_prs = filtered_prs
-
-            # Parse to network models then map to view models
-            ui_prs = []
-            for pr_data in all_prs:
-                rest_pr = NetworkPullRequest.from_json(pr_data)
-                ui_pr = from_rest_pr(rest_pr)
-                ui_prs.append(ui_pr)
-
-            return ClientSuccess(
-                data=ui_prs,
-                message=f"Found {len(ui_prs)} PRs pending review"
-            )
-
-        except json.JSONDecodeError as e:
-            return ClientError(
-                error_message=f"Failed to parse PR list: {e}",
-                error_code="JSON_PARSE_ERROR"
-            )
-        except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+        pending = prs_awaiting_review_from(prs, login)[:max_results]
+        return ClientSuccess(data=pending, message=f"Found {len(pending)} PRs pending review")
 
     @log_client_operation()
     def list_my_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
@@ -177,43 +153,20 @@ class PRService:
         Returns:
             ClientResult[List[UIPullRequest]]
         """
-        try:
-            # Filter by author on the server: a client-side filter over the first
-            # `max_results` PRs of the repo misses mine in a busy repo.
-            args = [
-                "pr", "list",
-                "--author", "@me",
-                "--state", state,
-                "--limit", str(max_results),
-                # latestReviews/reviewRequests/assignees and the size fields come in this
-                # same call: the pane shows who is reviewing without a second round-trip.
-                "--json", "number,title,author,createdAt,updatedAt,labels,isDraft,state,headRefName,baseRefName,"
-                          "statusCheckRollup,reviewDecision,mergeable,url,latestReviews,reviewRequests,assignees,"
-                          "additions,deletions,changedFiles",
-            ] + self.gh.get_repo_arg()
+        match self.get_current_user():
+            case ClientSuccess(data=login):
+                pass
+            case ClientError() as error:
+                return error
 
-            output = self.gh.run_command(args)
-            all_prs = json.loads(output)
+        match self._list_repo_prs(state, self._scan_limit(max_results)):
+            case ClientSuccess(data=prs):
+                pass
+            case ClientError() as error:
+                return error
 
-            # Parse and map
-            ui_prs = []
-            for pr_data in all_prs:
-                rest_pr = NetworkPullRequest.from_json(pr_data)
-                ui_pr = from_rest_pr(rest_pr)
-                ui_prs.append(ui_pr)
-
-            return ClientSuccess(
-                data=ui_prs,
-                message=f"Found {len(ui_prs)} PRs"
-            )
-
-        except json.JSONDecodeError as e:
-            return ClientError(
-                error_message=f"Failed to parse PR list: {e}",
-                error_code="JSON_PARSE_ERROR"
-            )
-        except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+        mine = prs_authored_by(prs, login)[:max_results]
+        return ClientSuccess(data=mine, message=f"Found {len(mine)} PRs")
 
     @log_client_operation()
     def list_all_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
@@ -227,28 +180,61 @@ class PRService:
         Returns:
             ClientResult[List[UIPullRequest]]
         """
+        match self._list_repo_prs(state, max_results):
+            case ClientSuccess(data=prs):
+                return ClientSuccess(data=prs, message=f"Found {len(prs)} PRs")
+            case ClientError() as error:
+                return error
+
+    def get_current_user(self) -> ClientResult[str]:
+        """
+        The login of the authenticated user.
+
+        Returns:
+            ClientResult[str]
+        """
+        try:
+            login = self.gh.run_command(["api", "user", "--jq", ".login"]).strip()
+            if not login:
+                return ClientError(error_message="GitHub returned no login for the current user",
+                                   error_code="NO_CURRENT_USER")
+            return ClientSuccess(data=login, message=login)
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @staticmethod
+    def _scan_limit(max_results: int) -> int:
+        """
+        How many of the repository's PRs to read when the wanted ones are picked
+        out of them afterwards.
+
+        The filters below run on the listing, not on the server, so asking for
+        exactly `max_results` would drop yours behind other people's in a busy
+        repository. `gh` pages the REST endpoint, so a deeper read is more pages,
+        not a different call.
+        """
+        return max(max_results, PR_SCAN_LIMIT)
+
+    def _list_repo_prs(self, state: str, limit: int) -> ClientResult[List[UIPullRequest]]:
+        """
+        The repository's PRs, newest first, as the UI models every listing returns.
+
+        Deliberately a plain repository listing: GitHub's search index is not
+        readable with every token (an org can keep its repositories out of it),
+        and a search that returns nothing looks exactly like a repository with
+        no matching PRs. Listing the repository and filtering here cannot fail
+        that way.
+        """
         try:
             args = [
                 "pr", "list",
                 "--state", state,
-                "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,reviewRequests,headRefName,baseRefName,statusCheckRollup,reviewDecision,url",
+                "--limit", str(limit),
+                "--json", PR_LIST_FIELDS,
             ] + self.gh.get_repo_arg()
 
-            output = self.gh.run_command(args)
-            all_prs = json.loads(output)
-
-            # Parse and map
-            ui_prs = []
-            for pr_data in all_prs:
-                rest_pr = NetworkPullRequest.from_json(pr_data)
-                ui_pr = from_rest_pr(rest_pr)
-                ui_prs.append(ui_pr)
-
-            return ClientSuccess(
-                data=ui_prs,
-                message=f"Found {len(ui_prs)} PRs"
-            )
+            prs = [from_rest_pr(NetworkPullRequest.from_json(data)) for data in json.loads(self.gh.run_command(args))]
+            return ClientSuccess(data=prs, message=f"Found {len(prs)} PRs")
 
         except json.JSONDecodeError as e:
             return ClientError(
