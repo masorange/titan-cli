@@ -70,6 +70,21 @@ client.get_branches(remote=False)
 
 - `remote`: Optional. Set to `True` to list remote branches instead of local ones.
 
+### List recently used branches
+
+Returns local branches ordered by how recently they were worked on: the branches HEAD was switched to come first (read from the reflog), then the rest by the date of their last commit. Each branch carries that date both raw (`last_commit_date`) and ready to show (`formatted_date`, e.g. `"3 d"`).
+
+**Call:**
+
+```python
+client.list_recent_branches(limit=10, reflog_entries=300)
+```
+
+**Parameters:**
+
+- `limit`: Optional. Maximum number of branches to return.
+- `reflog_entries`: Optional. How far back in the reflog to look for checkouts.
+
 ### Create a branch
 
 Creates a new branch from a starting point.
@@ -78,6 +93,23 @@ Creates a new branch from a starting point.
 
 ```python
 client.create_branch(branch_name="feature/search", start_point="HEAD")
+```
+
+**Parameters:**
+
+- `branch_name`: Required. New branch name.
+- `start_point`: Optional. Git ref to branch from.
+
+### Create a branch and switch to it
+
+Creates a branch and checks it out in one `git checkout -b`, so there is no state
+where the branch exists but is not checked out. Uncommitted work is carried over, as
+git always carries it to a branch starting at HEAD.
+
+**Call:**
+
+```python
+client.create_and_switch_branch(branch_name="feature/search", start_point="HEAD")
 ```
 
 **Parameters:**
@@ -1071,23 +1103,33 @@ client.run_in_worktree(worktree_path="../repo-search-worktree", args=["status", 
 
 ### Get recent commits from a worktree
 
-Returns recent commits from a specific worktree.
+Returns recent commits from a specific worktree, in topological order (parents
+after their children).
 
 **Call:**
 
 ```python
 client.get_commits(worktree_path="../repo-search-worktree", limit=10)
+client.get_commits(worktree_path=".", limit=50, all_branches=True)
 ```
 
 **Parameters:**
 
 - `worktree_path`: Required. Worktree path.
 - `limit`: Optional. Maximum number of commits.
+- `all_branches`: Optional. Walk every ref instead of HEAD only, as `git log --all` does.
 
 Each `UIGitCommit` carries `pr_number`: the PR a squash merge landed, from the
 `(#1234)` GitHub appends to its subject (`None` otherwise).
 `models.formatting.split_squash_pr_suffix(subject)` returns the subject
 without it and the number.
+
+It also carries `parents` (full hashes; more than one means a merge) and `refs`
+(the branches and tags pointing at it, with `HEAD -> ` and `tag: ` stripped).
+`operations.build_commit_graph(commits)` turns that list into `UIGitGraphRow`s —
+the lane glyphs of a `git log --graph` drawing, one row per commit plus a link
+row wherever edges fork out — and `operations.graph_lanes(rows)` says how many
+columns they need.
 
 ### Get the worktree diff stat
 

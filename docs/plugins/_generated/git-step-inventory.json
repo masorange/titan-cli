@@ -51,6 +51,10 @@
           "summary": "Checkout a specific branch from workflow context."
         },
         {
+          "name": "switch_branch",
+          "summary": "Switch to one of the recently used local branches, refusing to move with uncommitted work."
+        },
+        {
           "name": "pull",
           "summary": "Update the current branch from the configured remote."
         },
@@ -471,26 +475,28 @@
       "group": "Merging",
       "module": "titan_plugin_git.steps.merge_steps",
       "function": "resolve_merge_target",
-      "summary": "Resolve which branch gets merged and verify the repo is ready for it.",
+      "summary": "Resolve which branch receives the merge and which one is merged into it.",
       "docstring_sections": {
         "Requires": [
           "    ctx.git: An initialized GitClient.",
           "    ctx.textual: The Textual UI context."
         ],
         "Inputs (from ctx.data)": [
+          "    target_branch (str, optional): Branch to merge into (defaults to the current one)",
           "    source_branch (str, optional): Branch to merge (defaults to the configured base branch)",
           "    remote (str, optional): Remote name (default: \"origin\")"
         ],
         "Outputs (saved to ctx.data)": [
           "    source_branch (str): Resolved branch to merge",
-          "    target_branch (str): Branch receiving the merge",
+          "    target_branch (str): Branch receiving the merge, now checked out",
+          "    previous_branch (str): Branch left behind, equal to target_branch when nothing was switched",
           "    remote (str): Remote name",
           "    merge_ref (str): Ref that will be merged, e.g. \"origin/develop\""
         ],
         "Returns": [
-          "    Success: Target resolved",
+          "    Success: Target resolved and checked out",
           "    Exit: Working tree is dirty, nothing was touched",
-          "    Error: Git client unavailable or the branch cannot be resolved"
+          "    Error: Git client unavailable, or the branch cannot be resolved or checked out"
         ]
       },
       "used_by_workflows": [
@@ -573,6 +579,36 @@
       },
       "used_by_workflows": [
         "commit-ai"
+      ]
+    },
+    {
+      "name": "switch_branch",
+      "group": "Branching",
+      "module": "titan_plugin_git.steps.switch_branch_step",
+      "function": "switch_branch",
+      "summary": "Switch to another local branch, with the most recently used offered first.",
+      "docstring_sections": {
+        "Requires": [
+          "    ctx.git: An initialized GitClient.",
+          "    ctx.textual: The Textual UI context."
+        ],
+        "Inputs (from ctx.data)": [
+          "    branch (str, optional): Branch to switch to; asks when absent",
+          "    branch_limit (int, optional): How many branches to offer (default: 10)"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    branch (str): Branch now checked out",
+          "    previous_branch (str): Branch left behind"
+        ],
+        "Returns": [
+          "    Success: Branch switched",
+          "    Skip: Already on that branch, or nothing was chosen",
+          "    Exit: The working tree has uncommitted changes, nothing was touched",
+          "    Error: Git client unavailable, or the branch could not be listed or checked out"
+        ]
+      },
+      "used_by_workflows": [
+        "switch-branch"
       ]
     },
     {

@@ -16,6 +16,7 @@ from ...models.view.branch import UIGitBranch
 from ...models.mappers import from_network_branch
 from ...exceptions import GitCommandError
 from ...messages import msg
+from ...operations.branch_operations import order_branches_by_use, parse_checkout_targets
 
 
 class BranchService:
@@ -111,6 +112,65 @@ class BranchService:
             return ClientError(error_message=str(e), error_code="BRANCH_LIST_ERROR")
 
     @log_client_operation()
+    def list_recent_branches(
+        self, limit: int = 10, reflog_entries: int = 300
+    ) -> ClientResult[List[UIGitBranch]]:
+        """
+        Local branches ordered by how recently they were worked on.
+
+        The reflog gives the real order of use (which branches you switched to),
+        and the date of the last commit orders the ones it does not mention and
+        is what each branch shows. One `for-each-ref` and one `reflog`, both local.
+
+        Args:
+            limit: Maximum number of branches to return
+            reflog_entries: How far back in the reflog to look for checkouts
+
+        Returns:
+            ClientResult[List[UIGitBranch]] ordered most recently used first
+        """
+        try:
+            output = self.git.run_command([
+                "git", "for-each-ref",
+                "--sort=-committerdate",
+                "--format=%(refname:short)%09%(HEAD)%09%(upstream:short)%09%(committerdate:iso-strict)",
+                "refs/heads",
+            ])
+
+            branches = []
+            for line in output.splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                name = parts[0].strip()
+                if not name:
+                    continue
+                head = parts[1].strip() if len(parts) > 1 else ""
+                upstream = parts[2].strip() if len(parts) > 2 else ""
+                committed = parts[3].strip() if len(parts) > 3 else ""
+                branches.append(from_network_branch(NetworkGitBranch(
+                    name=name,
+                    is_current=head == "*",
+                    is_remote=False,
+                    upstream=upstream or None,
+                    last_commit_date=committed or None,
+                )))
+
+            # A repo with no reflog (a fresh clone) just keeps the date order.
+            reflog = self.git.run_command(
+                ["git", "reflog", f"-n{reflog_entries}", "--format=%gs"], check=False
+            )
+            ordered = order_branches_by_use(branches, parse_checkout_targets(reflog), limit)
+
+            return ClientSuccess(
+                data=ordered,
+                message=f"Found {len(ordered)} recent branches"
+            )
+
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="BRANCH_LIST_ERROR")
+
+    @log_client_operation()
     def create_branch(
         self, branch_name: str, start_point: str = "HEAD"
     ) -> ClientResult[None]:
@@ -129,6 +189,33 @@ class BranchService:
             return ClientSuccess(
                 data=None,
                 message=f"Branch '{branch_name}' created"
+            )
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="BRANCH_CREATE_ERROR")
+
+    @log_client_operation()
+    def create_and_switch(
+        self, branch_name: str, start_point: str = "HEAD"
+    ) -> ClientResult[None]:
+        """
+        Create a branch and switch to it in one git call.
+
+        `git checkout -b` leaves no half state: either the branch exists and is
+        checked out, or nothing changed. Uncommitted work is carried over, as
+        git always carries it to a branch starting at HEAD.
+
+        Args:
+            branch_name: Name for new branch
+            start_point: Starting point (commit/branch)
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            self.git.run_command(["git", "checkout", "-b", branch_name, start_point])
+            return ClientSuccess(
+                data=None,
+                message=f"Branch '{branch_name}' created and checked out"
             )
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="BRANCH_CREATE_ERROR")

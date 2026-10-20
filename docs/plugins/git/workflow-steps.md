@@ -26,6 +26,7 @@ For full contract details for every public step, including documented inputs, ou
 | `save_current_branch` | Branching | - |
 | `restore_original_branch` | Branching | - |
 | `checkout` | Branching | - |
+| `switch_branch` | Branching | `switch-branch` |
 | `pull` | Branching | - |
 | `create_branch` | Branching | - |
 | `resolve_merge_target` | Merging | `merge-branch` |
@@ -62,6 +63,7 @@ Use these steps to switch, create, and restore branches during a workflow.
 - `save_current_branch`: save the current branch in workflow context
 - `restore_original_branch`: restore the saved branch later in the workflow
 - `checkout`: switch to a branch from workflow context or params
+- `switch_branch`: pick one of the recently used branches and switch to it, refusing to move with uncommitted work
 - `pull`: update the current branch from the configured remote
 - `create_branch`: create a new branch from workflow-provided branch data
 
@@ -434,6 +436,51 @@ How to read these contracts:
     | `Error` | - | Git operation failed |
 
 
+??? info "`switch_branch`"
+    Switch to another local branch, with the most recently used offered first.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: git
+      step: switch_branch
+    ```
+
+    **Used by built-in workflows:** `switch-branch`
+
+    **Available to later steps:** `branch`, `previous_branch`
+
+    **Requires**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `ctx.git` | - | An initialized GitClient. |
+    | `ctx.textual` | - | The Textual UI context. |
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `branch` | str, optional | Branch to switch to; asks when absent |
+    | `branch_limit` | int, optional | How many branches to offer (default: 10) |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `branch` | str | Branch now checked out |
+    | `previous_branch` | str | Branch left behind |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `branch`, `previous_branch` | Branch switched |
+    | `Skip` | `branch`, `previous_branch` | Already on that branch, or nothing was chosen |
+    | `Exit` | - | The working tree has uncommitted changes, nothing was touched |
+    | `Error` | - | Git client unavailable, or the branch could not be listed or checked out |
+
+
 ??? info "`pull`"
     Pull from Git remote.
 
@@ -497,7 +544,7 @@ How to read these contracts:
 ### Merging
 
 ??? info "`resolve_merge_target`"
-    Resolve which branch gets merged and verify the repo is ready for it.
+    Resolve which branch receives the merge and which one is merged into it.
 
     **Workflow usage**
 
@@ -508,7 +555,7 @@ How to read these contracts:
 
     **Used by built-in workflows:** `merge-branch`
 
-    **Available to later steps:** `source_branch`, `target_branch`, `remote`, `merge_ref`
+    **Available to later steps:** `source_branch`, `target_branch`, `previous_branch`, `remote`, `merge_ref`
 
     **Requires**
 
@@ -521,6 +568,7 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
+    | `target_branch` | str, optional | Branch to merge into (defaults to the current one) |
     | `source_branch` | str, optional | Branch to merge (defaults to the configured base branch) |
     | `remote` | str, optional | Remote name (default: "origin") |
 
@@ -529,7 +577,8 @@ How to read these contracts:
     | Name | Type | Description |
     |------|------|-------------|
     | `source_branch` | str | Resolved branch to merge |
-    | `target_branch` | str | Branch receiving the merge |
+    | `target_branch` | str | Branch receiving the merge, now checked out |
+    | `previous_branch` | str | Branch left behind, equal to target_branch when nothing was switched |
     | `remote` | str | Remote name |
     | `merge_ref` | str | Ref that will be merged, e.g. "origin/develop" |
 
@@ -537,9 +586,9 @@ How to read these contracts:
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `source_branch`, `target_branch`, `remote`, `merge_ref` | Target resolved |
+    | `Success` | `source_branch`, `target_branch`, `previous_branch`, `remote`, `merge_ref` | Target resolved and checked out |
     | `Exit` | - | Working tree is dirty, nothing was touched |
-    | `Error` | - | Git client unavailable or the branch cannot be resolved |
+    | `Error` | - | Git client unavailable, or the branch cannot be resolved or checked out |
 
 
 ??? info "`fetch_merge_source`"

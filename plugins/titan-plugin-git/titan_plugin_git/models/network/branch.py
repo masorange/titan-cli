@@ -15,3 +15,4 @@ class NetworkGitBranch:
     is_current: bool = False
     is_remote: bool = False
     upstream: Optional[str] = None
+    last_commit_date: Optional[str] = None  # ISO 8601, as `git for-each-ref` prints it

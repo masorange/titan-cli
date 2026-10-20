@@ -90,12 +90,26 @@ class Button:
     drawn as Titan's own button, for something that does work such as running a
     workflow; without one it reads as a line of the pane, right for a fold or a
     picker.
+
+    `label` is a string, or a `Text` when parts of the line need their own style
+    (a name plain and its date dim, say). A button with a `variant` is drawn by
+    Titan's own button widget, which takes a plain label: a `Text` there is
+    flattened to its words.
     """
 
-    label: str
+    label: Union[str, "Text"]
     on_press: Callable[[], None]
     dim: bool = False
     variant: Optional[str] = None
+
+
+def plain(label) -> str:
+    """A label's words without any styling: what a plain-string widget and a log line get."""
+    if isinstance(label, Text):
+        return "".join(plain(part) for part in label.parts)
+    if isinstance(label, Link):
+        return label.label
+    return str(label)
 
 
 @dataclass(frozen=True)

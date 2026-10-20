@@ -1,7 +1,10 @@
 name: "Merge Branch"
-description: "Merge a branch (or the base branch) into the current one, with AI-assisted conflict resolution and an optional push"
+description: "Merge a branch (or the base branch) into another one (or the current one), with AI-assisted conflict resolution and an optional push"
 
 params:
+  # The branch the merge lands on. Empty means the one already checked out;
+  # anything else is checked out first, once the merge is known to be possible.
+  target_branch: ""
   # Empty means "use the base branch configured for the project".
   # Override it with `extends` + params, or from a step injected in before_merge.
   source_branch: ""
@@ -22,7 +25,7 @@ steps:
   - hook: before_merge
 
   - id: resolve_target
-    name: "Resolve Merge Target"
+    name: "Resolve Merge Target"  # switches to target_branch when one is given
     plugin: git
     step: resolve_merge_target
 

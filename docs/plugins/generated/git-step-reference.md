@@ -359,6 +359,57 @@ Checkout a Git branch.
 | `Success` | - | Branch checked out successfully |
 | `Error` | - | Git operation failed |
 
+### `switch_branch`
+
+Switch to another local branch, with the most recently used offered first.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: git
+  step: switch_branch
+```
+
+**Used by built-in workflows:** `switch-branch`
+
+**Available to later steps:** `branch`, `previous_branch`
+
+**Requires**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `ctx.git` | - | An initialized GitClient. |
+| `ctx.textual` | - | The Textual UI context. |
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `branch` | str, optional | Branch to switch to; asks when absent |
+| `branch_limit` | int, optional | How many branches to offer (default: 10) |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `branch` | str | Branch now checked out |
+| `previous_branch` | str | Branch left behind |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `branch`, `previous_branch` | Branch switched |
+| `Skip` | `branch`, `previous_branch` | Already on that branch, or nothing was chosen |
+| `Exit` | - | The working tree has uncommitted changes, nothing was touched |
+| `Error` | - | Git client unavailable, or the branch could not be listed or checked out |
+
 ### `pull`
 
 Pull from Git remote.
@@ -427,7 +478,7 @@ Create a new Git branch.
 
 ### `resolve_merge_target`
 
-Resolve which branch gets merged and verify the repo is ready for it.
+Resolve which branch receives the merge and which one is merged into it.
 
 **How to read this contract**
 
@@ -444,7 +495,7 @@ Resolve which branch gets merged and verify the repo is ready for it.
 
 **Used by built-in workflows:** `merge-branch`
 
-**Available to later steps:** `source_branch`, `target_branch`, `remote`, `merge_ref`
+**Available to later steps:** `source_branch`, `target_branch`, `previous_branch`, `remote`, `merge_ref`
 
 **Requires**
 
@@ -457,6 +508,7 @@ Resolve which branch gets merged and verify the repo is ready for it.
 
 | Name | Type | Description |
 |------|------|-------------|
+| `target_branch` | str, optional | Branch to merge into (defaults to the current one) |
 | `source_branch` | str, optional | Branch to merge (defaults to the configured base branch) |
 | `remote` | str, optional | Remote name (default: "origin") |
 
@@ -465,7 +517,8 @@ Resolve which branch gets merged and verify the repo is ready for it.
 | Name | Type | Description |
 |------|------|-------------|
 | `source_branch` | str | Resolved branch to merge |
-| `target_branch` | str | Branch receiving the merge |
+| `target_branch` | str | Branch receiving the merge, now checked out |
+| `previous_branch` | str | Branch left behind, equal to target_branch when nothing was switched |
 | `remote` | str | Remote name |
 | `merge_ref` | str | Ref that will be merged, e.g. "origin/develop" |
 
@@ -473,9 +526,9 @@ Resolve which branch gets merged and verify the repo is ready for it.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `source_branch`, `target_branch`, `remote`, `merge_ref` | Target resolved |
+| `Success` | `source_branch`, `target_branch`, `previous_branch`, `remote`, `merge_ref` | Target resolved and checked out |
 | `Exit` | - | Working tree is dirty, nothing was touched |
-| `Error` | - | Git client unavailable or the branch cannot be resolved |
+| `Error` | - | Git client unavailable, or the branch cannot be resolved or checked out |
 
 ### `fetch_merge_source`
 

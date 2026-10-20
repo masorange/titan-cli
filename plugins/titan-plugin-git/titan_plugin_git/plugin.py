@@ -110,6 +110,7 @@ class GitPlugin(TitanPlugin):
         from .steps.save_current_branch_step import save_current_branch_step
         from .steps.restore_original_branch_step import restore_original_branch_step
         from .steps.checkout_step import checkout_branch_step
+        from .steps.switch_branch_step import switch_branch
         from .steps.pull_step import pull_step
         from .steps.create_branch_step import create_branch_step
         from .steps.create_worktree_step import create_worktree
@@ -134,6 +135,7 @@ class GitPlugin(TitanPlugin):
             "save_current_branch": save_current_branch_step,
             "restore_original_branch": restore_original_branch_step,
             "checkout": checkout_branch_step,
+            "switch_branch": switch_branch,
             "pull": pull_step,
             "create_branch": create_branch_step,
             # Merge operations
