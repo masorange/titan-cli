@@ -1,5 +1,5 @@
 """
-Log Parsing and Analysis Operations
+Log Session Parsing and Analysis
 
 Pure business logic for reading titan structured log files.
 
@@ -579,10 +579,10 @@ def analyze_session(session: LogSession) -> SessionAnalysis:
 
     slow_ops = [
         e for e in session.entries
-        if e.event not in ENGINE_TIMELINE_EVENTS and _duration_of(e) is not None
-        and _duration_of(e) >= SLOW_THRESHOLD_SECONDS
+        if e.event not in ENGINE_TIMELINE_EVENTS and duration_of(e) is not None
+        and duration_of(e) >= SLOW_THRESHOLD_SECONDS
     ]
-    slow_ops.sort(key=lambda e: _duration_of(e) or 0.0, reverse=True)
+    slow_ops.sort(key=lambda e: duration_of(e) or 0.0, reverse=True)
 
     failed_steps = [step for run in workflows for step in run.steps if step.suspect]
 
@@ -831,7 +831,7 @@ def _close(
     return run
 
 
-def _duration_of(entry: LogEntry) -> Optional[float]:
+def duration_of(entry: LogEntry) -> Optional[float]:
     value = entry.raw.get("duration")
     return float(value) if isinstance(value, (int, float)) else None
 
@@ -1212,7 +1212,7 @@ def build_session_evidence(analysis: SessionAnalysis, *, max_chars: int = 14000)
         lines.append(f"### Operations slower than {SLOW_THRESHOLD_SECONDS}s")
         for entry in analysis.slow_ops[:15]:
             context = entry.raw.get("workflow") or entry.raw.get("step_id") or ""
-            lines.append(f"- {format_duration(_duration_of(entry))}  {entry.event}  {context}")
+            lines.append(f"- {format_duration(duration_of(entry))}  {entry.event}  {context}")
 
     evidence = "\n".join(lines)
     if len(evidence) > max_chars:

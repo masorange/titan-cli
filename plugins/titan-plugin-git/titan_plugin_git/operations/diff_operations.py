@@ -13,14 +13,50 @@ from typing import List, Tuple
 #   titan_cli/core/{models.py => models/__init__.py}  →  titan_cli/core/models/__init__.py
 #   {old_dir => new_dir}/file.py                      →  new_dir/file.py
 _RENAME_PATTERN = re.compile(r'^(.*?)\{[^}]*\s*=>\s*([^}]*)\}(.*)$')
+_BRACED_RENAME_PATTERN = re.compile(r'^(.*?)\{([^}]*)\s*=>\s*([^}]*)\}(.*)$')
+# A rename between paths that share no prefix and no suffix: git writes it whole,
+# with no braces at all ("a/old.py => b/new.py"). Taking only the braced form as a
+# rename made the commit step pass that entire string to `git commit` as a path.
+_WHOLE_RENAME_PATTERN = re.compile(r'^(?P<old>[^{}]+?)\s+=>\s+(?P<new>[^{}]+)$')
+
+
+def rename_paths(path: str) -> List[str]:
+    """
+    The real file paths behind a `git diff --stat` entry.
+
+    Returns both sides of a rename, old first, because both have to be committed:
+    staging only the new path records the addition and leaves the deletion of the
+    old one behind in the working tree. A path that is not a rename comes back on
+    its own.
+
+    Args:
+        path: A file path as `git diff --stat` writes it.
+
+    Returns:
+        `[path]`, or `[old_path, new_path]` for a rename in either of git's two
+        spellings: `core/{models.py => models/__init__.py}` when the paths share a
+        prefix or suffix, `a/old.py => b/new.py` when they share nothing.
+    """
+    braced = _BRACED_RENAME_PATTERN.match(path)
+    if braced:
+        prefix, old_part, new_part, suffix = braced.groups()
+        return [
+            (prefix + old_part.strip() + suffix).replace("//", "/"),
+            (prefix + new_part.strip() + suffix).replace("//", "/"),
+        ]
+    whole = _WHOLE_RENAME_PATTERN.match(path)
+    if whole:
+        return [whole.group("old").strip(), whole.group("new").strip()]
+    return [path]
 
 
 def expand_rename_path(path: str) -> str:
     """
     Expand a git rename notation path to the actual new file path.
 
-    Git diff --stat uses {old => new} notation for renames.
-    This function converts it to a real file path usable by git add.
+    Git diff --stat writes a rename as `{old => new}`, or as `old => new` when the
+    two paths share nothing. This function converts either to a real file path
+    usable by git add.
 
     Args:
         path: A file path, possibly containing git rename notation.
@@ -29,11 +65,7 @@ def expand_rename_path(path: str) -> str:
         Expanded path with the rename resolved to the new name.
         If no rename notation is present, returns the path unchanged.
     """
-    match = _RENAME_PATTERN.match(path)
-    if not match:
-        return path
-    prefix, new_part, suffix = match.groups()
-    return prefix + new_part.strip() + suffix
+    return rename_paths(path)[-1]
 
 
 def parse_diff_stat_output(stat_output: str) -> Tuple[List[Tuple[str, str]], List[str]]:
@@ -184,6 +216,7 @@ def format_diff_stat_display(stat_output: str) -> Tuple[List[str], List[str]]:
 __all__ = [
     "parse_diff_stat_output",
     "expand_rename_path",
+    "rename_paths",
     "get_max_filename_length",
     "colorize_diff_stats",
     "colorize_diff_summary",

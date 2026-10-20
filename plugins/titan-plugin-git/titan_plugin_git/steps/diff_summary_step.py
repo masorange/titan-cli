@@ -3,7 +3,7 @@ from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Sk
 from titan_cli.core.result import ClientSuccess, ClientError
 from titan_cli.ui.tui.widgets import SelectionOption
 from titan_plugin_git.messages import msg
-from ..operations import parse_diff_stat_output, expand_rename_path, colorize_diff_stats, colorize_diff_summary, format_diff_stat_display
+from ..operations import parse_diff_stat_output, expand_rename_path, rename_paths, colorize_diff_stats, colorize_diff_summary, format_diff_stat_display
 
 
 def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
@@ -40,6 +40,11 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
 
             if file_lines:
                 max_len = max(len(filename) for filename, _ in file_lines)
+                # The option's value is the new path; what a rename has to commit is
+                # both sides of it, and what the recap below prints is the line the
+                # stat wrote. Both are looked up from the value the user chose.
+                paths = {expand_rename_path(filename): rename_paths(filename) for filename, _ in file_lines}
+                shown = {expand_rename_path(filename): filename for filename, _ in file_lines}
                 options = [
                     SelectionOption(
                         value=expand_rename_path(filename),
@@ -59,10 +64,12 @@ def show_uncommitted_diff_summary(ctx: WorkflowContext) -> WorkflowResult:
                     ctx.textual.end_step("skip")
                     return Exit("No files selected for commit")
 
-                ctx.data["selected_files"] = selected
+                ctx.data["selected_files"] = [
+                    path for value in selected for path in paths.get(value, [value])
+                ]
 
                 # Show what was selected
-                selected_set = set(selected)
+                selected_set = {shown.get(value, value) for value in selected}
                 selected_lines = [(f, s) for f, s in file_lines if f in selected_set]
                 formatted_selected = [
                     f"{f.ljust(max_len)} |{colorize_diff_stats(s)}"
