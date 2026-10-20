@@ -1,6 +1,6 @@
 """The branches to switch to, and the switching itself, through the git plugin client."""
 from titan_cli.core.result import ClientError, ClientSuccess
-from titan_plugin_git.operations import switching_blocked_by
+from titan_plugin_git.operations import push_rejected_hint, switching_blocked_by
 
 from ...models import Branches
 
@@ -69,6 +69,30 @@ def pull_current(m, branch: str) -> None:
             m.ui.toast(f"Pulled origin/{branch}", "information")
         case ClientError(error_message=err):
             m.ui.toast(f"Could not pull origin/{branch}: {err}", "error")
+
+    refresh = m.state.get("refresh")
+    if refresh:
+        refresh()
+
+
+def push_current(m, branch: str) -> None:
+    """
+    Push `branch` to origin and tell the user how it went.
+
+    A refused push is reported as git worded it, with the hint: the pane never
+    forces one, since that would throw the remote's commits away on a press.
+    """
+    git = m.client("git")
+    if git is None:
+        m.ui.toast("git plugin not available", "error")
+        return
+
+    match git.push("origin", branch):
+        case ClientSuccess():
+            m.ui.toast(f"Pushed {branch} to origin", "information")
+        case ClientError(error_message=err):
+            hint = push_rejected_hint(err)
+            m.ui.toast(f"Could not push {branch}: {err}" + (f" {hint}" if hint else ""), "error")
 
     refresh = m.state.get("refresh")
     if refresh:

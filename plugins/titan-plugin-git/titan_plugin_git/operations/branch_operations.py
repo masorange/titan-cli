@@ -169,6 +169,56 @@ def filter_branches(branches: Sequence[UIGitBranch], query: str) -> List[UIGitBr
     return [b for b in branches if needle in b.name.lower()]
 
 
+def merge_sources(
+    branches: Sequence[UIGitBranch], target: str, main_branch: str
+) -> List[UIGitBranch]:
+    """
+    The branches that can be merged into `target`, the project's base branch first.
+
+    Merging the base branch in is by far the common case, so it leads the list
+    instead of waiting for its turn in recency order. `target` itself is left
+    out: a branch cannot be merged into itself.
+
+    Args:
+        branches: Branches to choose from, in the order they were read
+        target: Branch receiving the merge
+        main_branch: The project's configured base branch, "" when there is none
+
+    Returns:
+        The candidates, base branch first, the rest in the given order
+    """
+    candidates = [b for b in branches if b.name != target]
+    main = (main_branch or "").strip()
+    if not main:
+        return candidates
+    return (
+        [b for b in candidates if b.name == main]
+        + [b for b in candidates if b.name != main]
+    )
+
+
+def push_rejected_hint(error: str) -> Optional[str]:
+    """
+    What to tell the user when git refused a push, or None when it failed for
+    another reason.
+
+    A rejected push means the remote has commits the local branch does not, so
+    only a force push would land it - and that throws the remote's commits away.
+    The pane never runs one: it says so and leaves the call to the user.
+
+    Args:
+        error: The message git printed
+
+    Returns:
+        A one-line hint, or None when the refusal was not a rejection
+    """
+    lowered = (error or "").lower()
+    rejected = "rejected" in lowered or "non-fast-forward" in lowered or "fetch first" in lowered
+    if not rejected:
+        return None
+    return "The remote has commits yours does not - pull first, or force push by hand if you mean to replace them."
+
+
 def switching_blocked_by(status: UIGitStatus) -> Optional[str]:
     """
     Why the working tree cannot be left behind, or None when switching is safe.

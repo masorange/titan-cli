@@ -155,8 +155,9 @@ def test_uncommitted_work_leaves_a_branch_with_no_actions(mod, flatten):
     assert "⎇ Switch to it" not in lines and not any("Merge" in line for line in lines)
 
 
+
 def test_a_branch_unfolds_into_its_actions(mod, flatten):
-    """Switching, merging the configured base branch, and picking another source."""
+    """Switching, and the picker of branches to merge in."""
     from titan_cli.core.mods import ModBus
 
     m = ModBus().api("git")
@@ -172,15 +173,14 @@ def test_a_branch_unfolds_into_its_actions(mod, flatten):
 
     assert "▾ feature/login · 2 d" in lines
     assert "⎇ Switch to it" in lines
-    assert "⤵ Merge main into it" in lines  # the plugin's configured base branch
-    assert "▸ Merge another branch…" in lines
-    assert "main" not in lines[lines.index("▸ Merge another branch…") + 1:]  # the picker is closed
+    assert "▸ Merge a branch into it…" in lines
+    assert "main" not in lines[lines.index("▸ Merge a branch into it…") + 1:]  # the picker is closed
 
     m.state.set("merge_source_for", "feature/login")
     picking = flatten(mod.draw.draw(m, 44, OPTIONS))
 
-    assert "▾ Merge another branch…" in picking
-    assert "main" in picking[picking.index("▾ Merge another branch…") + 1:]
+    assert "▾ Merge a branch into it…" in picking
+    assert "main" in picking[picking.index("▾ Merge a branch into it…") + 1:]
 
 
 def test_the_merge_action_runs_the_workflow_with_both_branches(mod):
@@ -212,13 +212,13 @@ def test_the_branch_you_are_on_sits_above_the_switcher_with_merges_only(mod, fla
     m.state.set("open_branch", "feat/x")
     opened = flatten(mod.draw.draw(m, 44, OPTIONS))
 
-    assert "⤵ Merge main into it" in opened and "▸ Merge another branch…" in opened
-    assert "⇩ Pull origin/feat/x" in opened
+    assert "▸ Merge a branch into it…" in opened
+    assert "⇩ Pull origin/feat/x" in opened and "⇧ Push origin/feat/x" in opened
     assert "⎇ Switch to it" not in opened
 
 
-def test_only_the_branch_you_are_on_offers_the_pull(mod, flatten):
-    """`git pull` updates the checked-out tree, so no other row may offer it."""
+def test_only_the_branch_you_are_on_offers_the_pull_and_push(mod, flatten):
+    """Both act on the checked-out tree, so no other row may offer them."""
     from titan_cli.core.mods import ModBus
 
     m = ModBus().api("git")
@@ -230,11 +230,11 @@ def test_only_the_branch_you_are_on_offers_the_pull(mod, flatten):
     lines = flatten(mod.draw.draw(m, 44, OPTIONS))
 
     assert "⎇ Switch to it" in lines
-    assert not any(line.startswith("⇩ Pull") for line in lines)
+    assert not any(line.startswith(("⇩ Pull", "⇧ Push")) for line in lines)
 
 
-def test_uncommitted_work_still_lets_you_pull_the_branch_you_are_on(mod, flatten):
-    """A switch is refused, but git decides for itself whether a pull is safe."""
+def test_uncommitted_work_still_lets_you_pull_and_push_the_branch_you_are_on(mod, flatten):
+    """A switch is refused, but a push only sends commits and git judges the pull itself."""
     from titan_cli.core.mods import ModBus
 
     m = ModBus().api("git")
@@ -246,7 +246,7 @@ def test_uncommitted_work_still_lets_you_pull_the_branch_you_are_on(mod, flatten
     lines = flatten(mod.draw.draw(m, 44, OPTIONS))
 
     assert "commit or stash to use this branch" in lines
-    assert "⇩ Pull origin/feat/x" in lines
+    assert "⇩ Pull origin/feat/x" in lines and "⇧ Push origin/feat/x" in lines
 
 
 def test_each_card_can_be_turned_off_on_its_own(mod, flatten):
@@ -334,3 +334,24 @@ def test_the_main_worktree_offers_no_removal(mod, flatten):
 
     assert "Cannot be removed: the main worktree" in lines
     assert "✗ Remove worktree" not in lines
+
+
+def test_the_picker_offers_the_base_branch_first(mod, flatten):
+    """The usual merge is the base branch, so it is the first press, not a second button."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", mod.models.Branches(
+        items=[SimpleNamespace(name=n, is_current=n == "feat/x", formatted_date="2 d")
+               for n in ("feat/x", "feature/login", "main")],
+        current="feat/x",
+        main_branch="main",
+    ))
+    m.state.set("open_branch", "feat/x")
+    m.state.set("merge_source_for", "feat/x")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    offered = lines[lines.index("▾ Merge a branch into it…") + 1:]
+
+    assert offered[:2] == ["main", "feature/login"]

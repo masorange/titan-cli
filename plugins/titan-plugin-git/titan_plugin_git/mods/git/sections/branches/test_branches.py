@@ -8,7 +8,7 @@ def branch(name, current=False):
     return SimpleNamespace(name=name, is_current=current, formatted_date="2 d", upstream_info="")
 
 
-def fake_git(status=None, branches=(), checkout=None, pull=None, pulled=None):
+def fake_git(status=None, branches=(), checkout=None, pull=None, pulled=None, push=None, pushed=None):
     return SimpleNamespace(
         get_status=lambda: ClientSuccess(data=status or SimpleNamespace(
             branch="feature", modified_files=[], staged_files=[], untracked_files=[])),
@@ -16,6 +16,8 @@ def fake_git(status=None, branches=(), checkout=None, pull=None, pulled=None):
         checkout=lambda name: checkout or ClientSuccess(data=None),
         pull=lambda remote, branch: (pulled is not None and pulled.append((remote, branch)),
                                      pull or ClientSuccess(data=None))[1],
+        push=lambda remote, branch: (pushed is not None and pushed.append((remote, branch)),
+                                     push or ClientSuccess(data=None))[1],
     )
 
 
@@ -117,3 +119,35 @@ def test_pull_current_reports_a_refused_pull(mod):
 
     assert toasts == [("Could not pull origin/feature: local changes would be overwritten", "error")]
     assert refreshed == [True]
+
+
+def test_push_current_pushes_the_branch_to_origin_and_refreshes(mod):
+    pushed, refreshed = [], []
+    m, toasts = bus_for(fake_git(pushed=pushed))
+    m.state.set("refresh", lambda: refreshed.append(True))
+
+    mod.sections.branches.branches.push_current(m, "feature")
+
+    assert pushed == [("origin", "feature")]
+    assert toasts == [("Pushed feature to origin", "information")]
+    assert refreshed == [True]
+
+
+def test_push_current_explains_a_rejected_push_instead_of_forcing_it(mod):
+    """A force push would drop the remote's commits, so the pane only says so."""
+    rejected = "! [rejected] feature -> feature (non-fast-forward)"
+    m, toasts = bus_for(fake_git(push=ClientError(error_message=rejected)))
+
+    mod.sections.branches.branches.push_current(m, "feature")
+
+    (text, severity), = toasts
+    assert severity == "error"
+    assert rejected in text and "force push by hand" in text
+
+
+def test_push_current_reports_any_other_failure_as_git_worded_it(mod):
+    m, toasts = bus_for(fake_git(push=ClientError(error_message="fatal: no remote named origin")))
+
+    mod.sections.branches.branches.push_current(m, "feature")
+
+    assert toasts == [("Could not push feature: fatal: no remote named origin", "error")]

@@ -3,10 +3,10 @@ from typing import Optional
 
 from titan_cli.core.mods import Box, Button, Input, Text
 from titan_plugin_git.models.formatting import split_squash_pr_suffix
-from titan_plugin_git.operations import filter_branches
+from titan_plugin_git.operations import filter_branches, merge_sources
 
 from .models import Branches, Repo, Worktrees
-from .sections.branches.branches import merge_into, pull_current, switch_to
+from .sections.branches.branches import merge_into, pull_current, push_current, switch_to
 from .sections.worktrees.worktrees import blocked_removal, prune_worktrees, remove_worktree
 
 
@@ -24,12 +24,12 @@ def commit_line(c) -> Text:
 def branch_actions(m, branch, state: Branches, options, switchable: bool = True) -> Box:
     """
     What can be done with a branch, under its unfolded line. The branch you are
-    already on offers its merges but no switch.
+    already on trades the switch for a pull and a push.
     """
     if state.blocked:
-        # The card's header already says why; this says what it stops. A pull
-        # stays: git itself refuses the ones that would overwrite the work, and
-        # the toast says so, so a dirty tree is no reason to hide it.
+        # The card's header already says why; this says what it stops. The
+        # remote actions stay: a push only sends commits, and git itself refuses
+        # the pulls that would overwrite the work and says so in the toast.
         return Box(
             Text("commit or stash to use this branch", dim=True),
             branch.is_current and Button(
@@ -37,30 +37,36 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
                 lambda: m.run(lambda: pull_current(m, branch.name)),
                 dim=True,
             ),
+            branch.is_current and Button(
+                f"⇧ Push origin/{branch.name}",
+                lambda: m.run(lambda: push_current(m, branch.name)),
+                dim=True,
+            ),
             indent=2,
         )
 
     picking = m.state.get("merge_source_for") == branch.name
-    sources = [b for b in state.items if b.name != branch.name]
-    main_is_other = state.main_branch and state.main_branch != branch.name
+    # The base branch leads the picker, so the usual merge is the first press
+    # rather than a second button saying the same thing.
+    sources = merge_sources(state.items, branch.name, state.main_branch)
     merges = bool(options.get("merge_workflow"))
 
     return Box(
         switchable and Button("⎇ Switch to it", lambda: m.run(lambda: switch_to(m, branch.name)), dim=True),
-        # Only the branch you are on: `git pull` updates the checked-out tree, so
-        # offering it on another branch would quietly pull into the wrong one.
+        # Only the branch you are on: pull and push act on the checked-out tree,
+        # so offering them on another branch would move the wrong one.
         branch.is_current and Button(
             f"⇩ Pull origin/{branch.name}",
             lambda: m.run(lambda: pull_current(m, branch.name)),
             dim=True,
         ),
-        merges and main_is_other and Button(
-            f"⤵ Merge {state.main_branch} into it",
-            lambda: merge_into(m, branch.name, state.main_branch, options),
+        branch.is_current and Button(
+            f"⇧ Push origin/{branch.name}",
+            lambda: m.run(lambda: push_current(m, branch.name)),
             dim=True,
         ),
         merges and sources and Button(
-            f"{'▾' if picking else '▸'} Merge another branch…",
+            f"{'▾' if picking else '▸'} Merge a branch into it…",
             lambda: m.state.set("merge_source_for", None if picking else branch.name),
             dim=True,
         ),

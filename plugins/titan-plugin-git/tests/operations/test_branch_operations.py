@@ -10,8 +10,10 @@ from titan_plugin_git.operations.branch_operations import (
     check_branch_exists,
     determine_safe_checkout_target,
     filter_branches,
+    merge_sources,
     order_branches_by_use,
     parse_checkout_targets,
+    push_rejected_hint,
     should_delete_before_create,
     switching_blocked_by,
 )
@@ -220,6 +222,52 @@ class TestFilterBranches:
         branches = [branch("feature/login"), branch("main")]
 
         assert len(filter_branches(branches, "  ")) == 2
+
+
+class TestMergeSources:
+    """Tests for merge_sources function."""
+
+    def test_the_base_branch_comes_first(self):
+        branches = [branch("feature/login"), branch("release"), branch("main")]
+
+        assert [b.name for b in merge_sources(branches, "feature/x", "main")] == [
+            "main", "feature/login", "release",
+        ]
+
+    def test_the_target_is_never_a_source(self):
+        """A branch cannot be merged into itself."""
+        branches = [branch("main"), branch("feature/login")]
+
+        assert [b.name for b in merge_sources(branches, "main", "main")] == ["feature/login"]
+
+    def test_without_a_base_branch_the_order_is_kept(self):
+        branches = [branch("feature/login"), branch("release")]
+
+        assert [b.name for b in merge_sources(branches, "feature/x", "")] == ["feature/login", "release"]
+
+    def test_a_base_branch_that_is_not_listed_changes_nothing(self):
+        branches = [branch("feature/login"), branch("release")]
+
+        assert [b.name for b in merge_sources(branches, "feature/x", "develop")] == ["feature/login", "release"]
+
+
+class TestPushRejectedHint:
+    """Tests for push_rejected_hint function."""
+
+    def test_a_rejected_push_is_explained(self):
+        error = "! [rejected] feat/x -> feat/x (non-fast-forward)"
+
+        assert "force push by hand" in push_rejected_hint(error)
+
+    def test_fetch_first_counts_as_a_rejection(self):
+        assert push_rejected_hint("Updates were rejected because the remote contains work. fetch first") is not None
+
+    def test_any_other_failure_has_no_hint(self):
+        """Nothing to force here, so suggesting it would be wrong."""
+        assert push_rejected_hint("fatal: 'origin' does not appear to be a git repository") is None
+
+    def test_no_message_has_no_hint(self):
+        assert push_rejected_hint("") is None
 
 
 class TestSwitchingBlockedBy:
