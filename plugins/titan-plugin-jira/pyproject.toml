@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "titan-plugin-jira"
-version = "1.0.0"
+version = "1.1.0"
 description = "JIRA integration plugin for Titan CLI with AI-powered issue management"
 authors = ["MasOrange Apps Team <apps-management-stores@masorange.es>"]
 packages = [{include = "titan_plugin_jira"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11"
-titan-cli = ">=0.8.0"
+titan-cli = ">=0.11.0"
 requests = ">=2.31.0"
 pydantic = ">=2.0.0"
 jinja2 = ">=3.0.0"
