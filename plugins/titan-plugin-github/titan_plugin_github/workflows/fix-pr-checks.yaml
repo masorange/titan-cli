@@ -1,0 +1,48 @@
+name: "Fix PR Checks"
+description: "Fix the failing checks of one of your PRs in an interactive AI session, on its own branch"
+
+params:
+  # The PR to fix; empty asks among your PRs with a failing check.
+  fix_pr_number: ""
+  # What the github pane already worked out, when the button there started this.
+  check_diagnosis: ""
+  # How many failed jobs' logs are read into the prompt.
+  max_jobs: 3
+
+steps:
+  - id: select_failing_pr
+    name: "Select PR with Failing Checks"
+    plugin: github
+    step: select_failing_pr
+
+  - id: check_clean_state
+    name: "Check Branch State"
+    plugin: github
+    step: check_clean_state
+
+  - id: checkout_pr_branch
+    name: "Checkout PR Branch"
+    plugin: github
+    step: checkout_pr_branch
+
+  - id: fix_with_ai
+    name: "Fix the Checks with AI"
+    plugin: core
+    step: ai_code_assistant
+    params:
+      context_key: "check_fix_context"
+      ask_confirmation: true
+      fail_on_decline: false
+    on_error: continue
+
+  # Nested, so that "nothing to commit" (an Exit) comes back as Success and the
+  # branch below is restored anyway. Commits what the session changed, with an
+  # AI message, and pushes it.
+  - id: commit_the_fix
+    name: "Commit and Push the Fix"
+    workflow: "plugin:git/commit-ai"
+
+  - id: restore_branch
+    name: "Back to Your Branch"
+    plugin: github
+    step: checkout_original_branch

@@ -73,7 +73,8 @@ The merge never moves HEAD: the source branch is fetched and merged through its 
 4. `git.merge_source_branch`
 5. `core.ai_code_assistant` (skips itself when there are no conflicts)
 6. `git.complete_merge`
-7. `after_merge` hook
+7. `git.push` (asks first; skips itself when there is nothing to push)
+8. `after_merge` hook
 
 ### Behavior
 
@@ -82,6 +83,7 @@ The merge never moves HEAD: the source branch is fetched and merged through its 
 - **No conflicts:** git commits the merge itself with the message it suggests. Steps 5 and 6 skip.
 - **Conflicts:** the conflicted files are listed, the AI CLI is launched with a prompt describing them, and on exit `complete_merge` runs `git add --all` plus a commit with git's prepared merge message.
 - **Conflicts still unresolved on exit:** you are asked whether to abort the merge (restoring the previous state) or commit as-is. "Unresolved" is decided by the file content, not by the index, so a file the AI CLI fixed without staging counts as resolved.
+- **Pushing:** the last step offers to push the branch, so the merge reaches the remote (and any PR on it) without a second workflow. It asks before pushing, skips itself when the branch has nothing unpushed, and never runs at all when the merge was aborted — an abort exits the workflow. Set `confirm_push: false` to push without asking.
 - **Hooks on the merge commit:** skipped by default (`no_verify: true`). The commit only carries git's own merge message, and a hook that fails at that point leaves the merge stopped with everything staged. Set `no_verify: false` to run them, or lint from the `after_merge` hook, where a failure no longer blocks the merge.
 
 ### Hooks
@@ -98,19 +100,6 @@ extends: "plugin:git/merge-branch"
 
 params:
   source_branch: "develop"
-```
-
-### Example: push after a successful merge
-
-```yaml
-extends: "plugin:git/merge-branch"
-
-hooks:
-  after_merge:
-    - id: push
-      name: "Push merge"
-      plugin: git
-      step: push
 ```
 
 ### Example: run the project's own commit workflow after the merge

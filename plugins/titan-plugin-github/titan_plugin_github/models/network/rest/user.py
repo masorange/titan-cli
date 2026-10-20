@@ -20,7 +20,7 @@ class NetworkUser:
         >>> data = {"login": "john", "name": "John Doe", "email": "john@example.com"}
         >>> user = NetworkUser.from_json(data)
     """
-    login: str
+    login: str  # a requested reviewer may be a team, which gh names by `slug`
     name: Optional[str] = None
     email: Optional[str] = None
     avatar_url: Optional[str] = None
@@ -44,7 +44,8 @@ class NetworkUser:
             return cls(login="unknown")
 
         return cls(
-            login=data.get("login", "unknown"),
+            # A requested reviewer may be a team, which gh names by "slug".
+            login=data.get("login") or data.get("slug") or "unknown",
             name=data.get("name"),
             email=data.get("email"),
             avatar_url=data.get("avatar_url")

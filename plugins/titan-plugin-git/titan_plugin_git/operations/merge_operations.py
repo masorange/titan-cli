@@ -120,6 +120,29 @@ def has_conflict_markers(content: str) -> bool:
     return starts and ends
 
 
+def parse_merge_tree_conflicts(output: str) -> List[str]:
+    """
+    The conflicting paths of `git merge-tree --write-tree --name-only`.
+
+    Its output is the merged tree's oid, then one conflicting path per line,
+    then a blank line and git's own messages — which are localized, so only the
+    block before that blank line is ever read.
+
+    Args:
+        output: Raw stdout of the merge-tree call
+
+    Returns:
+        Conflicting paths, empty when the merge would be clean
+    """
+    lines = output.splitlines()
+    paths = []
+    for line in lines[1:]:  # the first line is the tree oid
+        if not line.strip():
+            break
+        paths.append(line.strip())
+    return paths
+
+
 def build_conflict_resolution_prompt(
     conflicted_files: List[str],
     source_ref: str,

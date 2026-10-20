@@ -112,9 +112,10 @@ class WorkflowExecutor:
         # We recursively call the main execute method.
         # Pass a copy of the context data to isolate it if needed, but for now, we share it.
         # The `enter_workflow` check will prevent infinite recursion.
-        # Params are resolved first, as a plugin step's are: the nested workflow's own
-        # params overwrite ctx.data when it starts, so "${x}" has to become its value
-        # here or the nested workflow would see the placeholder instead.
+        # Params are resolved first, exactly like a plugin step's: a nested workflow is
+        # usually given a value a previous step published (`${some_key}`), and the
+        # nested workflow's own params overwrite ctx.data when it starts, so "${x}" has
+        # to become its value here or the nested workflow would see the placeholder.
         return self.execute(
             sub_workflow,
             ctx,

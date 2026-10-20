@@ -41,6 +41,8 @@ For full contract details for every public step, including documented inputs, ou
 | `send_comment_replies` | Pull Request Review | `respond-pr-comments` |
 | `request_review` | Pull Request Review | `respond-pr-comments` |
 | `checkout_original_branch` | Pull Request Review | `respond-pr-comments` |
+| `select_conflicted_pr` | Pull Request Review | `resolve-pr-conflicts` |
+| `select_failing_pr` | Pull Request Review | `fix-pr-checks` |
 | `select_pr_for_code_review` | Code Review | - |
 | `fetch_pr_review_bundle` | Code Review | - |
 | `build_change_manifest` | Code Review | - |
@@ -103,6 +105,15 @@ Use these steps for the contributor flow of responding to PR comments and restor
 - `send_comment_replies`: submit replies for the reviewed comments
 - `request_review`: request another review after follow-up work is pushed
 - `checkout_original_branch`: restore the original branch after review work completes
+- `select_conflicted_pr`: pick one of your conflicting PRs, list the files that clash with its base
+  branch (read with `git merge-tree`, which touches nothing) and publish that base as
+  `source_branch` so `merge-branch` can merge it. Reads `conflict_pr_number` when the caller
+  already knows the PR, and asks otherwise
+- `select_failing_pr`: pick one of your PRs with a failing check, read the failed jobs' logs
+  (cut to their failure excerpt) and build `check_fix_context`, the opening prompt of the
+  interactive AI session. Reads `fix_pr_number` when the caller already knows the PR,
+  `check_diagnosis` to pass on what the pane worked out, and `max_jobs` (3) for how many logs
+  to read
 
 ## Code Review
 

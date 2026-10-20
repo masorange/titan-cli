@@ -814,7 +814,7 @@ Check that the working tree is clean before checking out the PR branch.
   step: check_clean_state
 ```
 
-**Used by built-in workflows:** `respond-pr-comments`
+**Used by built-in workflows:** `fix-pr-checks`, `resolve-pr-conflicts`, `respond-pr-comments`
 
 **Returns**
 
@@ -841,7 +841,7 @@ Save the current branch and checkout the PR branch.
   step: checkout_pr_branch
 ```
 
-**Used by built-in workflows:** `respond-pr-comments`
+**Used by built-in workflows:** `fix-pr-checks`, `resolve-pr-conflicts`, `respond-pr-comments`
 
 **Available to later steps:** `original_branch`
 
@@ -990,7 +990,7 @@ Restore the original branch after PR review.
   step: checkout_original_branch
 ```
 
-**Used by built-in workflows:** `respond-pr-comments`
+**Used by built-in workflows:** `fix-pr-checks`, `resolve-pr-conflicts`, `respond-pr-comments`
 
 **Returns**
 
@@ -998,6 +998,100 @@ Restore the original branch after PR review.
 |--------|-----------------------|-------------|
 | `Success` | - | Restored to original branch |
 | `Exit` | - | No original branch saved or checkout failed |
+
+### `select_conflicted_pr`
+
+Choose the PR whose conflicts to resolve, and list the files that clash.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: github
+  step: select_conflicted_pr
+```
+
+**Used by built-in workflows:** `resolve-pr-conflicts`
+
+**Available to later steps:** `selected_pr_number`, `selected_pr_title`, `selected_pr_head_branch`, `selected_pr_base_branch`, `hands to merge-branch as its source_branch`, `conflicted_files`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `conflict_pr_number` | int, optional | PR to work on; asked for when absent |
+| `remote` | str, optional | Remote name (default: "origin") |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `selected_pr_number` | int | The chosen PR |
+| `selected_pr_title` | str | Its title |
+| `selected_pr_head_branch` | str | Its branch, the one that gets checked out |
+| `selected_pr_base_branch` | str | The branch it targets, which the workflow |
+| hands to merge-branch as its source_branch | - | - |
+| `conflicted_files` | list[str] | Paths that conflict, empty when unknown |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `selected_pr_number`, `selected_pr_title`, `selected_pr_head_branch`, `selected_pr_base_branch`, `hands to merge-branch as its source_branch`, `conflicted_files` | PR chosen and ready to merge into |
+| `Exit` | - | Nothing of yours is in conflict, or the user cancelled |
+| `Error` | - | The PR could not be read |
+
+### `select_failing_pr`
+
+Choose the PR whose checks to fix and build the session's opening prompt.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: github
+  step: select_failing_pr
+```
+
+**Used by built-in workflows:** `fix-pr-checks`
+
+**Available to later steps:** `selected_pr_number`, `selected_pr_title`, `selected_pr_head_branch`, `selected_pr_base_branch`, `check_fix_context`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `fix_pr_number` | int, optional | PR to work on; asked for when absent |
+| `check_diagnosis` | str, optional | What the pane already worked out, passed on to the CLI |
+| `max_jobs` | int, optional | How many failed jobs' logs to read (default: 3) |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `selected_pr_number` | int | The chosen PR |
+| `selected_pr_title` | str | Its title |
+| `selected_pr_head_branch` | str | Its branch, the one that gets checked out |
+| `selected_pr_base_branch` | str | The branch it targets |
+| `check_fix_context` | str | The prompt for the interactive AI session |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `selected_pr_number`, `selected_pr_title`, `selected_pr_head_branch`, `selected_pr_base_branch`, `check_fix_context` | PR chosen and the prompt built |
+| `Exit` | - | Nothing of yours is failing, or the user cancelled |
+| `Error` | - | The PR or its logs could not be read |
 
 ## Code Review
 

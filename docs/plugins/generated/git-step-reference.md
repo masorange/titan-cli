@@ -191,7 +191,7 @@ Pushes changes to a remote repository.
   step: push
 ```
 
-**Used by built-in workflows:** `commit-ai`
+**Used by built-in workflows:** `commit-ai`, `merge-branch`
 
 **Available to later steps:** `pr_head_branch`
 

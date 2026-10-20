@@ -428,3 +428,52 @@ class TestPRSelectionOperations:
         assert format_review_status_badge("draft") == "[yellow]● draft[/yellow]"
         assert format_review_status_badge("review required") == "[blue]● review required[/blue]"
         assert format_review_status_badge("ready for review") == "[cyan]● ready for review[/cyan]"
+
+
+class TestReviewers:
+    """Who is reviewing a PR, from gh's `latestReviews` + `reviewRequests`."""
+
+    @staticmethod
+    def _pr(**kwargs):
+        return NetworkPullRequest.from_json({
+            "number": 1, "title": "t", "body": "", "state": "OPEN",
+            "author": {"login": "me"}, "baseRefName": "develop", "headRefName": "feat/x",
+            **kwargs,
+        })
+
+    def test_reads_gh_latest_reviews_and_requests(self):
+        rest_pr = self._pr(
+            latestReviews=[
+                {"id": "", "author": {"login": "ana"}, "state": "APPROVED",
+                 "submittedAt": "2026-10-07T08:10:44Z", "commit": {"oid": ""}},
+                {"id": "", "author": {"login": "bob"}, "state": "CHANGES_REQUESTED",
+                 "submittedAt": "2026-10-07T08:10:44Z", "commit": {"oid": ""}},
+            ],
+            reviewRequests=[{"__typename": "User", "login": "cat"},
+                            {"__typename": "Team", "slug": "android-team"}],
+            assignees=[{"login": "me", "name": "Me"}],
+        )
+
+        ui_pr = from_rest_pr(rest_pr)
+
+        assert [(r.login, r.state, r.icon) for r in ui_pr.reviewers] == [
+            ("bob", "changes_requested", "✗"),  # whoever blocks the PR comes first
+            ("ana", "approved", "✓"),
+            ("cat", "pending", "○"),
+            ("android-team", "pending", "○"),  # a team is named by its slug, not an empty login
+        ]
+        assert ui_pr.reviewers[0].has_reviewed and not ui_pr.reviewers[2].has_reviewed
+        assert ui_pr.assignees == ["me"]
+
+    def test_a_reviewer_asked_again_is_pending_again(self):
+        """GitHub puts a re-requested reviewer back in reviewRequests, review and all."""
+        rest_pr = self._pr(
+            latestReviews=[{"id": "", "author": {"login": "ana"}, "state": "APPROVED",
+                            "submittedAt": "2026-10-07T08:10:44Z"}],
+            reviewRequests=[{"__typename": "User", "login": "ana"}],
+        )
+
+        assert [(r.login, r.state) for r in from_rest_pr(rest_pr).reviewers] == [("ana", "pending")]
+
+    def test_no_reviewers_at_all(self):
+        assert from_rest_pr(self._pr()).reviewers == []

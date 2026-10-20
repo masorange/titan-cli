@@ -441,7 +441,8 @@
         ]
       },
       "used_by_workflows": [
-        "commit-ai"
+        "commit-ai",
+        "merge-branch"
       ]
     },
     {

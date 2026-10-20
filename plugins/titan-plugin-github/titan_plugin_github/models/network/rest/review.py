@@ -34,6 +34,30 @@ class NetworkReview:
     commit_id: Optional[str] = None
 
     @classmethod
+    def from_gh_json(cls, data: Dict[str, Any]) -> 'NetworkReview':
+        """
+        Create NetworkReview from a `gh pr list --json latestReviews` entry.
+
+        gh names the same review differently there: `author` instead of `user`,
+        `submittedAt` instead of `submitted_at`, and an empty `id`.
+
+        Args:
+            data: One entry of gh's `latestReviews`
+
+        Returns:
+            NetworkReview instance
+        """
+        raw_id = data.get("id") or 0
+        return cls(
+            id=int(raw_id) if str(raw_id).isdigit() else 0,
+            user=NetworkUser.from_json(data.get("author", {})),
+            body=data.get("body", ""),
+            state=data.get("state", "PENDING"),
+            submitted_at=data.get("submittedAt"),
+            commit_id=(data.get("commit") or {}).get("oid"),
+        )
+
+    @classmethod
     def from_json(cls, data: Dict[str, Any]) -> 'NetworkReview':
         """
         Create NetworkReview from REST API JSON response.

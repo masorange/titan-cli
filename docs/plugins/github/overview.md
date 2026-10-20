@@ -4,7 +4,7 @@ The GitHub plugin provides Titan's GitHub integration for pull requests, issue c
 
 - a high-level `GitHubClient` for direct use from Titan code
 - reusable workflow `steps` for pull requests, issue creation, review handling, and code review pipelines
-- built-in workflows such as `create-pr-ai`, `create-issue-ai`, and `respond-pr-comments`
+- built-in workflows such as `create-pr-ai`, `create-issue-ai`, `respond-pr-comments`, `resolve-pr-conflicts` and `fix-pr-checks`
 
 ## Requirements
 
@@ -40,7 +40,7 @@ auto_assign_prs = true
 
 ## Mod
 
-The plugin ships the `github` [mod](../../concepts/mods.md): a side-panel pane with the PRs waiting for your review (each with a Review button that opens `review-pr`), your PRs, the merge queue and an AI diagnosis of failed checks (AI routing task `mods.github`, "PR check diagnosis"). Its rail icon shows how many reviews wait for you. Sections `prs` and `queue` can be switched off one by one. Options (`[mods.github.options]`): `review_workflow` (`review-pr`, empty for no button), `prs_refresh_seconds`, `queue_refresh_seconds`, `queue_shown`, `refresh_key` (`f5`).
+The plugin ships the `github` [mod](../../concepts/mods.md): a side-panel pane with the PRs waiting for your review (pressing a PR's line unfolds what can be done about it: a link to GitHub, a Review button that opens `review-pr`, Approve and Request changes — both submitted with no body — and Comment, which opens a field with Accept/Cancel and posts a general PR comment), your PRs — each unfolding two lines (the branch it lands on with the PR's age, and what it changes, added lines in green and removed in red, with “↻” and when it was last touched), its labels, a ⚠ Conflicts fold (the files that clash with the base branch, read from git the first time it is opened, with a button that runs `resolve-pr-conflicts`), a Reviewers fold (who approved, asked for changes or has yet to answer, each pressable to ask them again) and an Assignees fold, plus a button that re-requests review from everyone who already reviewed — the merge queue and an AI diagnosis of failed checks (AI routing task `mods.github`, "PR check diagnosis") with a ⚒ Fix with AI button that runs `fix-pr-checks` on that PR, diagnosis included. Its rail icon shows how many reviews wait for you. Sections `prs` and `queue` can be switched off one by one. Options (`[mods.github.options]`): `review_workflow` (`review-pr`, empty for no button), `conflicts_workflow` (`resolve-pr-conflicts`), `checks_workflow` (`fix-pr-checks`), `prs_refresh_seconds`, `queue_refresh_seconds`, `queue_shown`, `refresh_key` (`f5`).
 
 ## Accessing the client
 

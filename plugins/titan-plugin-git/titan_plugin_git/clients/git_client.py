@@ -429,6 +429,10 @@ class GitClient:
         """List paths with unresolved conflicts."""
         return self.merge_service.get_conflicted_files()
 
+    def list_merge_conflicts(self, base_ref: str, head_ref: str) -> ClientResult[List[str]]:
+        """Which files would conflict merging base_ref into head_ref, without touching anything."""
+        return self.merge_service.list_merge_conflicts(base_ref, head_ref)
+
     def get_unresolved_conflict_files(self) -> ClientResult[List[str]]:
         """List unmerged paths whose content still contains conflict markers."""
         return self.merge_service.get_unresolved_conflict_files()

@@ -576,8 +576,13 @@ class TextualWorkflowExecutor:
         except Exception as e:
             return Error(f"Failed to load workflow '{workflow_name}': {e}", e)
 
-        # Recursively execute the nested workflow
-        return self.execute(sub_workflow, ctx, params_override=step_config.params)
+        # Recursively execute the nested workflow. Its params are resolved exactly
+        # like a plugin step's: a nested workflow is usually given a value a
+        # previous step published (`${selected_pr_base_branch}`), and the nested
+        # workflow's own default for that key would otherwise overwrite it.
+        return self.execute(
+            sub_workflow, ctx, params_override=self._resolve_parameters(step_config.params, ctx)
+        )
 
     def _execute_plugin_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
         """Execute a plugin step."""

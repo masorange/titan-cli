@@ -11,7 +11,8 @@ from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.core.workflows.project_step_source import ProjectStepSource
 from titan_cli.engine.workflow_executor import WorkflowExecutor
 from titan_cli.engine.context import WorkflowContext
-from titan_cli.engine.results import Error
+from titan_cli.core.workflows.models import WorkflowStepModel
+from titan_cli.engine.results import Error, Success
 
 
 # --- Fixtures ---
@@ -594,3 +595,33 @@ def test_nested_workflow_params_resolve_from_context(create_workflow_file, workf
 
     # The child's own `params` default would otherwise blank it out again.
     assert ctx.data["source_branch"] == "develop"
+
+
+def test_nested_workflow_params_interpolate_from_context(create_workflow_file, workflow_registry, mock_plugin_registry):
+    """A nested workflow's params resolve ${key} from ctx.data, like a plugin step's.
+
+    Without this, a nested workflow's own default for that key wins over the value
+    a previous step published, which is the opposite of what the parent asked for.
+    """
+    create_workflow_file("child_with_default", {
+        "name": "child_with_default",
+        "params": {"source_branch": ""},
+        "steps": [{"id": "noop", "name": "No-op", "command": "true"}],
+    })
+
+    executor = WorkflowExecutor(mock_plugin_registry, workflow_registry)
+    ctx = WorkflowContext()
+    ctx.data["selected_pr_base_branch"] = "develop"
+    captured = {}
+    executor.execute = lambda workflow, context, params_override=None: (
+        captured.update(params_override or {}) or Success("child done")
+    )
+
+    step = WorkflowStepModel(
+        id="call_child",
+        workflow="child_with_default",
+        params={"source_branch": "${selected_pr_base_branch}"},
+    )
+    executor._execute_workflow_step(step, ctx)
+
+    assert captured == {"source_branch": "develop"}

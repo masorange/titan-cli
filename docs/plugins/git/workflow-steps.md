@@ -21,7 +21,7 @@ For full contract details for every public step, including documented inputs, ou
 | `get_current_branch` | Status and Inspection | `create-pr-ai` |
 | `get_base_branch` | Status and Inspection | - |
 | `create_commit` | Commits | `commit-ai` |
-| `push` | Commits | `commit-ai`, `create-pr-ai` |
+| `push` | Commits | `commit-ai`, `create-pr-ai`, `merge-branch` |
 | `ai_generate_commit_message` | Commits | `commit-ai` |
 | `save_current_branch` | Branching | - |
 | `restore_original_branch` | Branching | - |
@@ -53,7 +53,7 @@ Use these steps to inspect repository state and expose branch metadata to later 
 Use these steps to prepare commit content and publish branch changes.
 
 - `create_commit`: create a commit from workflow commit message data
-- `push`: push the current branch to the configured remote
+- `push`: push the current branch to the configured remote; set `confirm_push: true` to ask first
 - `ai_generate_commit_message`: generate a commit message from local changes using AI
 
 ## Branching
@@ -275,7 +275,7 @@ How to read these contracts:
       step: push
     ```
 
-    **Used by built-in workflows:** `commit-ai`
+    **Used by built-in workflows:** `commit-ai`, `merge-branch`
 
     **Available to later steps:** `pr_head_branch`
 

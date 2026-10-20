@@ -1,5 +1,5 @@
 name: "Merge Branch"
-description: "Merge a branch (or the base branch) into another one (or the current one), with AI-assisted conflict resolution"
+description: "Merge a branch (or the base branch) into another one (or the current one), with AI-assisted conflict resolution and an optional push"
 
 params:
   # The branch the merge lands on. Empty means the one already checked out;
@@ -55,5 +55,16 @@ steps:
     name: "Complete Merge"
     plugin: git
     step: complete_merge
+
+  # The merge only counts once GitHub sees it, so the branch is offered for
+  # pushing right here. It asks first, and skips itself when the merge changed
+  # nothing (already up to date) or the user aborted it, since an abort exits
+  # the workflow before this step.
+  - id: push_merge
+    name: "Push Merge"
+    plugin: git
+    step: push
+    params:
+      confirm_push: true
 
   - hook: after_merge

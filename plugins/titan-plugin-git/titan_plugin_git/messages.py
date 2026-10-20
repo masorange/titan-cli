@@ -74,6 +74,8 @@ class Messages:
         class Push:
             GIT_CLIENT_NOT_AVAILABLE: str = "Git client is not available in the workflow context."
             PUSH_FAILED: str = "Git push failed: {e}"
+            ASK_PUSH: str = "Push {branch} to {remote}?"
+            DECLINED: str = "Not pushed - the commits stay local"
 
         class Branch:
             GET_CURRENT_BRANCH_SUCCESS: str = "Current branch is '{branch}'"
