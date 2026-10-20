@@ -27,7 +27,9 @@ def register(on, options):
         shown.setdefault(name, True)
 
     def refresh_repo(m):
-        m.state.set("repo", read_repo(m.client("git"), where["root"], options))
+        # "Show more" raises the count in state; the option is where it starts from.
+        shown_commits = m.state.get("commit_limit") or options["recent_commits"]
+        m.state.set("repo", read_repo(m.client("git"), where["root"], {**options, "recent_commits": shown_commits}))
 
     def refresh_branches(m):
         m.state.set("branches", read_branches(m.client("git"), options))
@@ -50,6 +52,7 @@ def register(on, options):
         # A switch or a worktree removal changes more than one card, and the press
         # that does it only has `m` to work with: this is how it reaches the refresh.
         m.state.set("refresh", lambda: refresh_all(m))
+        m.state.set("refresh_repo", lambda: refresh_repo(m))
         m.clock.every(options["repo_refresh_seconds"], lambda: shown["repo"] and refresh_repo(m))
         m.clock.every(options["branches_refresh_seconds"], lambda: shown["branches"] and refresh_branches(m))
         m.clock.every(options["worktrees_refresh_seconds"], lambda: shown["worktrees"] and refresh_worktrees(m))

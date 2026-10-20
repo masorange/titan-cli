@@ -34,7 +34,7 @@ from ...messages import msg
 # with the same model whichever one the caller picked.
 PR_LIST_FIELDS = (
     "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,"
-    "reviewRequests,statusCheckRollup,reviewDecision,mergeable,url"
+    "reviewRequests,latestReviews,statusCheckRollup,reviewDecision,mergeable,url"
 )
 # How deep a filtered listing reads before picking, see PRService._scan_limit.
 PR_SCAN_LIMIT = 200
@@ -79,7 +79,7 @@ class PRService:
                 "number", "title", "body", "state", "author",
                 "baseRefName", "headRefName", "additions", "deletions",
                 "changedFiles", "mergeable", "isDraft", "createdAt",
-                "updatedAt", "mergedAt", "reviews", "labels",
+                "updatedAt", "mergedAt", "reviews", "latestReviews", "labels",
                 "statusCheckRollup", "reviewDecision", "reviewRequests",
                 "isCrossRepository", "headRepositoryOwner", "headRepository", "url",
             ]

@@ -21,7 +21,7 @@ def test_read_repo_combines_status_numstat_and_log(mod, tmp_path):
         get_uncommitted_numstat=lambda include_untracked: numstat_calls.append(include_untracked) or ClientSuccess(
             data=[SimpleNamespace(additions=5, deletions=3), SimpleNamespace(additions=2, deletions=0)]
         ),
-        get_commits=lambda root, limit: ClientSuccess(data=[commit]),
+        get_commits=lambda root, limit, all_branches=False: ClientSuccess(data=[commit]),
     )
 
     repo = mod.sections.repo.repo.read_repo(git, tmp_path, {"recent_commits": 10})
@@ -40,7 +40,7 @@ def test_read_repo_lays_the_commits_out_in_lanes(mod, tmp_path):
     git = SimpleNamespace(
         get_status=lambda: ClientSuccess(data=SimpleNamespace(branch="feat/x", has_upstream=True, ahead=0, behind=0)),
         get_uncommitted_numstat=lambda include_untracked: ClientSuccess(data=[]),
-        get_commits=lambda root, limit: ClientSuccess(
+        get_commits=lambda root, limit, all_branches=False: ClientSuccess(
             data=[merge, _commit("trunk", "base"), _commit("side", "base"), _commit("base")]
         ),
     )
@@ -51,3 +51,17 @@ def test_read_repo_lays_the_commits_out_in_lanes(mod, tmp_path):
     assert len(repo.rows) == 5
     assert repo.rows[0].commit is merge
     assert repo.rows[1].is_link
+
+
+def test_read_repo_walks_every_branch_unless_told_not_to(mod, tmp_path):
+    asked = []
+    git = SimpleNamespace(
+        get_status=lambda: ClientSuccess(data=SimpleNamespace(branch="master", has_upstream=True, ahead=0, behind=0)),
+        get_uncommitted_numstat=lambda include_untracked: ClientSuccess(data=[]),
+        get_commits=lambda root, limit, all_branches=False: asked.append(all_branches) or ClientSuccess(data=[]),
+    )
+
+    mod.sections.repo.repo.read_repo(git, tmp_path, {"recent_commits": 10})
+    mod.sections.repo.repo.read_repo(git, tmp_path, {"recent_commits": 10, "graph_all_branches": False})
+
+    assert asked == [True, False]

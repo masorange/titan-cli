@@ -618,3 +618,47 @@ def test_a_running_pull_replaces_the_buttons_with_what_it_is_doing(mod, flatten)
 
     m.state.set("remote_action", None)
     assert "⇩ Pull origin/feat/x" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+def _commits(n):
+    return [SimpleNamespace(short_hash=f"h{i}", message_subject=f"c{i}", pr_number=None, formatted_date="today",
+                            refs=[], hash=f"h{i}", message=f"c{i}") for i in range(n)]
+
+
+def _press(tree, label):
+    from titan_cli.core.mods import Box, Button
+    stack = [tree]
+    while stack:
+        element = stack.pop()
+        if isinstance(element, Button) and element.label == label:
+            return element.on_press()
+        if isinstance(element, Box):
+            stack.extend(element.children)
+    raise AssertionError(f"no button labelled {label!r}")
+
+
+def test_show_more_raises_the_page_and_reads_the_repo_again(mod):
+    from titan_cli.core.mods import ModBus
+
+    runs, read = [], []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod_: None, run=lambda mod_, fn: runs.append(fn))
+    m = bus.api("git")
+    m.state.set("refresh_repo", lambda: read.append(m.state.get("commit_limit")))
+    m.state.set("commits_open", True)
+    m.state.set("repo", mod.models.Repo(branch="x", commits=_commits(10)))   # a full page: more may remain
+
+    _press(mod.draw.draw(m, 44, OPTIONS), "＋ Show more")
+    runs[0]()
+
+    assert read == [20]
+
+
+def test_no_show_more_when_the_history_ran_out(mod, flatten):
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("commits_open", True)
+    m.state.set("repo", mod.models.Repo(branch="x", commits=_commits(4)))    # a short page: that is all of it
+
+    assert "＋ Show more" not in flatten(mod.draw.draw(m, 44, OPTIONS))

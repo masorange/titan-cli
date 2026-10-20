@@ -344,6 +344,18 @@ def worktrees_section(m, options):
     )
 
 
+def commit_step(options) -> int:
+    """How many commits a page is: `recent_commits`, or 10 when that is 0 (a page of none could never grow)."""
+    return (options or {}).get("recent_commits") or 10
+
+
+def show_more_commits(m, options):
+    """Raise the number of commits read by one page and read them again, off the UI thread."""
+    step = commit_step(options)
+    m.state.set("commit_limit", (m.state.get("commit_limit") or step) + step)
+    m.run(lambda: m.state.get("refresh_repo")())
+
+
 def repo_section(m, options):
     """The branch you are on, how it stands against its upstream, and the latest commits."""
     repo: Optional[Repo] = m.state.get("repo")
@@ -366,7 +378,7 @@ def repo_section(m, options):
     # Past a few lanes the graph eats the subject in a pane this narrow, so the
     # history is shown as a plain list instead of an unreadable one.
     lanes = graph_lanes(repo.rows)
-    graphed = repo.rows and lanes <= (options or {}).get("graph_max_lanes", 4)
+    graphed = repo.rows and lanes <= (options or {}).get("graph_max_lanes", 8)
     return section(
         head,
         "info",
@@ -377,6 +389,9 @@ def repo_section(m, options):
             [commit_row(m, row, lanes) for row in repo.rows] if graphed
             else [commit_line(c) for c in repo.commits]
         )),
+        # A full page means there may be more behind it; a short one is the whole history.
+        commits_open and len(repo.commits) >= (m.state.get("commit_limit") or commit_step(options))
+        and Button("＋ Show more", lambda: show_more_commits(m, options), dim=True),
     )
 
 
