@@ -336,3 +336,42 @@ class TestMergeServiceCompletion:
 
         assert isinstance(result, ClientSuccess)
         assert result.data == ["gone.bin"]
+
+
+class TestListMergeConflicts:
+    """What would conflict, without touching the working tree."""
+
+    def test_asks_merge_tree_and_returns_the_paths(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = "oid\na.kt\nb.kt\n\nAuto-merging a.kt"
+
+        result = service.list_merge_conflicts("origin/develop", "origin/feat/x")
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == ["a.kt", "b.kt"]
+        args, kwargs = mock_git_network.run_command.call_args
+        # The PR's branch is the one receiving the merge, so it goes first.
+        assert args[0] == ["git", "merge-tree", "--write-tree", "--name-only",
+                           "origin/feat/x", "origin/develop"]
+        assert kwargs["check"] is False  # a conflict makes merge-tree exit 1
+
+    def test_a_clean_merge_has_no_conflicts(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = "oid"
+
+        result = service.list_merge_conflicts("origin/develop", "origin/feat/x")
+
+        assert isinstance(result, ClientSuccess) and result.data == []
+
+    def test_empty_output_means_git_could_not_compare(self, service, mock_git_network):
+        """An unknown ref (or a git older than 2.38) writes nothing to stdout."""
+        mock_git_network.run_command.return_value = ""
+
+        result = service.list_merge_conflicts("origin/develop", "origin/gone")
+
+        assert isinstance(result, ClientError) and result.error_code == "MERGE_TREE_FAILED"
+
+    def test_git_failing_is_an_error(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("boom")
+
+        result = service.list_merge_conflicts("origin/develop", "origin/feat/x")
+
+        assert isinstance(result, ClientError) and result.error_code == "MERGE_TREE_FAILED"

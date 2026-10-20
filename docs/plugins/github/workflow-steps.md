@@ -42,6 +42,8 @@ For full contract details for every public step, including documented inputs, ou
 | `send_comment_replies` | Pull Request Review | `respond-pr-comments` |
 | `request_review` | Pull Request Review | `respond-pr-comments` |
 | `checkout_original_branch` | Pull Request Review | `respond-pr-comments` |
+| `select_conflicted_pr` | Pull Request Review | `resolve-pr-conflicts` |
+| `select_failing_pr` | Pull Request Review | `fix-pr-checks` |
 | `select_pr_for_code_review` | Code Review | - |
 | `fetch_pr_review_bundle` | Code Review | - |
 | `build_change_manifest` | Code Review | - |
@@ -105,6 +107,15 @@ Use these steps for the contributor flow of responding to PR comments and restor
 - `send_comment_replies`: submit replies for the reviewed comments
 - `request_review`: request another review after follow-up work is pushed
 - `checkout_original_branch`: restore the original branch after review work completes
+- `select_conflicted_pr`: pick one of your conflicting PRs, list the files that clash with its base
+  branch (read with `git merge-tree`, which touches nothing) and publish that base as
+  `source_branch` so `merge-branch` can merge it. Reads `conflict_pr_number` when the caller
+  already knows the PR, and asks otherwise
+- `select_failing_pr`: pick one of your PRs with a failing check, read the failed jobs' logs
+  (cut to their failure excerpt) and build `check_fix_context`, the opening prompt of the
+  interactive AI session. Reads `fix_pr_number` when the caller already knows the PR,
+  `check_diagnosis` to pass on what the pane worked out, and `max_jobs` (3) for how many logs
+  to read
 
 ## Code Review
 
@@ -115,12 +126,12 @@ These are advanced review-pipeline steps for structured AI-assisted code review.
 - `build_change_manifest`: build a structured manifest of changed files and targets
 - `build_existing_comments_index`: index existing review comments to avoid duplicate findings
 - `write_review_material`: write the review material into the worktree (`.titan-review/`: `pr.md` with the description and every review comment, `pr.diff`, per-file diffs, base versions); the review needs the worktree and stops with an error without one
-- `ai_review_findings`: the review — one free-form session of the configured CLI in the worktree, prompted as a user would ask for a review. It may use subagents and read-only git (`log`, `show`, `diff`, `blame`, `grep`), does not run tests (CI does), and returns a plain list of findings that the later steps dedupe, anchor and put to you for approval. Ceilings: 30 minutes, and $6 where the CLI enforces a budget (Claude)
+- `ai_review_findings`: the review — one free-form session of the configured CLI in the worktree, prompted as a user would ask for a review. It may use subagents and read-only git (`log`, `show`, `diff`, `blame`, `grep`), does not run tests (CI does), and returns a plain list of findings that the later steps dedupe, anchor and put to you for approval. Ceilings: 30 minutes, and $6 where the CLI enforces a budget (Claude). On a large PR it is asked to split the work across subagents — at most 6, one per group of related files — and to run them on a cheaper model than its own, because the subagents are where such a session spends almost everything. If the session is cut short anyway (its budget ceiling, an interrupt), what it had already found is recovered from the stream by a small separate call and reported as `Review cut short`, never as a clean review
 - `normalize_findings`: normalize raw findings into workflow-friendly structures
 - `dedupe_findings`: remove duplicate or overlapping findings before submission
 - `build_new_comment_actions`: translate findings into GitHub review actions
 - `validate_review_actions`: validate those review actions before posting
-- `submit_review_actions`: submit review comments or review actions to GitHub
+- `submit_review_actions`: submit review comments or review actions to GitHub. Approve is offered only after a review that ran to the end and found nothing: one that did not run, or that was cut short, warns that the PR has not been fully reviewed and offers Comment or Request Changes only
 - `build_thread_review_candidates`: collect review threads that may need follow-up decisions
 - `build_thread_review_contexts`: expand context needed to evaluate thread resolution
 - `ai_thread_resolution`: ask AI whether open threads should be resolved or reopened

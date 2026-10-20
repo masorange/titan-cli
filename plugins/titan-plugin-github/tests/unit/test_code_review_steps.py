@@ -523,21 +523,35 @@ class _FakeReviewAdapter:
 
     cli_name = SupportedCLI.CLAUDE
 
-    def __init__(self, script, *, structured=False, restricts=False, effort=False, subagents=False):
+    def __init__(
+        self,
+        script,
+        *,
+        structured=False,
+        restricts=False,
+        effort=False,
+        subagents=False,
+        subagent_model=None,
+    ):
         self._script = list(script)
         self.calls: list[dict] = []
         self.supports_structured_output = structured
         self.supports_tool_restriction = restricts
         self.supports_effort_control = effort
         self.supports_subagents = subagents
+        self.subagent_model = subagent_model
 
     def is_available(self) -> bool:
         return True
 
     def execute(self, prompt, **kwargs) -> HeadlessResponse:
         self.calls.append({"prompt": prompt, **kwargs})
-        exit_code, stdout = self._script[len(self.calls) - 1]
-        return HeadlessResponse(stdout=stdout, stderr="", exit_code=exit_code)
+        step = self._script[len(self.calls) - 1]
+        exit_code, stdout = step[0], step[1]
+        partial = step[2] if len(step) > 2 else None
+        return HeadlessResponse(
+            stdout=stdout, stderr="", exit_code=exit_code, partial_output=partial
+        )
 
 
 def _review_ctx(tmp_path, monkeypatch, adapter) -> WorkflowContext:
@@ -669,6 +683,80 @@ def test_a_failed_or_timed_out_session_fails_visibly_without_retrying(tmp_path, 
     assert isinstance(result, Error)
     assert len(adapter.calls) == 1
     assert ctx.data["ai_findings_failed"] is True
+
+
+def test_a_session_killed_by_its_ceiling_is_salvaged_rather_than_thrown_away(tmp_path, monkeypatch):
+    """Two reviews of a 79-file PR cost $6.12 and $6.20 and returned nothing: the work
+    was done, only the answer was missing."""
+    adapter = _FakeReviewAdapter(
+        [(1, "", "a.py:1 the retry loop never terminates"), (0, _ONE_FINDING)],
+        structured=True,
+    )
+    ctx = _review_ctx(tmp_path, monkeypatch, adapter)
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Success)
+    # Published as metadata, which is what the executor puts on ctx.data.
+    assert result.metadata["ai_findings_failed"] is False
+    assert result.metadata["ai_findings_salvaged"] is True
+    assert result.metadata["raw_findings"]
+    assert len(adapter.calls) == 2
+
+
+def test_the_salvage_call_gets_no_tools_and_its_own_ceiling(tmp_path, monkeypatch):
+    """The review's ceiling is already spent, and the salvage only reads text."""
+    from titan_plugin_github.operations.findings_operations import (
+        REVIEW_MAX_BUDGET_USD,
+        REVIEW_SALVAGE_MAX_BUDGET_USD,
+    )
+
+    adapter = _FakeReviewAdapter(
+        [(1, "", "a.py:1 a finding"), (0, _ONE_FINDING)], structured=True, restricts=True
+    )
+    ctx = _review_ctx(tmp_path, monkeypatch, adapter)
+
+    ai_review_findings(ctx)
+
+    salvage = adapter.calls[1]
+    assert salvage["max_budget_usd"] == REVIEW_SALVAGE_MAX_BUDGET_USD < REVIEW_MAX_BUDGET_USD
+    assert salvage["allowed_tools"] == []
+    assert "Agent" in salvage["disallowed_tools"]
+    assert salvage.get("cwd") is None
+
+
+def test_a_failed_session_with_nothing_salvageable_still_fails(tmp_path, monkeypatch):
+    adapter = _FakeReviewAdapter([(1, "")], structured=True)
+    ctx = _review_ctx(tmp_path, monkeypatch, adapter)
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Error)
+    assert ctx.data["ai_findings_failed"] is True
+    assert len(adapter.calls) == 1
+
+
+def test_a_salvage_that_itself_fails_leaves_the_review_failed(tmp_path, monkeypatch):
+    adapter = _FakeReviewAdapter([(1, "", "a.py:1 a finding"), (1, "")], structured=True)
+    ctx = _review_ctx(tmp_path, monkeypatch, adapter)
+
+    result = ai_review_findings(ctx)
+
+    assert isinstance(result, Error)
+    assert ctx.data["ai_findings_failed"] is True
+
+
+def test_the_prompt_bounds_the_fan_out_and_names_the_cheaper_model(tmp_path, monkeypatch):
+    adapter = _FakeReviewAdapter(
+        [(0, _ONE_FINDING)], structured=True, subagents=True, subagent_model="sonnet"
+    )
+    ctx = _review_ctx(tmp_path, monkeypatch, adapter)
+
+    ai_review_findings(ctx)
+
+    prompt = adapter.calls[0]["prompt"]
+    assert "at most 2 of them" in prompt
+    assert "Run them on `sonnet`" in prompt
 
 
 def test_a_cli_without_verified_subagents_is_denied_them(tmp_path, monkeypatch):

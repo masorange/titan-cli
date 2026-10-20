@@ -149,6 +149,26 @@ class UIJobDiagnosis:
 
 
 @dataclass
+class UIReviewer:
+    """
+    One person's standing on a PR, ready to show.
+
+    A reviewer who was asked again after reviewing counts as `pending`, exactly
+    as GitHub shows them.
+    """
+
+    login: str
+    state: str  # "changes_requested", "approved", "commented" or "pending"
+    icon: str  # "✗", "✓", "✎" or "○"
+    when: str  # "2d ago"; "" while pending
+
+    @property
+    def has_reviewed(self) -> bool:
+        """Whether there is a review to ask again for; GitHub refuses a re-request otherwise."""
+        return self.state != "pending"
+
+
+@dataclass
 class UIPullRequest:
     """
     UI model for displaying a pull request.
@@ -159,6 +179,8 @@ class UIPullRequest:
     Fields:
         requested_reviewers: All GitHub logins of users requested to review
         pending_reviewers: Logins of reviewers who haven't submitted a review yet
+        reviewers: One entry per person involved, decided ones before pending ones
+        assignees: Logins of the users assigned to the PR
     """
     number: int
     title: str
@@ -177,6 +199,11 @@ class UIPullRequest:
     labels: List[str]  # Just label names
     formatted_created_at: str  # "DD/MM/YYYY HH:MM:SS"
     formatted_updated_at: str  # "DD/MM/YYYY HH:MM:SS"
+    opened_age: str = ""  # "12d ago"
+    updated_age: str = ""  # "2h ago"
+    # The counts behind `stats` too: a UI that colours them needs the parts, not the string.
+    additions: int = 0
+    deletions: int = 0
     checks_summary: str = ""
     review_status_summary: str = ""
     is_cross_repository: bool = False
@@ -184,6 +211,8 @@ class UIPullRequest:
     head_repository_name: Optional[str] = None
     requested_reviewers: List[str] = field(default_factory=list)  # All requested reviewer logins
     pending_reviewers: List[str] = field(default_factory=list)  # Reviewers who haven't reviewed yet
+    reviewers: List["UIReviewer"] = field(default_factory=list)  # Everyone involved, most actionable first
+    assignees: List[str] = field(default_factory=list)  # Assignee logins
     url: str = ""  # The PR's web page; "" when the fetch did not ask for it
     checks_state: str = "none"  # "failing", "running", "passing" or "none"
     failed_checks: List[UIFailedCheck] = field(default_factory=list)
@@ -346,6 +375,7 @@ __all__ = [
     "UIPullRequest",
     "UIIssue",
     "UIReview",
+    "UIReviewer",
     "UIPRMergeResult",
     "UIMergeQueueState",
     "UIFileChange",

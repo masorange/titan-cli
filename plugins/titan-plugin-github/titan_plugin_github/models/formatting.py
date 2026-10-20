@@ -6,7 +6,7 @@ Shared formatting functions for converting network data to UI-friendly strings.
 All presentation/display logic should use these utilities for consistency.
 """
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .pr_enums import PRReviewDecision, PRState
@@ -35,6 +35,36 @@ def format_date(iso_date: str) -> str:
         return date_obj.strftime("%d/%m/%Y %H:%M:%S")
     except Exception:
         return iso_date
+
+
+def format_relative(iso_date: Optional[str], now: Optional[datetime] = None) -> str:
+    """
+    How long ago a timestamp was, as a glanceable label: "3m ago", "2h ago", "5d ago".
+
+    Args:
+        iso_date: ISO 8601 timestamp, or None
+        now: The moment to measure from; the current UTC time when not given
+
+    Returns:
+        "just now" under a minute, "Nd ago" up to a year, then "Ny ago"; "" for no date
+    """
+    if not iso_date:
+        return ""
+    try:
+        when = datetime.fromisoformat(str(iso_date).replace("Z", "+00:00"))
+    except Exception:
+        return ""
+    reference = now or datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    seconds = (reference - when).total_seconds()
+    if seconds < 60:
+        return "just now"
+    for size, unit in ((3600, "m"), (86400, "h"), (86400 * 365, "d")):
+        if seconds < size:
+            divisor = size // 60 if unit == "m" else (3600 if unit == "h" else 86400)
+            return f"{int(seconds // divisor)}{unit} ago"
+    return f"{int(seconds // (86400 * 365))}y ago"
 
 
 def get_pr_status_icon(state: PRState | str, is_draft: bool) -> str:

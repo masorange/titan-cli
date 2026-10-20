@@ -122,6 +122,14 @@
         {
           "name": "checkout_original_branch",
           "summary": "Restore the original branch after review work completes."
+        },
+        {
+          "name": "select_conflicted_pr",
+          "summary": "Choose the PR whose conflicts to resolve, and list the files that clash."
+        },
+        {
+          "name": "select_failing_pr",
+          "summary": "Choose the PR whose checks to fix and build the session's opening prompt."
         }
       ]
     },
@@ -491,6 +499,8 @@
         ]
       },
       "used_by_workflows": [
+        "fix-pr-checks",
+        "resolve-pr-conflicts",
         "respond-pr-comments"
       ]
     },
@@ -534,6 +544,8 @@
         ]
       },
       "used_by_workflows": [
+        "fix-pr-checks",
+        "resolve-pr-conflicts",
         "respond-pr-comments"
       ]
     },
@@ -555,6 +567,8 @@
         ]
       },
       "used_by_workflows": [
+        "fix-pr-checks",
+        "resolve-pr-conflicts",
         "respond-pr-comments"
       ]
     },
@@ -1094,6 +1108,66 @@
       },
       "used_by_workflows": [
         "respond-pr-comments"
+      ]
+    },
+    {
+      "name": "select_conflicted_pr",
+      "group": "Pull Request Review",
+      "module": "titan_plugin_github.steps.pr_conflict_steps",
+      "function": "select_conflicted_pr",
+      "summary": "Choose the PR whose conflicts to resolve, and list the files that clash.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    conflict_pr_number (int, optional): PR to work on; asked for when absent",
+          "    remote (str, optional): Remote name (default: \"origin\")"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    selected_pr_number (int): The chosen PR",
+          "    selected_pr_title (str): Its title",
+          "    selected_pr_head_branch (str): Its branch, the one that gets checked out",
+          "    selected_pr_base_branch (str): The branch it targets, which the workflow",
+          "        hands to merge-branch as its source_branch",
+          "    conflicted_files (list[str]): Paths that conflict, empty when unknown"
+        ],
+        "Returns": [
+          "    Success: PR chosen and ready to merge into",
+          "    Exit: Nothing of yours is in conflict, or the user cancelled",
+          "    Error: The PR could not be read"
+        ]
+      },
+      "used_by_workflows": [
+        "resolve-pr-conflicts"
+      ]
+    },
+    {
+      "name": "select_failing_pr",
+      "group": "Pull Request Review",
+      "module": "titan_plugin_github.steps.pr_check_steps",
+      "function": "select_failing_pr",
+      "summary": "Choose the PR whose checks to fix and build the session's opening prompt.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    fix_pr_number (int, optional): PR to work on; asked for when absent",
+          "    check_diagnosis (str, optional): What the pane already worked out, passed on to the CLI",
+          "    max_jobs (int, optional): How many failed jobs' logs to read (default: 3)"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    selected_pr_number (int): The chosen PR",
+          "    selected_pr_title (str): Its title",
+          "    selected_pr_head_branch (str): Its branch, the one that gets checked out",
+          "    selected_pr_base_branch (str): The branch it targets",
+          "    check_fix_context (str): The prompt for the interactive AI session"
+        ],
+        "Returns": [
+          "    Success: PR chosen and the prompt built",
+          "    Exit: Nothing of yours is failing, or the user cancelled",
+          "    Error: The PR or its logs could not be read"
+        ]
+      },
+      "used_by_workflows": [
+        "fix-pr-checks"
       ]
     },
     {

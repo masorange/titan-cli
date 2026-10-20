@@ -45,6 +45,9 @@ def register(on, options):
     @on("app.start")
     def start(m, e, next):
         where["root"] = Path(e.project_root)
+        # How the pane's own review actions (approve, request changes, comment)
+        # get the lists read again once GitHub has taken them.
+        m.state.set("refresh_prs", lambda: refresh_prs(m))
         m.ui.open(PANE, TITLE)
         m.clock.every(options["prs_refresh_seconds"], lambda: shown["prs"] and refresh_prs(m))
         m.clock.every(options["queue_refresh_seconds"], lambda: shown["queue"] and refresh_queue(m))

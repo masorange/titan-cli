@@ -44,6 +44,7 @@ from ..operations.code_review_operations import (
     compute_diff_stat,
 )
 from ..operations.review_action_operations import (
+    assess_review_completeness,
     build_new_comment_actions as build_new_comment_actions_operation,
     build_review_action_payload,
     classify_github_review_rejection,
@@ -128,6 +129,11 @@ def _log_session_activity(cli_name: str, activity: Optional[dict]) -> None:
 
     The commands go at debug: the counts say how much work happened, the commands say
     which files it was spent on.
+
+    The fan-out and how the session ended are logged beside them because the usage
+    block covers the lead alone, and a session's subagents are where almost all of its
+    cost goes - without `subagent_stats` the log can say what a review cost but not what
+    it spent the money on.
     """
     if not activity:
         return
@@ -137,6 +143,11 @@ def _log_session_activity(cli_name: str, activity: Optional[dict]) -> None:
         cli=cli_name,
         items=activity.get("items", {}),
         commands=len(commands),
+        **{
+            key: activity[key]
+            for key in ("subagent_stats", "terminal_reason", "num_turns")
+            if key in activity
+        },
     )
     logger.debug("review_session_commands", cli=cli_name, commands=commands)
 
@@ -1713,6 +1724,52 @@ def review_tool_options(adapter) -> dict:
     }
 
 
+def _salvage_review_findings(adapter, partial_output: str, structured: bool):
+    """Rebuild the findings of a session that died before it could answer.
+
+    Only reachable on a failed run with something salvaged — today that is a spending
+    ceiling or an interrupt, where the review happened and only the answer is missing.
+    A separate, small call with no tools and its own ceiling: `_review_tool_options`
+    would hand this the review's $6 and the right to spawn subagents, and the whole
+    point is that the review's ceiling is already spent.
+    """
+    from ..operations.findings_operations import (
+        REVIEW_SALVAGE_MAX_BUDGET_USD,
+        REVIEW_SALVAGE_TIMEOUT_SECONDS,
+        build_salvage_prompt,
+        free_review_json_schema,
+        parse_findings_response,
+    )
+
+    prompt = build_salvage_prompt(partial_output)
+    _log_ai_prompt("ai_review_findings_salvage", adapter.cli_name.value, prompt)
+    response = run_interruptible(
+        lambda: adapter.execute(
+            prompt,
+            # No cwd: the salvage reads the text it is given and nothing else.
+            timeout=REVIEW_SALVAGE_TIMEOUT_SECONDS,
+            json_schema=free_review_json_schema() if structured else None,
+            allowed_tools=[] if adapter.supports_tool_restriction else None,
+            disallowed_tools=["Agent"] if adapter.supports_tool_restriction else None,
+            max_budget_usd=REVIEW_SALVAGE_MAX_BUDGET_USD,
+        )
+    )
+    _log_ai_response(
+        step_name="ai_review_findings_salvage",
+        cli_name=adapter.cli_name.value,
+        stdout=response.stdout,
+        stderr=response.stderr,
+        exit_code=response.exit_code,
+    )
+    if not response.succeeded:
+        return ClientError(
+            error_message=f"Salvage failed: {cli_failure_reason(response, adapter.cli_name.value)}",
+            error_code="REVIEW_SALVAGE_FAILED",
+            log_level="warning",
+        )
+    return parse_findings_response(response.stdout, structured=structured)
+
+
 def _retry_review_reformat(adapter, previous_stdout: str, cwd: Optional[str], structured: bool):
     """Ask the same CLI to reformat its own previous answer, without reviewing again."""
     from ..operations.findings_operations import free_review_json_schema, parse_findings_response
@@ -1837,6 +1894,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         free_review_json_schema,
         parse_findings_response,
         partition_findings_by_path,
+        plan_subagent_fanout,
         to_finding_payload,
     )
 
@@ -1872,6 +1930,8 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         pr.base,
         worktree_path,
         use_subagents=adapter.supports_subagents,
+        max_subagents=plan_subagent_fanout(len(manifest.files)),
+        subagent_model=adapter.subagent_model,
     )
     cli = adapter.cli_name.value
     _log_ai_prompt("ai_review_findings", cli, prompt, files=len(manifest.files))
@@ -1906,18 +1966,40 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
         exit_code=response.exit_code,
     )
     _log_session_activity(cli, response.activity)
+    salvaged = False
     if not response.succeeded:
-        return _fail_review(ctx, cli_failure_reason(response, cli))
-
-    match parse_findings_response(response.stdout, structured=structured):
-        case ClientSuccess(data=list() as raw):
-            pass
-        case _:
-            match _retry_review_reformat(adapter, response.stdout, worktree_path, structured):
-                case ClientSuccess(data=list() as raw):
-                    pass
-                case _:
-                    return _fail_review(ctx, "the review's answer could not be read")
+        reason = cli_failure_reason(response, cli)
+        # The session is where a review spends everything, and it dies holding the whole
+        # review: when it is killed (a ceiling, an interrupt) the subagents have already
+        # reported and only the answer is missing. Throwing that away bills the user for
+        # a review nobody reads, so it is rebuilt from what came over the stream.
+        if not response.partial_output:
+            return _fail_review(ctx, reason)
+        logger.warning(
+            "review_session_salvage_started",
+            cli=cli,
+            reason=reason,
+            partial_chars=len(response.partial_output),
+        )
+        ctx.textual.warning_text(f"{reason} — recovering what it had already found…")
+        with ctx.textual.loading("Recovering the interrupted review…"):
+            outcome = _salvage_review_findings(adapter, response.partial_output, structured)
+        match outcome:
+            case ClientSuccess(data=list() as raw):
+                salvaged = True
+                logger.warning("review_session_salvaged", cli=cli, findings_count=len(raw))
+            case _:
+                return _fail_review(ctx, reason)
+    else:
+        match parse_findings_response(response.stdout, structured=structured):
+            case ClientSuccess(data=list() as raw):
+                pass
+            case _:
+                match _retry_review_reformat(adapter, response.stdout, worktree_path, structured):
+                    case ClientSuccess(data=list() as raw):
+                        pass
+                    case _:
+                        return _fail_review(ctx, "the review's answer could not be read")
 
     # Kept whole in the debug log: the response log keeps only its edges, and a run has
     # to be auditable from its own log.
@@ -1928,15 +2010,25 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     if rejected:
         logger.warning("review_findings_unknown_path", dropped=len(rejected), rejected=rejected)
 
-    ctx.textual.success_text(f"✓ Review complete · {len(kept)} finding(s)")
+    if salvaged:
+        # Not a clean review: the session was cut short, so whatever it had not reached
+        # is missing and nothing here says which part that was. Saying "complete" would
+        # present a half-finished review as a verdict on the whole PR.
+        ctx.textual.warning_text(
+            f"⚠ Review cut short · {len(kept)} finding(s) recovered — "
+            "part of the PR was never reviewed; do not treat this as a clean review."
+        )
+    else:
+        ctx.textual.success_text(f"✓ Review complete · {len(kept)} finding(s)")
     if rejected:
         _render_rejected_paths(ctx, rejected)
     ctx.textual.end_step("success")
     return Success(
-        "AI findings retrieved",
+        "AI findings recovered from an interrupted review" if salvaged else "AI findings retrieved",
         metadata={
             "raw_findings": [to_finding_payload(item) for item in kept],
             "ai_findings_failed": False,
+            "ai_findings_salvaged": salvaged,
         },
     )
 
@@ -2505,38 +2597,37 @@ def submit_review_actions(ctx: WorkflowContext) -> WorkflowResult:
 
     # Show AI's opinion and prepare action options
     ctx.textual.text("")
+    # Whether this review is a basis for approving is business logic, and the one rule
+    # that must not drift: "no findings" is only clean when the review actually finished.
+    # Keyed on the review step's own flags, not on `raw_findings` — Thread Resolution
+    # publishes through this step without running a review at all.
+    completeness = assess_review_completeness(
+        has_findings=bool(comment_actions),
+        findings_failed=ctx.get("ai_findings_failed", False),
+        salvaged=ctx.get("ai_findings_salvaged", False),
+    )
     if comment_actions:
         ctx.textual.text(f"📋 Found {len(comment_actions)} issue(s) to address")
         ctx.textual.text(f"Ready to submit {len(comment_actions)} comment(s) on PR #{pr_number}")
-        ctx.textual.text("")
-
-        # With findings - offer Comment or Request Changes
-        event_options = [
-            OptionItem(value="COMMENT", title="💬 Comment", description="Post comments without approval decision"),
-            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
-        ]
-    elif ctx.get("ai_findings_failed", False):
-        # The AI review never produced findings, so "no findings" says nothing about the
-        # PR — don't present it as clean or offer to approve it. Keyed on the review step's
-        # own flag, not on `raw_findings`: Thread Resolution publishes through this step
-        # without running a review.
-        ctx.textual.warning_text("⚠ The AI review did not run — this PR has NOT been reviewed")
-        ctx.textual.text("")
-
-        event_options = [
-            OptionItem(value="COMMENT", title="💬 Comment", description="Post a general comment"),
-            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
-        ]
-    else:
+    elif completeness.may_approve:
         ctx.textual.success_text("✅ No issues found - PR looks good and can be approved")
-        ctx.textual.text("")
+    if completeness.notice:
+        ctx.textual.warning_text(completeness.notice)
+    ctx.textual.text("")
 
-        # No findings - offer all options
-        event_options = [
-            OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR"),
-            OptionItem(value="COMMENT", title="💬 Comment", description="Post a general comment"),
-            OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
-        ]
+    event_options = []
+    if completeness.may_approve:
+        event_options.append(
+            OptionItem(value="APPROVE", title="✅ Approve", description="Approve the PR")
+        )
+    event_options += [
+        OptionItem(
+            value="COMMENT",
+            title="💬 Comment",
+            description="Post comments without approval decision" if comment_actions else "Post a general comment",
+        ),
+        OptionItem(value="REQUEST_CHANGES", title="🔴 Request Changes", description="Block merge until changes are made"),
+    ]
 
     try:
         event = ctx.textual.ask_option("Select review type:", event_options)

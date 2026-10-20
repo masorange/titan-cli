@@ -160,6 +160,8 @@ class GitHubPlugin(TitanPlugin):
             request_review_step,
             checkout_original_branch_step,
         )
+        from .steps.pr_check_steps import select_failing_pr
+        from .steps.pr_conflict_steps import select_conflicted_pr
         from .steps.worktree_steps import (
             create_worktree_step,
             cleanup_worktree_step,
@@ -205,6 +207,8 @@ class GitHubPlugin(TitanPlugin):
             "check_clean_state": check_clean_state_step,
             "checkout_pr_branch": checkout_pr_branch_step,
             "judge_pr_comments": judge_pr_comments_step,
+            "select_conflicted_pr": select_conflicted_pr,
+            "select_failing_pr": select_failing_pr,
             "review_comments": review_comments_step,
             "push_commits": push_commits_step,
             "send_comment_replies": send_comment_replies_step,

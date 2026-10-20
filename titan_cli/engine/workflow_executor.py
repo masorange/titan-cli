@@ -112,7 +112,12 @@ class WorkflowExecutor:
         # We recursively call the main execute method.
         # Pass a copy of the context data to isolate it if needed, but for now, we share it.
         # The `enter_workflow` check will prevent infinite recursion.
-        return self.execute(sub_workflow, ctx, params_override=step_config.params)
+        # Params are resolved exactly like a plugin step's: a nested workflow is
+        # usually given a value a previous step published (`${some_key}`), and the
+        # nested workflow's own default for that key would otherwise overwrite it.
+        return self.execute(
+            sub_workflow, ctx, params_override=self._resolve_parameters(step_config.params, ctx)
+        )
 
 
     def _execute_plugin_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
