@@ -122,6 +122,11 @@ class GrokHeadlessAdapter:
         # Not verified in headless mode, so it is not relied on.
         return False
 
+    @property
+    def subagent_model(self) -> Optional[str]:
+        # No stable alias for a cheaper model on this CLI: the session picks.
+        return None
+
     def is_available(self) -> bool:
         return shutil.which("grok") is not None
 

@@ -60,6 +60,11 @@ class CodexHeadlessAdapter:
         # `collab spawn failed: no thread with id` when it tried.
         return False
 
+    @property
+    def subagent_model(self) -> Optional[str]:
+        # No stable alias for a cheaper model on this CLI: the session picks.
+        return None
+
     def is_available(self) -> bool:
         return shutil.which("codex") is not None
 
