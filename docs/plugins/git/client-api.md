@@ -100,6 +100,23 @@ client.create_branch(branch_name="feature/search", start_point="HEAD")
 - `branch_name`: Required. New branch name.
 - `start_point`: Optional. Git ref to branch from.
 
+### Create a branch and switch to it
+
+Creates a branch and checks it out in one `git checkout -b`, so there is no state
+where the branch exists but is not checked out. Uncommitted work is carried over, as
+git always carries it to a branch starting at HEAD.
+
+**Call:**
+
+```python
+client.create_and_switch_branch(branch_name="feature/search", start_point="HEAD")
+```
+
+**Parameters:**
+
+- `branch_name`: Required. New branch name.
+- `start_point`: Optional. Git ref to branch from.
+
 ### Delete a branch
 
 Deletes a branch directly.

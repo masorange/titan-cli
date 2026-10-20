@@ -31,6 +31,11 @@ from .diff_operations import (
 
 from .branch_operations import (
     check_branch_exists,
+    branch_name_prefixes,
+    validate_branch_name,
+    normalize_branch_name,
+    parse_suggested_branch_name,
+    build_branch_name_prompt,
     parse_checkout_targets,
     order_branches_by_use,
     filter_branches,
@@ -65,6 +70,13 @@ __all__ = [
     "capitalize_commit_subject",
     "validate_message_length",
     "process_ai_commit_message",
+
+    # Branch naming
+    "branch_name_prefixes",
+    "validate_branch_name",
+    "normalize_branch_name",
+    "parse_suggested_branch_name",
+    "build_branch_name_prompt",
 
     # Diff operations
     "parse_diff_stat_output",

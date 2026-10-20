@@ -320,3 +320,64 @@ def test_branch_mapper_formats_the_last_commit_date():
 
     assert mapped.last_commit_date == "2026-10-19T09:00:00+00:00"
     assert mapped.formatted_date  # the relative wording itself is tested above
+
+
+# --- Naming a new branch -------------------------------------------------
+
+
+def test_branch_prefixes_come_from_the_branches_the_repo_already_has():
+    """The convention is whatever the repository does, so it is read, never assumed."""
+    from titan_plugin_git.operations.branch_operations import branch_name_prefixes
+
+    names = ["feat/login", "feat/logout", "fix/crash", "main", "improvement/speed"]
+
+    assert branch_name_prefixes(names) == ["feat", "fix", "improvement"]
+    assert branch_name_prefixes(names, limit=1) == ["feat"]
+    assert branch_name_prefixes(["main", "develop"]) == []
+
+
+def test_a_new_branch_name_is_judged_before_git_is_asked():
+    from titan_plugin_git.operations.branch_operations import validate_branch_name
+
+    assert validate_branch_name("feat/login") is None
+    assert validate_branch_name("  ") == "the name is empty"
+    assert validate_branch_name("feat/login", ["feat/login"]) == "that branch already exists"
+    assert validate_branch_name("feat//login").startswith("a name cannot")
+    assert validate_branch_name("feat/login.lock") == "git does not allow that name"
+    assert validate_branch_name("feat/log in").startswith("no spaces")
+    assert validate_branch_name("feat/log..in").startswith("no spaces")
+
+
+def test_a_typed_name_is_put_in_the_shape_git_accepts():
+    from titan_plugin_git.operations.branch_operations import normalize_branch_name
+
+    assert normalize_branch_name("  Feat/Switch  Branch ") == "feat/switch-branch"
+    assert normalize_branch_name("feat/log_in") == "feat/log-in"
+    assert normalize_branch_name("feat/a:b") == "feat/a-b"
+    assert normalize_branch_name("/feat/x/") == "feat/x"
+    assert normalize_branch_name("   ") == ""
+
+
+def test_the_name_is_read_out_of_whatever_wrapping_the_model_puts_around_it():
+    from titan_plugin_git.operations.branch_operations import parse_suggested_branch_name
+
+    assert parse_suggested_branch_name("feat/switch-branch") == "feat/switch-branch"
+    assert parse_suggested_branch_name("Branch: `feat/Switch Branch`") == "feat/switch-branch"
+    assert parse_suggested_branch_name("```\nfix/null-pointer\n```") == "fix/null-pointer"
+    assert parse_suggested_branch_name("- improvement/faster-diff") == "improvement/faster-diff"
+    assert parse_suggested_branch_name("") == ""
+
+
+def test_the_prompt_carries_the_repo_s_prefixes_and_pr_labels():
+    """Both differ in every repository, so the model is told instead of guessing."""
+    from titan_plugin_git.operations.branch_operations import build_branch_name_prompt
+
+    prompt, system = build_branch_name_prompt("api.py | 2 +-", "@@ -1 +1 @@", ["feat", "fix"], ["bug"])
+
+    assert "feat, fix" in prompt and "bug" in prompt
+    assert "api.py | 2 +-" in prompt and "@@ -1 +1 @@" in prompt
+    assert "branch name only" in system
+
+    # Nothing to say about either is said as nothing, not as an empty list.
+    bare, _ = build_branch_name_prompt("api.py | 2 +-", "")
+    assert "Prefixes" not in bare and "Labels" not in bare and "Diff:" not in bare

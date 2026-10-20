@@ -194,6 +194,33 @@ class BranchService:
             return ClientError(error_message=str(e), error_code="BRANCH_CREATE_ERROR")
 
     @log_client_operation()
+    def create_and_switch(
+        self, branch_name: str, start_point: str = "HEAD"
+    ) -> ClientResult[None]:
+        """
+        Create a branch and switch to it in one git call.
+
+        `git checkout -b` leaves no half state: either the branch exists and is
+        checked out, or nothing changed. Uncommitted work is carried over, as
+        git always carries it to a branch starting at HEAD.
+
+        Args:
+            branch_name: Name for new branch
+            start_point: Starting point (commit/branch)
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            self.git.run_command(["git", "checkout", "-b", branch_name, start_point])
+            return ClientSuccess(
+                data=None,
+                message=f"Branch '{branch_name}' created and checked out"
+            )
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="BRANCH_CREATE_ERROR")
+
+    @log_client_operation()
     def delete_branch(
         self, branch: str, force: bool = False
     ) -> ClientResult[None]:

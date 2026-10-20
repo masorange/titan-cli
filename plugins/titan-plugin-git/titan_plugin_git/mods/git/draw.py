@@ -7,6 +7,7 @@ from titan_plugin_git.operations import filter_branches, merge_sources
 
 from .models import Branches, Repo, Worktrees
 from .sections.branches import branches as branch_actions_api
+from .sections.branches import new_branch as new_branch_api
 from .sections.branches.branches import create_pr, merge_into, switch_to
 from .sections.worktrees.worktrees import blocked_removal, prune_worktrees, remove_worktree
 
@@ -62,6 +63,55 @@ def remote_actions(m, branch, options):
     ]
 
 
+def new_branch_fold(m, branch, options):
+    """
+    Starting a branch from the one you are on: the field, the AI's suggestion
+    and the checkout.
+
+    Only the current branch, since the new one starts at HEAD and takes the
+    uncommitted work with it - which is why the fold is offered with a dirty tree
+    too, and is the way out of having worked on the wrong branch. Nothing is
+    created until the press that says so, so a suggestion costs an edit at worst.
+    """
+    if not branch.is_current:
+        return None
+
+    is_open = m.state.get("new_branch_for") == branch.name
+    doing = new_branch_api.status(m)
+    name = m.state.get(new_branch_api.NAME) or ""
+    error = m.state.get(new_branch_api.ERROR)
+
+    return [
+        Button(
+            f"{'▾' if is_open else '▸'} New branch from it…",
+            lambda: new_branch_api.toggle(m, branch.name),
+            dim=True,
+        ),
+        is_open and Box(
+            Input(
+                value=name,
+                placeholder="feat/short-description",
+                on_change=lambda value: new_branch_api.set_name(m, value),
+                on_submit=lambda value: new_branch_api.create(m, branch.name, options),
+            ),
+            doing == "suggesting" and Text("… naming the uncommitted work", dim=True),
+            doing == "creating" and Text(f"… creating {name}", dim=True),
+            not doing and Button(
+                "✦ Suggest with AI",
+                lambda: new_branch_api.suggest(m, options),
+                dim=True,
+            ),
+            not doing and name and Button(
+                f"✓ Create {name} and switch",
+                lambda: new_branch_api.create(m, branch.name, options),
+                variant="primary",
+            ),
+            error and Text(error, color="error", wrap=True),
+            indent=2,
+        ),
+    ]
+
+
 def branch_actions(m, branch, state: Branches, options, switchable: bool = True) -> Box:
     """
     What can be done with a branch, under its unfolded line. The branch you are
@@ -74,6 +124,9 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
         return Box(
             Text("commit or stash to use this branch", dim=True),
             remote_actions(m, branch, options),
+            # The way out of having worked on the wrong branch: the new one
+            # starts here and carries the uncommitted work with it.
+            new_branch_fold(m, branch, options),
             indent=2,
         )
 
@@ -86,6 +139,7 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
     return Box(
         switchable and Button("⎇ Switch to it", lambda: m.run(lambda: switch_to(m, branch.name)), dim=True),
         remote_actions(m, branch, options),
+        new_branch_fold(m, branch, options),
         merges and sources and Button(
             f"{'▾' if picking else '▸'} Merge a branch into it…",
             lambda: m.state.set("merge_source_for", None if picking else branch.name),

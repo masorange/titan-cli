@@ -114,6 +114,30 @@ class TestBranchServiceCreateBranch:
 
 
 @pytest.mark.unit
+class TestBranchServiceCreateAndSwitch:
+    """Test BranchService.create_and_switch()"""
+
+    def test_create_and_switch_is_one_git_call(self, mock_git_network):
+        """`checkout -b` leaves no state where the branch exists but is not checked out."""
+        service = BranchService(mock_git_network)
+        result = service.create_and_switch("new-feature", "HEAD")
+
+        assert isinstance(result, ClientSuccess)
+        mock_git_network.run_command.assert_called_once_with(
+            ["git", "checkout", "-b", "new-feature", "HEAD"]
+        )
+
+    def test_create_and_switch_error(self, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("Branch already exists")
+
+        service = BranchService(mock_git_network)
+        result = service.create_and_switch("existing", "HEAD")
+
+        assert isinstance(result, ClientError)
+        assert "already exists" in result.error_message
+
+
+@pytest.mark.unit
 class TestBranchServiceDeleteBranch:
     """Test BranchService.delete_branch()"""
 

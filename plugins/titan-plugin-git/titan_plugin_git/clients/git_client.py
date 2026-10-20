@@ -107,6 +107,12 @@ class GitClient:
         """Create a new branch."""
         return self.branch_service.create_branch(branch_name, start_point)
 
+    def create_and_switch_branch(
+        self, branch_name: str, start_point: str = "HEAD"
+    ) -> ClientResult[None]:
+        """Create a new branch and check it out, carrying any uncommitted work over."""
+        return self.branch_service.create_and_switch(branch_name, start_point)
+
     def delete_branch(self, branch: str, force: bool = False) -> ClientResult[None]:
         """Delete a branch."""
         return self.branch_service.delete_branch(branch, force)

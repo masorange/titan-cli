@@ -13,6 +13,7 @@ OPTIONS = {
     "branch_filter_threshold": 8,
     "commit_workflow": "commit-ai",
     "create_pr_workflow": "create-pr-ai",
+    "suggestion_diff_chars": 4000,
     "merge_workflow": "merge-branch",
     "worktrees_refresh_seconds": 120,
 }
@@ -196,6 +197,189 @@ def test_the_merge_action_runs_the_workflow_with_both_branches(mod):
     mod.sections.branches.branches.merge_into(m, "feature/login", "main", OPTIONS)
 
     assert runs == [("merge-branch", {"target_branch": "feature/login", "source_branch": "main"})]
+
+
+class NewBranchHost:
+    """Runs m.run inline, answers m.ai from a script and hands out the fake clients."""
+
+    def __init__(self, git, github=None, answer=None):
+        self.git, self.github, self.answer = git, github, answer
+        self.prompts, self.toasts = [], []
+
+    def toast(self, mod, text, severity): self.toasts.append((text, severity))
+    def repaint(self, mod): pass
+    def resolve_workflow(self, mod, name): return None
+    def client(self, name): return {"git": self.git, "github": self.github}.get(name)
+    def run(self, mod, fn): fn()
+
+    def ai(self, mod, prompt, system, max_tokens, model, timeout):
+        self.prompts.append((prompt, system))
+        return self.answer
+
+
+class FakeGit:
+    """The git client as the new-branch fold uses it."""
+
+    def __init__(self, created=None, error=None):
+        self.created, self.error = created if created is not None else [], error
+
+    def get_branches(self, remote=False):
+        from titan_cli.core.result import ClientSuccess
+        names = ["origin/feat/remote-one"] if remote else ["feat/x", "feat/y", "fix/crash", "main"]
+        return ClientSuccess(data=[SimpleNamespace(name=n, is_remote=remote) for n in names])
+
+    def get_uncommitted_diff_stat(self):
+        from titan_cli.core.result import ClientSuccess
+        return ClientSuccess(data=" api.py | 2 +-")
+
+    def get_untracked_files(self):
+        from titan_cli.core.result import ClientSuccess
+        return ClientSuccess(data=["notes.md"])
+
+    def get_uncommitted_diff(self):
+        from titan_cli.core.result import ClientSuccess
+        return ClientSuccess(data="@@ -1 +1 @@\n-old\n+new")
+
+    def create_and_switch_branch(self, name, start_point):
+        from titan_cli.core.result import ClientError, ClientSuccess
+        if self.error:
+            return ClientError(error_message=self.error)
+        self.created.append((name, start_point))
+        return ClientSuccess(data=None)
+
+
+def open_new_branch_fold(mod, host):
+    """A pane with the fold open under the branch you are on."""
+    from titan_cli.core.mods import ModBus
+
+    bus = ModBus()
+    bus.host = host
+    m = bus.api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+    m.state.set("open_branch", "feat/x")
+    m.state.set("new_branch_for", "feat/x")
+    return m
+
+
+def test_the_new_branch_fold_is_offered_on_the_branch_you_are_on(mod, flatten):
+    """It starts at HEAD and carries the uncommitted work, so no other row may offer it."""
+    from titan_cli.core.mods import ModBus
+
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, resolve_workflow=lambda mod, name: None)
+    m = bus.api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+    m.state.set("branches_open", True)
+
+    m.state.set("open_branch", "feat/x")
+    assert "▸ New branch from it…" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    m.state.set("open_branch", "feature/login")
+    assert not any("New branch" in line for line in flatten(mod.draw.draw(m, 44, OPTIONS)))
+
+
+def test_the_fold_offers_the_ai_and_only_creates_once_there_is_a_name(mod, flatten):
+    host = NewBranchHost(FakeGit())
+    m = open_new_branch_fold(mod, host)
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    assert "▾ New branch from it…" in lines and "✦ Suggest with AI" in lines
+    assert not any("Create" in line and "switch" in line for line in lines)
+
+    m.state.set(mod.sections.branches.new_branch.NAME, "feat/z")
+    assert "✓ Create feat/z and switch" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+def test_uncommitted_work_still_offers_the_new_branch_fold(mod, flatten):
+    """Working on the wrong branch is exactly when it is needed, and git carries the changes over."""
+    from titan_cli.core.mods import ModBus
+
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, resolve_workflow=lambda mod, name: None)
+    m = bus.api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, blocked="2 uncommitted files - commit or stash before switching",
+                                           current="feat/x"))
+    m.state.set("open_branch", "feat/x")
+
+    assert "▸ New branch from it…" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+def test_the_suggestion_reads_the_diff_under_the_repo_s_prefixes_and_labels(mod, flatten):
+    from titan_cli.core.mods import AIAnswer
+    from titan_cli.core.result import ClientSuccess
+
+    github = SimpleNamespace(list_labels=lambda: ClientSuccess(data=["bug", "enhancement"]))
+    host = NewBranchHost(FakeGit(), github=github, answer=AIAnswer(text="`feat/Switch Branch`"))
+    m = open_new_branch_fold(mod, host)
+
+    mod.sections.branches.new_branch.suggest(m, OPTIONS)
+
+    prompt, system = host.prompts[0]
+    assert "feat, fix" in prompt  # read from the branches, remote ones without their remote
+    assert "bug, enhancement" in prompt  # how this repo labels its PRs
+    assert "api.py | 2 +-" in prompt and "notes.md (new file)" in prompt and "+new" in prompt
+    assert "branch name only" in system
+
+    # The answer only fills the field: nothing exists until the user presses for it.
+    assert m.state.get(mod.sections.branches.new_branch.NAME) == "feat/switch-branch"
+    assert m.state.get(mod.sections.branches.new_branch.STATUS) is None
+    assert host.git.created == []
+    assert "✓ Create feat/switch-branch and switch" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+def test_the_suggestion_says_why_it_has_no_name_without_touching_the_repo(mod):
+    from titan_cli.core.mods import AIAnswer
+
+    host = NewBranchHost(FakeGit(), answer=AIAnswer(error="no connection"))
+    m = open_new_branch_fold(mod, host)
+
+    mod.sections.branches.new_branch.suggest(m, OPTIONS)
+
+    assert m.state.get(mod.sections.branches.new_branch.ERROR) == "AI: no connection"
+    assert host.git.created == []
+
+
+def test_a_name_that_cannot_be_a_branch_is_refused_before_git_is_asked(mod, flatten):
+    host = NewBranchHost(FakeGit())
+    m = open_new_branch_fold(mod, host)
+    m.state.set(mod.sections.branches.new_branch.NAME, "main")  # the switcher already lists it
+
+    mod.sections.branches.new_branch.create(m, "feat/x", OPTIONS)
+
+    assert host.git.created == []
+    assert "that branch already exists" in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+def test_creating_branches_off_the_branch_you_are_on_and_closes_the_fold(mod):
+    refreshed = []
+    host = NewBranchHost(FakeGit())
+    m = open_new_branch_fold(mod, host)
+    m.state.set("refresh", lambda: refreshed.append(True))
+    mod.sections.branches.new_branch.set_name(m, "Feat/New Thing")
+
+    mod.sections.branches.new_branch.create(m, "feat/x", OPTIONS)
+
+    # The name is put in the shape git accepts before it is used, field included.
+    assert host.git.created == [("feat/new-thing", "feat/x")]
+    assert m.state.get(mod.sections.branches.new_branch.NAME) == ""
+    assert m.state.get("new_branch_for") is None
+    assert host.toasts == [("Created feat/new-thing from feat/x", "information")]
+    assert refreshed == [True]
+
+
+def test_a_refused_checkout_is_reported_under_the_field(mod, flatten):
+    host = NewBranchHost(FakeGit(error="fatal: a branch named 'feat/z' already exists"))
+    m = open_new_branch_fold(mod, host)
+    m.state.set(mod.sections.branches.new_branch.NAME, "feat/z")
+
+    mod.sections.branches.new_branch.create(m, "feat/x", OPTIONS)
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    assert any("already exists" in line for line in lines)
+    assert m.state.get(mod.sections.branches.new_branch.STATUS) is None  # never stuck on the progress line
 
 
 def test_the_create_pr_button_runs_the_workflow_titan_would_pick(mod, flatten):

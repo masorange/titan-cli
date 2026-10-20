@@ -6,6 +6,7 @@ description = "Side panel with the current branch, its pull, push, pull request 
 requires_plugins = ["git"]
 events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
+ai_task = "Branch name suggestion"
 
 [sections.repo]
 title = "Repository"
@@ -67,6 +68,13 @@ type = "string"
 title = "Create PR workflow"
 description = "Workflow the Create PR button runs on the branch you are on; a repo extending it runs instead. Empty for no button."
 default = "create-pr-ai"
+
+[options.suggestion_diff_chars]
+type = "int"
+title = "Diff sent for a branch name"
+description = "How much of the uncommitted diff the AI reads to suggest a branch name."
+default = 4000
+min = 200
 
 [options.merge_workflow]
 type = "string"

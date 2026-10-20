@@ -240,8 +240,153 @@ def switching_blocked_by(status: UIGitStatus) -> Optional[str]:
     return f"{len(pending)} uncommitted {noun} - commit or stash before switching"
 
 
+# What git itself refuses in a branch name, plus the shapes that make a ref unusable.
+_BRANCH_FORBIDDEN = re.compile(r"[\s~^:?*\[\\]|\.\.|@\{")
+
+
+def branch_name_prefixes(branches: Sequence[str], limit: int = 6) -> List[str]:
+    """
+    The prefixes this repository names its branches with, most used first.
+
+    Read from the branch names themselves ("feat/login" -> "feat"), since that is
+    the convention a new branch has to match, whatever any document says. Names
+    without a prefix contribute nothing, so a "main" is never a prefix.
+
+    Args:
+        branches: Branch names, without their remote ("feat/login", not
+            "origin/feat/login"), in any order
+        limit: How many prefixes to keep
+
+    Returns:
+        Prefixes ordered by how many branches use them, ties by first appearance
+    """
+    counts: dict = {}
+    for name in branches:
+        head = name.split("/", 1)[0] if "/" in name else ""
+        if head:
+            counts[head] = counts.get(head, 0) + 1
+    ordered = sorted(counts, key=lambda p: (-counts[p], list(counts).index(p)))
+    return ordered[:limit]
+
+
+def validate_branch_name(name: str, existing: Sequence[str] = ()) -> Optional[str]:
+    """
+    Why `name` cannot be a new branch here, or None when it can.
+
+    Checked before git is asked, so the user reads the reason under the field
+    instead of a `git checkout` error in a toast.
+
+    Args:
+        name: The name as typed or as the AI suggested it
+        existing: Branch names already in the repository
+
+    Returns:
+        A one-line reason to show the user, or None
+    """
+    name = name.strip()
+    if not name:
+        return "the name is empty"
+    if name in existing:
+        return "that branch already exists"
+    if name.startswith("/") or name.endswith("/") or "//" in name:
+        return "a name cannot start, end or double up on '/'"
+    if name.startswith("-") or name.startswith(".") or name.endswith(".") or name.endswith(".lock"):
+        return "git does not allow that name"
+    if _BRANCH_FORBIDDEN.search(name):
+        return "no spaces or any of ~ ^ : ? * [ \\ .. @{"
+    return None
+
+
+def normalize_branch_name(name: str) -> str:
+    """
+    `name` as a branch git accepts: trimmed, lowercased, spaces and the
+    characters git refuses turned into dashes.
+
+    What the field writes and what the AI suggests go through this, so both end
+    up in the same shape.
+
+    Args:
+        name: A name as typed or as a model wrote it
+
+    Returns:
+        The usable form, which may still be empty
+    """
+    name = name.strip().strip("'\"`").lower()
+    name = re.sub(r"[\s_]+", "-", name)
+    name = re.sub(r"[~^:?*\[\\]|@\{|\.\.", "-", name)
+    name = re.sub(r"-{2,}", "-", name)
+    name = re.sub(r"/{2,}", "/", name)
+    return name.strip("-/.")
+
+
+def parse_suggested_branch_name(text: str) -> str:
+    """
+    The branch name out of a model's answer: its first non-empty line, stripped
+    of the wrapping a model adds (quotes, backticks, "Branch:", a bullet) and
+    normalized. The whole line is kept, so "feat/switch branch" becomes a name
+    rather than half of one; the field shows it for the user to fix either way.
+
+    Args:
+        text: The model's answer
+
+    Returns:
+        A normalized branch name, empty when the answer held none
+    """
+    for line in text.splitlines():
+        line = line.strip().strip("`").strip()
+        line = re.sub(r"^[-*\d.)\s]+", "", line)
+        line = re.sub(r"^(branch|branch name|name)\s*[:=]\s*", "", line, flags=re.IGNORECASE)
+        if line.strip():
+            return normalize_branch_name(line)
+    return ""
+
+
+def build_branch_name_prompt(
+    files_summary: str,
+    diff_excerpt: str,
+    prefixes: Sequence[str] = (),
+    labels: Sequence[str] = (),
+) -> tuple:
+    """
+    Ask a model to name the branch the uncommitted work belongs on.
+
+    The repository's own prefixes lead, and its pull request labels come as a
+    second hint at how this team classifies work ("bug", "enhancement"): both
+    are different in every repo, so neither is assumed.
+
+    Args:
+        files_summary: `git diff --stat` over the uncommitted work
+        diff_excerpt: As much of the diff as is worth sending
+        prefixes: The repository's branch prefixes, most used first
+        labels: The repository's pull request labels
+
+    Returns:
+        (prompt, system) for one completion
+    """
+    system = (
+        "You name git branches. Answer with the branch name only: no quotes, no "
+        "explanation, no trailing punctuation. Lowercase, words separated by "
+        "dashes, at most 50 characters, in the form <prefix>/<short-description>."
+    )
+    parts = ["Name the branch for this uncommitted work.", ""]
+    if prefixes:
+        parts += [f"Prefixes this repository uses (pick the fitting one): {', '.join(prefixes)}", ""]
+    if labels:
+        parts += [f"Labels its pull requests carry, for the kind of work: {', '.join(labels)}", ""]
+    parts += ["Files changed:", files_summary.strip() or "(none reported)", ""]
+    if diff_excerpt.strip():
+        parts += ["Diff:", diff_excerpt.strip(), ""]
+    parts.append("Branch name:")
+    return "\n".join(parts), system
+
+
 __all__ = [
     "check_branch_exists",
+    "branch_name_prefixes",
+    "validate_branch_name",
+    "normalize_branch_name",
+    "parse_suggested_branch_name",
+    "build_branch_name_prompt",
     "parse_checkout_targets",
     "order_branches_by_use",
     "filter_branches",
