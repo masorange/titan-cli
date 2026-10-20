@@ -1045,7 +1045,7 @@ def test_a_failure_reason_carries_the_cli_s_own_words():
     session_limit = HeadlessResponse(
         stdout="", stderr="You've hit your session limit · resets 6:30pm (Europe/Madrid)", exit_code=1
     )
-    reason = code_review_steps._cli_failure_reason(session_limit, "claude")
+    reason = code_review_steps.cli_failure_reason(session_limit, "claude")
 
     assert "usage quota" in reason  # recognised as quota, so the advice is right
     assert "resets 6:30pm" in reason  # and the CLI's own words survive
@@ -1057,7 +1057,7 @@ def test_a_failure_reason_stays_clean_when_the_cli_only_produced_noise():
 
     noisy = HeadlessResponse(stdout="", stderr="x" * 5000, exit_code=1)
 
-    assert code_review_steps._cli_failure_reason(noisy, "claude") == "'claude' exited with code 1"
+    assert code_review_steps.cli_failure_reason(noisy, "claude") == "'claude' exited with code 1"
 
 
 
@@ -1147,6 +1147,7 @@ def test_review_material_is_written_into_the_worktree(tmp_path):
             return ClientSuccess(data=None)
 
         def get_merge_base(self, a, b):
+            self.merge_base_args = (a, b)
             return self.merge_base
 
         def get_file_at_ref(self, ref, path):
@@ -1155,7 +1156,7 @@ def test_review_material_is_written_into_the_worktree(tmp_path):
     textual = SimpleNamespace(dim_text=lambda text: None)
     ctx = SimpleNamespace(git=FakeGit(), textual=textual, data={})
 
-    result = code_review_steps._write_review_material(
+    result = code_review_steps.write_review_material_at(
         ctx, str(tmp_path), manifest, DiffContextManager.from_diff(diff), [], []
     )
 
@@ -1167,7 +1168,20 @@ def test_review_material_is_written_into_the_worktree(tmp_path):
     assert "[ADDED] added" in (tmp_path / ".titan-review/pr.diff").read_text()
     assert "mb123" in (tmp_path / ".titan-review/pr.md").read_text()
 
+    # The review's head lives in the ref its worktree step fetched.
+    assert ctx.git.merge_base_args == ("refs/titan/review/pr-9", "refs/titan/review/pr-9-base")
+
+    # Respond to PR Comments has no worktree step, so that ref does not exist: it stands on
+    # the PR branch and says so. Defaulting to the review's ref cost a whole judging run
+    # ("Not a valid object name refs/titan/review/pr-278").
+    ctx_head = SimpleNamespace(git=FakeGit(), textual=textual, data={})
+    assert code_review_steps.write_review_material_at(
+        ctx_head, str(tmp_path), manifest, DiffContextManager.from_diff(diff), [], [],
+        head_ref="HEAD",
+    ) == {"a.py": True, "n.py": False}
+    assert ctx_head.git.merge_base_args == ("HEAD", "refs/titan/review/pr-9-base")
+
     ctx_failing = SimpleNamespace(git=FakeGit(ClientError(error_message="no base")), textual=textual, data={})
-    assert code_review_steps._write_review_material(
+    assert code_review_steps.write_review_material_at(
         ctx_failing, str(tmp_path), manifest, DiffContextManager.from_diff(diff), [], []
     ) is None

@@ -36,6 +36,7 @@ For full contract details for every public step, including documented inputs, ou
 | `fetch_pending_comments` | Pull Request Review | `respond-pr-comments` |
 | `check_clean_state` | Pull Request Review | `respond-pr-comments` |
 | `checkout_pr_branch` | Pull Request Review | `respond-pr-comments` |
+| `judge_pr_comments` | Pull Request Review | `respond-pr-comments` |
 | `review_comments` | Pull Request Review | `respond-pr-comments` |
 | `push_commits` | Pull Request Review | `respond-pr-comments` |
 | `send_comment_replies` | Pull Request Review | `respond-pr-comments` |
@@ -100,7 +101,8 @@ Use these steps for the contributor flow of responding to PR comments and restor
 - `fetch_pending_comments`: load unresolved PR comments into workflow context
 - `check_clean_state`: ensure the current branch is safe to leave before checkout
 - `checkout_pr_branch`: switch to the PR branch while preserving original branch context
-- `review_comments`: guide the user through resolving comments and making local changes
+- `judge_pr_comments`: one AI session reads the whole PR and returns a verdict per pending comment (`apply` / `already_done` / `wrong` / `needs_discussion`) with the files and callers a fix must respect; routed under the `respond_pr_comment` task, changes nothing, and publishes no verdicts when it cannot run
+- `review_comments`: guide the user through resolving comments and making local changes; records what each comment led to (verdict, choice, commit) in `~/.titan/respond-comments/` and in the log. Each fix is committed with an AI-written subject describing the diff (routed under the `commit_message` task) and a body naming the comment it answers; it falls back to `Fix: <filename>` when no subject can be generated
 - `push_commits`: push local follow-up commits back to the PR branch
 - `send_comment_replies`: submit replies for the reviewed comments
 - `request_review`: request another review after follow-up work is pushed
@@ -856,7 +858,7 @@ How to read these contracts:
 
     **Used by built-in workflows:** `respond-pr-comments`
 
-    **Available to later steps:** `review_threads`
+    **Available to later steps:** `pending_comment_threads`
 
     **Inputs (from ctx.data)**
 
@@ -866,13 +868,13 @@ How to read these contracts:
 
     | Name | Type | Description |
     |------|------|-------------|
-    | `review_threads` | List[UICommentThread] | Unresolved review threads |
+    | `pending_comment_threads` | List[UICommentThread] | General comments and unresolved review threads, in the order they are shown |
 
     **Returns**
 
     | Result | Saved for later steps | Description |
     |--------|-----------------------|-------------|
-    | `Success` | `review_threads` | Threads fetched |
+    | `Success` | `pending_comment_threads` | Threads fetched |
     | `Exit` | - | No unresolved threads |
     | `Error` | - | Failed to fetch threads |
 
@@ -936,6 +938,45 @@ How to read these contracts:
     |--------|-----------------------|-------------|
     | `Success` | `original_branch` | PR branch checked out |
     | `Error` | - | Failed to fetch or checkout |
+
+
+??? info "`judge_pr_comments`"
+    Decide, in one session over the whole PR, what each pending comment deserves.
+
+    **Workflow usage**
+
+    ```yaml
+    - plugin: github
+      step: judge_pr_comments
+    ```
+
+    **Used by built-in workflows:** `respond-pr-comments`
+
+    **Available to later steps:** `comment_verdicts`, `verdict_files`, `judgement_material_dir`
+
+    **Inputs (from ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `selected_pr_number` | int | - |
+    | `pending_comment_threads` | List[UICommentThread] | - |
+    | `change_manifest, review_diff_manager` | from the review bundle steps | - |
+
+    **Outputs (saved to ctx.data)**
+
+    | Name | Type | Description |
+    |------|------|-------------|
+    | `comment_verdicts` | Dict[int, CommentVerdict] | by comment id |
+    | `verdict_files` | Dict[int, str] | absolute path of each verdict's file |
+    | `judgement_material_dir` | str | where the material was written |
+
+    **Returns**
+
+    | Result | Saved for later steps | Description |
+    |--------|-----------------------|-------------|
+    | `Success` | `comment_verdicts`, `verdict_files`, `judgement_material_dir` | with the verdicts, or with none when the session could not run - the |
+    | `workflow then behaves as it did before, asking the user with no verdict.` | - | - |
+    | `Error` | - | Textual UI unavailable. |
 
 
 ??? info "`review_comments`"
@@ -1133,7 +1174,7 @@ How to read these contracts:
       step: fetch_pr_review_bundle
     ```
 
-    **Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
+    **Used by built-in workflows:** `respond-pr-comments`, `review-pr`, `review-pr-thread-resolution`
 
     **Available to later steps:** `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template`
 
@@ -1175,7 +1216,7 @@ How to read these contracts:
       step: build_change_manifest
     ```
 
-    **Used by built-in workflows:** `review-pr`
+    **Used by built-in workflows:** `respond-pr-comments`, `review-pr`
 
     **Available to later steps:** `change_manifest`
 

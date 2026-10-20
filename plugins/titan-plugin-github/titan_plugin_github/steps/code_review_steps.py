@@ -181,7 +181,7 @@ def _log_ai_response(step_name: str, cli_name: str, stdout: str, stderr: str, ex
         )
 
 
-def _cli_failure_reason(response, cli_name: str) -> str:
+def cli_failure_reason(response, cli_name: str) -> str:
     """Translate a failed headless CLI run into a reason the reviewer can act on.
 
     Raw stderr is usually noise, but the *kind* of failure decides what the user
@@ -745,7 +745,9 @@ def fetch_pr_review_bundle(ctx: WorkflowContext) -> WorkflowResult:
 
     ctx.textual.begin_step("Fetch PR Review Bundle")
 
-    pr_number = ctx.get("review_pr_number")
+    # Either key: Review PR selects into `review_pr_number`, Respond to PR Comments into
+    # `selected_pr_number`, and both workflows need the same bundle.
+    pr_number = ctx.get("review_pr_number") or ctx.get("selected_pr_number")
     if not pr_number:
         ctx.textual.error_text("No PR number in context (run select_pr_for_code_review first)")
         ctx.textual.end_step("error")
@@ -1082,6 +1084,11 @@ class _PinnedModelCli:
                 reasoning_tokens=getattr(usage, "reasoning_tokens", None),
                 total_tokens=getattr(usage, "total_tokens", None),
                 cost_usd=getattr(usage, "cost_usd", None),
+                token_scope=getattr(usage, "token_scope", None),
+                turns=getattr(usage, "turns", None),
+                subagents_spawned=getattr(usage, "subagents_spawned", None),
+                provider=getattr(usage, "provider", None),
+                cost_basis=getattr(usage, "cost_basis", None),
                 usage_source=getattr(usage, "source", None),
             )
             logger.debug(
@@ -1108,6 +1115,18 @@ class _PinnedModelCli:
                 cost_usd=record.cost_usd,
                 # Present only when the session used more than one model (subagents).
                 model_costs=getattr(usage, "model_costs", None),
+                # "session" means the tokens cover what the price covers; "call" means
+                # they cover one exchange and the two must not be read together.
+                token_scope=record.token_scope,
+                # Why two runs of the same prompt and model can differ by an order of
+                # magnitude: one ground through it alone, the other delegated.
+                turns=record.turns,
+                subagents_spawned=record.subagents_spawned,
+                # Which price table this figure came off. A CLI pointed at a gateway and
+                # the same CLI on its own account do not produce comparable numbers, and
+                # `list` is a published price rather than one that was charged.
+                provider=record.provider,
+                cost_basis=record.cost_basis,
                 usage_source=record.usage_source,
             )
             if self._ctx is not None:
@@ -1145,6 +1164,9 @@ def log_review_ai_cost(ctx, scope: str) -> None:
         substituted_model_calls=summary.substituted_model_calls,
         clis=summary.clis,
         models_reported=summary.models_reported,
+        # More than one scope means `total_tokens` added a session's tokens to a single
+        # exchange's, so the total is not a quantity of anything.
+        token_scopes=summary.token_scopes,
         phases=[
             {
                 "phase": p.phase,
@@ -1176,7 +1198,7 @@ def _resolve_headless_adapter(cli_preference: str):
     return candidate if candidate.is_available() else None
 
 
-def _resolve_review_adapter(
+def resolve_review_adapter(
     ctx: WorkflowContext, step: Callable
 ) -> Tuple[Optional[object], Optional[str], bool]:
     """
@@ -1252,7 +1274,7 @@ def _step_phase(step) -> str:
 def _route_failure_reason(route_note: Optional[str], ai_off: bool) -> str:
     """Why no AI ran, in words that distinguish a choice from a problem.
 
-    `_resolve_review_adapter` returns `ai_off` precisely so a deliberate skip is not
+    `resolve_review_adapter` returns `ai_off` precisely so a deliberate skip is not
     reported as a failure. Both of these steps were discarding it and calling everything
     "no CLI available", which sent a user looking for a misconfiguration they had made
     on purpose - or hid one they had not.
@@ -1262,7 +1284,7 @@ def _route_failure_reason(route_note: Optional[str], ai_off: bool) -> str:
     return route_note or "no CLI available"
 
 
-def _announce_review_adapter(ctx: WorkflowContext, adapter: object) -> None:
+def announce_review_adapter(ctx: WorkflowContext, adapter: object) -> None:
     """Announce which CLI - and which model - will run this review step.
 
     These steps drive the adapter themselves, so they announce by hand rather than
@@ -1475,19 +1497,32 @@ def _attach_content_provider(diff_manager, root: Optional[str]) -> None:
     diff_manager.attach_content_provider(lambda path: read_file_content(path, root))
 
 
-def _write_review_material(
+def write_review_material_at(
     ctx: WorkflowContext,
-    worktree_path: str,
+    root_path: str,
     manifest,
     diff_manager,
     threads: list,
     general_comments: list,
+    head_ref: Optional[str] = None,
 ) -> Optional[dict]:
-    """Write the review's material into the worktree; map each changed path to whether its
-    base version exists. None when it could not be written.
+    """Write a PR's material under `root_path`; map each changed path to whether its base
+    version exists. None when it could not be written.
 
     The base is the merge base of the PR head and its base branch: the commit GitHub's diff
     is computed against, so the base versions are exactly the "before" of that diff.
+
+    `root_path` is the PR worktree for the review, where the session reads the code next to
+    its material. Respond to PR Comments passes a directory OUTSIDE the repository instead:
+    it works in the user's own checkout, which it also commits from, and material inside that
+    tree would be swept into the commit.
+
+    `head_ref` is where the PR head is in THIS repository, and it has to be told because it
+    is not the same in both workflows. The review's is `refs/titan/review/pr-N`, which its
+    worktree step fetched; Respond to PR Comments has no worktree step, is already standing
+    on the PR branch, and passes `HEAD`. Defaulting to the review's ref silently cost a whole
+    run: with no worktree step to create it, `get_merge_base` failed with "Not a valid object
+    name refs/titan/review/pr-278" and the judging session got no material at all.
     """
     from ..operations.review_material_operations import (
         PR_FILE,
@@ -1504,7 +1539,7 @@ def _write_review_material(
     pr = manifest.pr
     if not ctx.git or not pr or diff_manager is None:
         return None
-    head_ref = review_head_ref(pr.number)
+    head = head_ref or review_head_ref(pr.number)
     base_ref = review_base_ref(pr.number)
     match ctx.git.fetch_refspec(ctx.git.default_remote, f"+refs/heads/{pr.base}:{base_ref}"):
         case ClientError(error_message=err):
@@ -1512,14 +1547,14 @@ def _write_review_material(
             return None
         case _:
             pass
-    match ctx.git.get_merge_base(head_ref, base_ref):
+    match ctx.git.get_merge_base(head, base_ref):
         case ClientSuccess(data=merge_base):
             pass
         case ClientError(error_message=err):
             logger.warning("review_material_merge_base_failed", error=err)
             return None
 
-    root = Path(worktree_path)
+    root = Path(root_path)
     has_base: dict[str, bool] = {}
     whole_diff: list[str] = []
     no_diff = 0
@@ -1612,7 +1647,7 @@ def write_review_material(ctx: WorkflowContext) -> WorkflowResult:
     # code can show that code instead of nothing.
     _attach_content_provider(diff_manager, worktree_path)
 
-    material = _write_review_material(
+    material = write_review_material_at(
         ctx,
         worktree_path,
         manifest,
@@ -1666,7 +1701,7 @@ def _highlight_inline_code(text: str) -> str:
     return re.sub(r"`([^`\n]+)`", r"[bold]\1[/bold]", text)
 
 
-def _review_tool_options(adapter) -> dict:
+def review_tool_options(adapter) -> dict:
     """The tool, effort and spending options this adapter can enforce on the session."""
     from ..operations.findings_operations import (
         REVIEW_ALLOWED_TOOLS,
@@ -1728,7 +1763,7 @@ def _salvage_review_findings(adapter, partial_output: str, structured: bool):
     )
     if not response.succeeded:
         return ClientError(
-            error_message=f"Salvage failed: {_cli_failure_reason(response, adapter.cli_name.value)}",
+            error_message=f"Salvage failed: {cli_failure_reason(response, adapter.cli_name.value)}",
             error_code="REVIEW_SALVAGE_FAILED",
             log_level="warning",
         )
@@ -1747,7 +1782,7 @@ def _retry_review_reformat(adapter, previous_stdout: str, cwd: Optional[str], st
             cwd=cwd,
             timeout=REFORMAT_RETRY_TIMEOUT_SECONDS,
             json_schema=free_review_json_schema() if structured else None,
-            **_review_tool_options(adapter),
+            **review_tool_options(adapter),
         )
     )
     _log_ai_response(
@@ -1759,7 +1794,7 @@ def _retry_review_reformat(adapter, previous_stdout: str, cwd: Optional[str], st
     )
     if not response.succeeded:
         return ClientError(
-            error_message=f"Reformat retry failed: {_cli_failure_reason(response, adapter.cli_name.value)}",
+            error_message=f"Reformat retry failed: {cli_failure_reason(response, adapter.cli_name.value)}",
             error_code="REFORMAT_RETRY_FAILED",
             log_level="warning",
         )
@@ -1868,7 +1903,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     if not manifest or not manifest.pr or not worktree_path:
         return _fail_review(ctx, "No change manifest or review worktree in context")
 
-    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_review_findings)
+    adapter, route_note, ai_off = resolve_review_adapter(ctx, ai_review_findings)
     if not adapter:
         reason = route_note or "No headless CLI available"
         if ai_off:
@@ -1881,12 +1916,12 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
             )
         return _fail_review(ctx, f"{reason} — the review could not run")
 
-    _announce_review_adapter(ctx, adapter)
+    announce_review_adapter(ctx, adapter)
 
     # A schema makes the CLI return its findings through a validated tool call instead of
     # trusting a "respond only with JSON" instruction a model may ignore after a long session.
     structured = adapter.supports_structured_output
-    options = _review_tool_options(adapter)
+    options = review_tool_options(adapter)
     pr = manifest.pr
     prompt = build_free_review_prompt(
         pr.number,
@@ -1933,7 +1968,7 @@ def _ai_review_findings(ctx: WorkflowContext) -> WorkflowResult:
     _log_session_activity(cli, response.activity)
     salvaged = False
     if not response.succeeded:
-        reason = _cli_failure_reason(response, cli)
+        reason = cli_failure_reason(response, cli)
         # The session is where a review spends everything, and it dies holding the whole
         # review: when it is killed (a ceiling, an interrupt) the subagents have already
         # reported and only the answer is missing. Throwing that away bills the user for
@@ -2947,7 +2982,7 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
         ctx.textual.end_step("skip")
         return Skip("No thread_review_contexts in context")
 
-    adapter, route_note, ai_off = _resolve_review_adapter(ctx, ai_thread_resolution)
+    adapter, route_note, ai_off = resolve_review_adapter(ctx, ai_thread_resolution)
 
     if not adapter:
         ctx.textual.warning_text(
@@ -2960,7 +2995,7 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
             metadata={"raw_thread_decisions": []},
         )
 
-    _announce_review_adapter(ctx, adapter)
+    announce_review_adapter(ctx, adapter)
 
     # Split into batches so one call never has to carry every open thread at
     # once — each thread's full conversation/hunk/commit context stays intact,
@@ -3020,7 +3055,7 @@ def ai_thread_resolution(ctx: WorkflowContext) -> WorkflowResult:
             any_batch_failed = True
             ctx.textual.warning_text(
                 f"{batch_label}: CLI call failed "
-                f"({_cli_failure_reason(response, adapter.cli_name.value)}) — skipped"
+                f"({cli_failure_reason(response, adapter.cli_name.value)}) — skipped"
             )
             if response.stderr:
                 ctx.textual.dim_text(response.stderr[:200])

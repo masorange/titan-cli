@@ -107,30 +107,93 @@ def find_ai_response_file(comment_id: int, expected_path: str) -> Optional[str]:
     return None
 
 
-def create_commit_message(comment_body: str, comment_author: str, comment_path: Optional[str]) -> str:
+def create_commit_message(
+    comment_body: str,
+    comment_author: str,
+    comment_path: Optional[str],
+    comment_line: Optional[int] = None,
+    subject: Optional[str] = None,
+) -> str:
     """
-    Generate a simple commit message from a PR comment.
+    Build the commit message for a fix that answers a PR review comment.
+
+    `subject` is the line an AI wrote from the diff that is about to be committed. Without
+    it the subject falls back to `Fix: <filename>`, which names the file the COMMENT is on
+    and says nothing about the change -- on PR #276 two such commits were named after files
+    they never touched, because the name comes from the comment and not from the diff.
+
+    The body always says which comment the commit answers, so the PR's history is readable
+    without opening the thread, and keeps the author attribution.
 
     Args:
-        comment_body: The comment body text
+        comment_body: The comment body text (kept for callers that pass it; the subject is
+            written from the diff, not from the comment)
         comment_author: The comment author username
         comment_path: The file path the comment is on (optional)
+        comment_line: The line the comment is on (optional)
+        subject: A one-line conventional subject describing the change (optional)
 
     Returns:
         Formatted commit message
     """
-    # Simple and direct commit message
-    if comment_path:
+    if subject and subject.strip():
+        message = subject.strip()
+    elif comment_path:
         # Extract just the filename from the path
         filename = comment_path.split('/')[-1]
         message = f"Fix: {filename}"
     else:
         message = "PR review fix"
 
+    where = comment_path or ""
+    if where and comment_line:
+        where = f"{where}:{comment_line}"
+    reference = f" on {where}" if where else ""
+    message += f"\n\nAddresses the review comment by @{comment_author}{reference}."
+
     # Add author attribution in body
     message += f"\n\nBy: {comment_author}"
 
     return message
+
+
+def build_commit_message_context(pr_thread: UICommentThread, max_chars: int = 1500) -> str:
+    """
+    The part of a comment thread an AI needs to name WHY a change was made.
+
+    A diff says what changed; only the thread says what was asked for. The whole
+    conversation goes in, replies included, because a fix often answers the last reply
+    rather than the opening comment.
+
+    Args:
+        pr_thread: The review thread the fix answers
+        max_chars: Ceiling for the rendered text; the oldest content is cut first, so the
+            most recent exchange always survives
+
+    Returns:
+        The thread as plain text, empty when there is nothing to say
+    """
+    main = pr_thread.main_comment
+    if not main:
+        return ""
+
+    where = main.path or ""
+    if where and main.line:
+        where = f"{where}:{main.line}"
+
+    blocks = []
+    if where:
+        blocks.append(f"Review comment on {where}:")
+    for comment in [main, *(pr_thread.replies or [])]:
+        body = (comment.body or "").strip()
+        if body:
+            blocks.append(f"@{comment.author_login}: {body}")
+
+    text = "\n\n".join(blocks)
+    if len(text) > max_chars:
+        # Keep the end: the newest reply is the one the fix is answering.
+        text = "…\n\n" + text[-(max_chars - 4):]
+    return text
 
 
 def build_ai_review_prompt(response_file: str) -> str:

@@ -100,6 +100,10 @@
           "summary": "Switch to the PR branch while preserving original branch context."
         },
         {
+          "name": "judge_pr_comments",
+          "summary": "Judge every pending comment in one AI session over the whole PR."
+        },
+        {
           "name": "review_comments",
           "summary": "Guide the user through comment resolution and local changes."
         },
@@ -349,6 +353,7 @@
         ]
       },
       "used_by_workflows": [
+        "respond-pr-comments",
         "review-pr"
       ]
     },
@@ -709,7 +714,7 @@
         "Requires": [],
         "Inputs (from ctx.data)": [],
         "Outputs (saved to ctx.data)": [
-          "    review_threads (List[UICommentThread]): Unresolved review threads"
+          "    pending_comment_threads (List[UICommentThread]): General comments and unresolved review threads, in the order they are shown"
         ],
         "Returns": [
           "    Success: Threads fetched",
@@ -749,6 +754,7 @@
         ]
       },
       "used_by_workflows": [
+        "respond-pr-comments",
         "review-pr",
         "review-pr-thread-resolution"
       ]
@@ -775,6 +781,34 @@
         ]
       },
       "used_by_workflows": []
+    },
+    {
+      "name": "judge_pr_comments",
+      "group": "Pull Request Review",
+      "module": "titan_plugin_github.steps.pr_review_steps",
+      "function": "judge_pr_comments_step",
+      "summary": "Decide, in one session over the whole PR, what each pending comment deserves.",
+      "docstring_sections": {
+        "Requires": [],
+        "Inputs (from ctx.data)": [
+          "    selected_pr_number (int)",
+          "    pending_comment_threads (List[UICommentThread])",
+          "    change_manifest, review_diff_manager (from the review bundle steps)"
+        ],
+        "Outputs (saved to ctx.data)": [
+          "    comment_verdicts (Dict[int, CommentVerdict]): by comment id",
+          "    verdict_files (Dict[int, str]): absolute path of each verdict's file",
+          "    judgement_material_dir (str): where the material was written"
+        ],
+        "Returns": [
+          "    Success: with the verdicts, or with none when the session could not run - the",
+          "        workflow then behaves as it did before, asking the user with no verdict.",
+          "    Error: Textual UI unavailable."
+        ]
+      },
+      "used_by_workflows": [
+        "respond-pr-comments"
+      ]
     },
     {
       "name": "merge_pull_request",
