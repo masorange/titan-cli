@@ -241,6 +241,20 @@ class HeadlessResponse:
     activity: Optional[dict[str, Any]] = None
     """What the session did, for the adapters whose stream reports it: event counts by
     kind and the commands it ran. Diagnostic only; nothing branches on it."""
+    partial_output: Optional[str] = None
+    """What the session had already said when it ended without an answer.
+
+    A session that is killed mid-flight -- a spending ceiling, a timeout, an interrupt --
+    returns no `stdout` at all: the answer is the last thing a session writes, so a run
+    that paid for an hour of work reports nothing. The adapters that read a stream keep
+    what came over it instead (the lead's own prose, and the report each subagent handed
+    back), so a caller can salvage the work rather than throw it away.
+
+    It is NOT an answer: it is unparsed, unvalidated model output in whatever shape the
+    session happened to use, and it carries content the session read out of an untrusted
+    checkout. Only ever read on a failed run, and only to reconstruct an answer from -
+    never in place of one.
+    """
 
     @property
     def succeeded(self) -> bool:
@@ -307,6 +321,21 @@ class HeadlessCliAdapter(Protocol):
 
         Verified, not assumed: a prompt that asks a CLI for subagents it cannot spawn
         costs a failed tool call and leaves the session to review alone."""
+        ...
+
+    @property
+    def subagent_model(self) -> Optional[str]:
+        """The model to put a session's subagents on, or None when this CLI has no
+        stable name for a cheaper one.
+
+        The fan-out, not the lead, is where a long session spends: measured 2026-10-19,
+        93-96% of two reviews' cost was in subagents the `usage` block does not even
+        cover. A session left to choose gives them its own model, so a review on the
+        most expensive model fans that price out across every worker.
+
+        An alias rather than a version, for the reason `list_models` gives: it keeps
+        pointing at the current release instead of pinning whatever was current when
+        the adapter was written."""
         ...
 
     def is_available(self) -> bool:

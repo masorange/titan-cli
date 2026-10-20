@@ -458,3 +458,41 @@ def resolve_action_anchors(
             resolution_source=source_counts,
         )
     return resolved_actions
+
+
+@dataclass(frozen=True)
+class ReviewCompleteness:
+    """Whether a review covered the PR, and what to tell the user before they submit."""
+
+    may_approve: bool
+    notice: Optional[str]
+
+
+def assess_review_completeness(
+    *, has_findings: bool, findings_failed: bool, salvaged: bool
+) -> ReviewCompleteness:
+    """Decide whether this review is a basis for approving the PR.
+
+    Approve is offered on one condition only: a review that ran to the end and found
+    nothing. Every other silence is a review that never got to speak -- it did not run,
+    or it was cut short -- and reading that as "clean" turns a failure into a green
+    light on code nobody looked at. Findings recovered from a cut-short session are real
+    and worth posting, but they are not a verdict on the files it never reached, so they
+    carry the same warning without hiding the findings themselves.
+    """
+    if findings_failed:
+        return ReviewCompleteness(
+            may_approve=False,
+            notice="⚠ The AI review did not run — this PR has NOT been reviewed",
+        )
+    if salvaged:
+        return ReviewCompleteness(
+            may_approve=False,
+            notice=(
+                "⚠ The review was cut short — part of this PR was never reviewed"
+                if has_findings
+                else "⚠ The review was cut short before it found anything — "
+                "this PR has NOT been fully reviewed"
+            ),
+        )
+    return ReviewCompleteness(may_approve=not has_findings, notice=None)
