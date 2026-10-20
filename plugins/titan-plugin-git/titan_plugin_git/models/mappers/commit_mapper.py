@@ -50,4 +50,6 @@ def from_network_commit(network_commit: NetworkGitCommit) -> UIGitCommit:
         date=network_commit.date,
         formatted_date=formatted_date,
         pr_number=split_squash_pr_suffix(message_subject)[1],
+        parents=list(network_commit.parents),
+        refs=list(network_commit.refs),
     )

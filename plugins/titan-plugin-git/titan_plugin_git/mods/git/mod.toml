@@ -1,6 +1,6 @@
 [mod]
 name = "git"
-version = "0.5.0"
+version = "0.6.0"
 icon = "⎇"
 description = "Side panel with the current branch, its pull, push, pull request and merges, the latest commits, a switcher for the branches you use most and the worktrees"
 requires_plugins = ["git"]
@@ -37,6 +37,13 @@ type = "int"
 title = "Recent commits shown"
 default = 10
 min = 0
+
+[options.graph_max_lanes]
+type = "int"
+title = "Graph lanes shown"
+description = "Draw the commit graph while it fits in this many lanes; beyond it, a plain list."
+default = 4
+min = 1
 
 [options.branches_refresh_seconds]
 type = "int"

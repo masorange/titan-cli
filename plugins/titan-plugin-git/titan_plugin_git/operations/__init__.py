@@ -14,6 +14,8 @@ Modules:
 
 from .commit_operations import (
     build_ai_commit_prompt,
+    build_commit_graph,
+    graph_lanes,
     normalize_commit_message,
     capitalize_commit_subject,
     validate_message_length,
@@ -70,6 +72,8 @@ __all__ = [
     "capitalize_commit_subject",
     "validate_message_length",
     "process_ai_commit_message",
+    "build_commit_graph",
+    "graph_lanes",
 
     # Branch naming
     "branch_name_prefixes",

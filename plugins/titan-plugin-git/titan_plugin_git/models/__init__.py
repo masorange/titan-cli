@@ -18,6 +18,7 @@ from .view import (
     UIGitBranch,
     UIGitStatus,
     UIGitCommit,
+    UIGitGraphRow,
     UIGitTag,
     UIGitWorktree,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "UIGitBranch",
     "UIGitStatus",
     "UIGitCommit",
+    "UIGitGraphRow",
     "UIGitTag",
     "UIGitWorktree",
     # Mappers

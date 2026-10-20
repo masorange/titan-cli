@@ -4,8 +4,11 @@ Tests for Commit Operations
 Tests for pure business logic related to commit message handling.
 """
 
+from titan_plugin_git.models.view import UIGitCommit
 from titan_plugin_git.operations.commit_operations import (
     build_ai_commit_prompt,
+    build_commit_graph,
+    graph_lanes,
     normalize_commit_message,
     capitalize_commit_subject,
     validate_message_length,
@@ -289,3 +292,88 @@ def test_commit_mapper_fills_the_squash_pr_number():
     commit = from_network_commit(NetworkGitCommit(hash="a" * 40, message="feat: X (#7)\n\nbody", author="Me <m@x>", date="today"))
 
     assert (commit.message_subject, commit.pr_number) == ("feat: X (#7)", 7)
+
+
+# --- build_commit_graph -----------------------------------------------------
+
+def _commit(sha: str, *parents: str) -> UIGitCommit:
+    return UIGitCommit(
+        hash=sha, short_hash=sha[:7], message=sha, message_subject=sha,
+        author="A <a@b.c>", author_short="A", date="2026-10-20", formatted_date="2026-10-20",
+        parents=list(parents),
+    )
+
+
+def _drawn(rows) -> list:
+    width = graph_lanes(rows)
+    return ["".join(row.cells).ljust(width) for row in rows]
+
+
+def test_linear_history_is_one_lane():
+    rows = build_commit_graph([_commit("c", "b"), _commit("b", "a"), _commit("a")])
+
+    assert _drawn(rows) == ["●", "●", "●"]
+    assert graph_lanes(rows) == 1
+    assert [row.commit.hash for row in rows] == ["c", "b", "a"]
+
+
+def test_merge_forks_a_lane_and_the_branch_closes_it():
+    # m merges side into the trunk; both sides meet again at base.
+    rows = build_commit_graph([
+        _commit("m", "trunk", "side"),
+        _commit("trunk", "base"),
+        _commit("side", "base"),
+        _commit("base"),
+    ])
+
+    assert _drawn(rows) == [
+        "● ",   # m
+        "├╮",   # its two parents leave
+        "●│",   # trunk, with side's lane still running beside it
+        "│●",   # side
+        "●╯",   # base: the lane side opened closes here
+        ]
+    assert [row.is_link for row in rows] == [False, True, False, False, False]
+
+
+def test_a_link_row_carries_no_commit():
+    rows = build_commit_graph([_commit("m", "a", "b"), _commit("a"), _commit("b")])
+
+    link = next(row for row in rows if row.is_link)
+    assert link.commit is None and link.lane == 0
+
+
+def test_a_merge_of_an_existing_lane_opens_no_new_one():
+    # Both of m's parents are already waiting: side was placed by the commit above.
+    rows = build_commit_graph([
+        _commit("head", "m", "side"),
+        _commit("m", "a", "side"),
+        _commit("side", "a"),
+        _commit("a"),
+    ])
+
+    assert graph_lanes(rows) == 2
+
+
+def test_crossing_lanes_are_drawn_through():
+    # d's second parent sits two lanes away, so the run between crosses the lane in the middle.
+    rows = build_commit_graph([
+        _commit("d", "c", "x"),
+        _commit("c", "b"),
+        _commit("b", "a"),
+        _commit("x", "a"),
+        _commit("a"),
+    ])
+
+    assert _drawn(rows)[-1] == "●╯"
+
+
+def test_root_commit_closes_its_lane():
+    rows = build_commit_graph([_commit("only")])
+
+    assert _drawn(rows) == ["●"]
+
+
+def test_no_commits_is_no_rows():
+    assert build_commit_graph([]) == []
+    assert graph_lanes([]) == 0

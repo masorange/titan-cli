@@ -3,7 +3,7 @@ from typing import Optional
 
 from titan_cli.core.mods import Box, Button, Input, Text
 from titan_plugin_git.models.formatting import split_squash_pr_suffix
-from titan_plugin_git.operations import filter_branches, merge_sources
+from titan_plugin_git.operations import filter_branches, graph_lanes, merge_sources
 
 from .models import Branches, Repo, Worktrees
 from .sections.branches import branches as branch_actions_api
@@ -16,11 +16,63 @@ def section(title, color: str, *body):
     return Box(title if isinstance(title, Text) else Text(title, bold=True, color=color), *body, border=color)
 
 
-def commit_line(c) -> Text:
+# One colour per lane, cycled: what makes a branch followable down the rows.
+LANE_COLORS = ("info", "success", "warning", "error", "accent", "primary")
+
+
+def lane_glyphs(row, width: int) -> Text:
+    """A row's lanes, each in its own colour, padded so every subject starts at the same column."""
+    cells = list(row.cells) + [" "] * (width - len(row.cells))
+    return Text(*[
+        Text(cell, color=LANE_COLORS[j % len(LANE_COLORS)], bold=(j == row.lane))
+        for j, cell in enumerate(cells)
+    ])
+
+
+def commit_title(c) -> Text:
     """A commit by the PR it landed (squash merges) or its hash, its subject without the "(#N)" and its age."""
     subject = split_squash_pr_suffix(c.message_subject)[0]
-    return Text("  ", Text(f"#{c.pr_number}", bold=True, color="info") if c.pr_number else Text(c.short_hash, dim=True),
-                f" {subject}", Text(f" · {c.formatted_date}", dim=True))
+    return Text(
+        Text(f"#{c.pr_number}", bold=True, color="info") if c.pr_number else Text(c.short_hash, dim=True),
+        [Text(f" {ref}", color="accent") for ref in c.refs[:2]],
+        f" {subject}",
+    )
+
+
+def commit_detail(m, c, width: int) -> Box:
+    """What the commit line leaves out, under it: who wrote it, when, where it is pointed at, and its hash."""
+    return Box(
+        Text(Text(f"{c.author_short} · {c.date}", dim=True)),
+        c.refs and Text(Text(" ".join(c.refs), color="accent", wrap=True)),
+        Button("⎘ Copy hash", lambda: m.ui.copy(c.hash, "commit hash"), dim=True),
+        indent=width + 1,
+    )
+
+
+def commit_row(m, row, width: int) -> Box:
+    """
+    One drawn line of the graph: a link row is its lanes alone, a commit row is
+    a fold on its subject.
+
+    Only one commit is open at a time, as the branch rows do, so the card keeps
+    its height however long the log is.
+    """
+    if row.is_link:
+        return Text(lane_glyphs(row, width))
+    c = row.commit
+    is_open = m.state.get("open_commit") == c.hash
+    return Box(
+        Button(
+            Text(lane_glyphs(row, width), " ", commit_title(c)),
+            lambda: m.state.set("open_commit", None if is_open else c.hash),
+        ),
+        is_open and commit_detail(m, c, width),
+    )
+
+
+def commit_line(c) -> Text:
+    """A commit with no lanes drawn: what the card falls back to when the graph is too wide."""
+    return Text("  ", commit_title(c), Text(f" · {c.formatted_date}", dim=True))
 
 
 def remote_actions(m, branch, options):
@@ -311,13 +363,20 @@ def repo_section(m, options):
     label = f"▾ Last {len(repo.commits)} commits" if commits_open else (
         first and f"▸ {f'#{first.pr_number}' if first.pr_number else first.short_hash} {split_squash_pr_suffix(first.message_subject)[0]}"
     )
+    # Past a few lanes the graph eats the subject in a pane this narrow, so the
+    # history is shown as a plain list instead of an unreadable one.
+    lanes = graph_lanes(repo.rows)
+    graphed = repo.rows and lanes <= (options or {}).get("graph_max_lanes", 4)
     return section(
         head,
         "info",
         repo.error and Text(repo.error, color="error"),
         not repo.commits and Text("No commits", dim=True),
         first and Button(label, lambda: m.state.set("commits_open", not commits_open), dim=True),
-        commits_open and Box(*[commit_line(c) for c in repo.commits]),
+        commits_open and Box(*(
+            [commit_row(m, row, lanes) for row in repo.rows] if graphed
+            else [commit_line(c) for c in repo.commits]
+        )),
     )
 
 

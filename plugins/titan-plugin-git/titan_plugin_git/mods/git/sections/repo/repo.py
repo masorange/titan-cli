@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from titan_cli.core.result import ClientError, ClientSuccess
+from titan_plugin_git.operations import build_commit_graph
 
 from ...models import Repo
 
@@ -38,4 +39,6 @@ def read_repo(git, root: Path, options) -> Repo:
         added=added,
         removed=removed,
         commits=commits,
+        # Laid out here, off the UI thread, so drawing only reads lanes already placed.
+        rows=build_commit_graph(commits),
     )

@@ -1,5 +1,6 @@
 """Network model for Git commit - faithful to git CLI output."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 
 
 @dataclass
@@ -14,3 +15,5 @@ class NetworkGitCommit:
     message: str
     author: str
     date: str  # Raw git date string
+    parents: List[str] = field(default_factory=list)  # %P, oldest-first as git prints it
+    refs: List[str] = field(default_factory=list)  # %D, e.g. ["HEAD -> main", "origin/main"]

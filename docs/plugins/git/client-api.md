@@ -1103,23 +1103,33 @@ client.run_in_worktree(worktree_path="../repo-search-worktree", args=["status", 
 
 ### Get recent commits from a worktree
 
-Returns recent commits from a specific worktree.
+Returns recent commits from a specific worktree, in topological order (parents
+after their children).
 
 **Call:**
 
 ```python
 client.get_commits(worktree_path="../repo-search-worktree", limit=10)
+client.get_commits(worktree_path=".", limit=50, all_branches=True)
 ```
 
 **Parameters:**
 
 - `worktree_path`: Required. Worktree path.
 - `limit`: Optional. Maximum number of commits.
+- `all_branches`: Optional. Walk every ref instead of HEAD only, as `git log --all` does.
 
 Each `UIGitCommit` carries `pr_number`: the PR a squash merge landed, from the
 `(#1234)` GitHub appends to its subject (`None` otherwise).
 `models.formatting.split_squash_pr_suffix(subject)` returns the subject
 without it and the number.
+
+It also carries `parents` (full hashes; more than one means a merge) and `refs`
+(the branches and tags pointing at it, with `HEAD -> ` and `tag: ` stripped).
+`operations.build_commit_graph(commits)` turns that list into `UIGitGraphRow`s —
+the lane glyphs of a `git log --graph` drawing, one row per commit plus a link
+row wherever edges fork out — and `operations.graph_lanes(rows)` says how many
+columns they need.
 
 ### Get the worktree diff stat
 

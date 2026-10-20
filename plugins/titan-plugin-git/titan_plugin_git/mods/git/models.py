@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from titan_plugin_git.models.view import UIGitBranch, UIGitCommit, UIGitWorktree
+from titan_plugin_git.models.view import UIGitBranch, UIGitCommit, UIGitGraphRow, UIGitWorktree
 
 
 @dataclass(frozen=True)
@@ -14,6 +14,9 @@ class Repo:
     added: int = 0
     removed: int = 0
     commits: List[UIGitCommit] = field(default_factory=list)
+    # The same commits laid out in lanes, link rows included: more lines than
+    # `commits`, which is why both are kept.
+    rows: List[UIGitGraphRow] = field(default_factory=list)
     error: Optional[str] = None
 
 
