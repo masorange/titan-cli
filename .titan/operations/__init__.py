@@ -19,7 +19,7 @@ from .pytest_operations import (
     truncate_text,
 )
 
-from .log_operations import (
+from titan_cli.core.logging.analysis import (
     LogFileInfo,
     LogEntry,
     SessionSegment,
