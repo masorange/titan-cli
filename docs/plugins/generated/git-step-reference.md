@@ -376,7 +376,7 @@ Switch to another local branch, with the most recently used offered first.
   step: switch_branch
 ```
 
-**Used by built-in workflows:** `merge-into-branch`, `switch-branch`
+**Used by built-in workflows:** `switch-branch`
 
 **Available to later steps:** `branch`, `previous_branch`
 
@@ -478,7 +478,7 @@ Create a new Git branch.
 
 ### `resolve_merge_target`
 
-Resolve which branch gets merged and verify the repo is ready for it.
+Resolve which branch receives the merge and which one is merged into it.
 
 **How to read this contract**
 
@@ -495,7 +495,7 @@ Resolve which branch gets merged and verify the repo is ready for it.
 
 **Used by built-in workflows:** `merge-branch`
 
-**Available to later steps:** `source_branch`, `target_branch`, `remote`, `merge_ref`
+**Available to later steps:** `source_branch`, `target_branch`, `previous_branch`, `remote`, `merge_ref`
 
 **Requires**
 
@@ -508,6 +508,7 @@ Resolve which branch gets merged and verify the repo is ready for it.
 
 | Name | Type | Description |
 |------|------|-------------|
+| `target_branch` | str, optional | Branch to merge into (defaults to the current one) |
 | `source_branch` | str, optional | Branch to merge (defaults to the configured base branch) |
 | `remote` | str, optional | Remote name (default: "origin") |
 
@@ -516,7 +517,8 @@ Resolve which branch gets merged and verify the repo is ready for it.
 | Name | Type | Description |
 |------|------|-------------|
 | `source_branch` | str | Resolved branch to merge |
-| `target_branch` | str | Branch receiving the merge |
+| `target_branch` | str | Branch receiving the merge, now checked out |
+| `previous_branch` | str | Branch left behind, equal to target_branch when nothing was switched |
 | `remote` | str | Remote name |
 | `merge_ref` | str | Ref that will be merged, e.g. "origin/develop" |
 
@@ -524,9 +526,9 @@ Resolve which branch gets merged and verify the repo is ready for it.
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `source_branch`, `target_branch`, `remote`, `merge_ref` | Target resolved |
+| `Success` | `source_branch`, `target_branch`, `previous_branch`, `remote`, `merge_ref` | Target resolved and checked out |
 | `Exit` | - | Working tree is dirty, nothing was touched |
-| `Error` | - | Git client unavailable or the branch cannot be resolved |
+| `Error` | - | Git client unavailable, or the branch cannot be resolved or checked out |
 
 ### `fetch_merge_source`
 

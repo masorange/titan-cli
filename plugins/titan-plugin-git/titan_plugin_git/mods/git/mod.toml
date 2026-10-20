@@ -1,8 +1,8 @@
 [mod]
 name = "git"
-version = "0.5.0"
+version = "0.6.0"
 icon = "⎇"
-description = "Side panel with the current branch, its upstream, the latest commits, a switcher for the branches you use most and the worktrees"
+description = "Side panel with the current branch, its upstream and pull, the latest commits, a switcher for the branches you use most and the worktrees"
 requires_plugins = ["git"]
 events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
@@ -66,7 +66,7 @@ default = "commit-ai"
 type = "string"
 title = "Merge workflow"
 description = "Workflow a branch's merge actions run, given target_branch and source_branch; empty for no merge actions."
-default = "merge-into-branch"
+default = "merge-branch"
 
 [options.worktrees_refresh_seconds]
 type = "int"

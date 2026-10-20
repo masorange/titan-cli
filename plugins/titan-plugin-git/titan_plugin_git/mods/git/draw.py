@@ -6,7 +6,7 @@ from titan_plugin_git.models.formatting import split_squash_pr_suffix
 from titan_plugin_git.operations import filter_branches
 
 from .models import Branches, Repo, Worktrees
-from .sections.branches.branches import merge_into, switch_to
+from .sections.branches.branches import merge_into, pull_current, switch_to
 from .sections.worktrees.worktrees import blocked_removal, prune_worktrees, remove_worktree
 
 
@@ -27,8 +27,18 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
     already on offers its merges but no switch.
     """
     if state.blocked:
-        # The card's header already says why; this says what it stops.
-        return Box(Text("commit or stash to use this branch", dim=True), indent=2)
+        # The card's header already says why; this says what it stops. A pull
+        # stays: git itself refuses the ones that would overwrite the work, and
+        # the toast says so, so a dirty tree is no reason to hide it.
+        return Box(
+            Text("commit or stash to use this branch", dim=True),
+            branch.is_current and Button(
+                f"⇩ Pull origin/{branch.name}",
+                lambda: m.run(lambda: pull_current(m, branch.name)),
+                dim=True,
+            ),
+            indent=2,
+        )
 
     picking = m.state.get("merge_source_for") == branch.name
     sources = [b for b in state.items if b.name != branch.name]
@@ -37,6 +47,13 @@ def branch_actions(m, branch, state: Branches, options, switchable: bool = True)
 
     return Box(
         switchable and Button("⎇ Switch to it", lambda: m.run(lambda: switch_to(m, branch.name)), dim=True),
+        # Only the branch you are on: `git pull` updates the checked-out tree, so
+        # offering it on another branch would quietly pull into the wrong one.
+        branch.is_current and Button(
+            f"⇩ Pull origin/{branch.name}",
+            lambda: m.run(lambda: pull_current(m, branch.name)),
+            dim=True,
+        ),
         merges and main_is_other and Button(
             f"⤵ Merge {state.main_branch} into it",
             lambda: merge_into(m, branch.name, state.main_branch, options),

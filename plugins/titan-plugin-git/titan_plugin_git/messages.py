@@ -109,6 +109,8 @@ class Messages:
             NO_SOURCE_BRANCH: str = "No branch to merge: {reason}"
             DIRTY_WORKING_TREE: str = "Working directory is not clean. Commit or stash your changes before merging."
             DIRTY_WORKING_TREE_HINT: str = "A merge on a dirty tree cannot be undone safely if it conflicts."
+            SWITCHING_TARGET: str = "Switching to {branch}..."
+            SWITCH_TARGET_FAILED: str = "Failed to switch to {branch}: {e}"
             FETCHING: str = "Fetching {remote}/{branch}..."
             FETCH_FAILED: str = "Failed to fetch {remote}/{branch}: {e}"
             MERGING: str = "Merging {ref}..."

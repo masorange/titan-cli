@@ -51,6 +51,30 @@ def switch_to(m, branch: str) -> None:
         refresh()
 
 
+def pull_current(m, branch: str) -> None:
+    """
+    Bring `branch` up to date with origin and tell the user how it went.
+
+    Runs off the UI thread (`m.run`), like `switch_to`: the pane is redrawn from
+    the refresh left in `m.state`, after git has been asked again, so a failed
+    pull shows the tree as it really is.
+    """
+    git = m.client("git")
+    if git is None:
+        m.ui.toast("git plugin not available", "error")
+        return
+
+    match git.pull("origin", branch):
+        case ClientSuccess():
+            m.ui.toast(f"Pulled origin/{branch}", "information")
+        case ClientError(error_message=err):
+            m.ui.toast(f"Could not pull origin/{branch}: {err}", "error")
+
+    refresh = m.state.get("refresh")
+    if refresh:
+        refresh()
+
+
 def merge_into(m, target: str, source: str, options) -> None:
     """
     Run the merge workflow: it switches to `target` and merges `source` into it.

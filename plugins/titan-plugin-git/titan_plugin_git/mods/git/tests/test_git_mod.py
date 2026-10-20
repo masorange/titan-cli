@@ -12,7 +12,7 @@ OPTIONS = {
     "recent_branches": 8,
     "branch_filter_threshold": 8,
     "commit_workflow": "commit-ai",
-    "merge_workflow": "merge-into-branch",
+    "merge_workflow": "merge-branch",
     "worktrees_refresh_seconds": 120,
 }
 
@@ -194,7 +194,7 @@ def test_the_merge_action_runs_the_workflow_with_both_branches(mod):
 
     mod.sections.branches.branches.merge_into(m, "feature/login", "main", OPTIONS)
 
-    assert runs == [("merge-into-branch", {"target_branch": "feature/login", "source_branch": "main"})]
+    assert runs == [("merge-branch", {"target_branch": "feature/login", "source_branch": "main"})]
 
 
 def test_the_branch_you_are_on_sits_above_the_switcher_with_merges_only(mod, flatten):
@@ -213,7 +213,40 @@ def test_the_branch_you_are_on_sits_above_the_switcher_with_merges_only(mod, fla
     opened = flatten(mod.draw.draw(m, 44, OPTIONS))
 
     assert "⤵ Merge main into it" in opened and "▸ Merge another branch…" in opened
+    assert "⇩ Pull origin/feat/x" in opened
     assert "⎇ Switch to it" not in opened
+
+
+def test_only_the_branch_you_are_on_offers_the_pull(mod, flatten):
+    """`git pull` updates the checked-out tree, so no other row may offer it."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+    m.state.set("branches_open", True)
+    m.state.set("open_branch", "feature/login")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "⎇ Switch to it" in lines
+    assert not any(line.startswith("⇩ Pull") for line in lines)
+
+
+def test_uncommitted_work_still_lets_you_pull_the_branch_you_are_on(mod, flatten):
+    """A switch is refused, but git decides for itself whether a pull is safe."""
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    m.state.set("branches", branches_state(mod, blocked="2 uncommitted files - commit or stash before switching",
+                                           current="feat/x"))
+    m.state.set("open_branch", "feat/x")
+
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+
+    assert "commit or stash to use this branch" in lines
+    assert "⇩ Pull origin/feat/x" in lines
 
 
 def test_each_card_can_be_turned_off_on_its_own(mod, flatten):

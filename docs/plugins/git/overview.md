@@ -39,7 +39,7 @@ The plugin ships the `git` [mod](../../concepts/mods.md): a side-panel pane of t
 - `branches` — the branch you are on at the top, unfolding into its merges only (there is nothing to switch to), and under it the branches you worked on most recently (reflog first, then last commit date), with a filter. Any branch unfolds into `Merge <base branch> into it` and `Merge another branch…`, and the others also into `Switch to it`; both merges run a workflow. While the working tree has modified or staged files the card turns amber, says so above everything and offers the commit workflow instead: untracked files never block a switch.
 - `worktrees` — every worktree of the repository. One unfolds into its path and a two-press removal (the main worktree and the one Titan runs in are refused); a forced removal is offered only after git has refused one, and `Prune stale records` clears what git keeps for folders deleted by hand.
 
-Options (`[mods.git.options]` in `~/.titan/config.toml`): `repo_refresh_seconds` (30), `branches_refresh_seconds` (60), `worktrees_refresh_seconds` (120), `refresh_key` (`f5`, empty for none), `recent_commits` (10), `recent_branches` (8), `branch_filter_threshold` (8), `commit_workflow` (`commit-ai`), `merge_workflow` (`merge-into-branch`).
+Options (`[mods.git.options]` in `~/.titan/config.toml`): `repo_refresh_seconds` (30), `branches_refresh_seconds` (60), `worktrees_refresh_seconds` (120), `refresh_key` (`f5`, empty for none), `recent_commits` (10), `recent_branches` (8), `branch_filter_threshold` (8), `commit_workflow` (`commit-ai`), `merge_workflow` (`merge-branch`).
 
 ## Accessing the client
 
