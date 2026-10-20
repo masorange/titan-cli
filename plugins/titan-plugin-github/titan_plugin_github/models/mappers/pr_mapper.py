@@ -10,9 +10,10 @@ from typing import Optional
 from ..review_enums import FileChangeStatus
 from ..network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
 from ..network.graphql import GraphQLMergeQueue, GraphQLPullRequestMergeQueueState
-from ..view import UIFailedCheck, UIPullRequest, UIPRMergeResult, UIMergeQueue, UIMergeQueueEntry, UIMergeQueueState, UIFileChange, UIPRCreated
+from ..view import UIFailedCheck, UIPullRequest, UIReviewer, UIPRMergeResult, UIMergeQueue, UIMergeQueueEntry, UIMergeQueueState, UIFileChange, UIPRCreated
 from ..formatting import (
     format_date,
+    format_relative,
     get_pr_status_icon,
     format_pr_stats,
     format_branch_info,
@@ -23,6 +24,38 @@ from ..formatting import (
     format_short_sha,
     actions_job_id,
 )
+
+
+# What a reviewer's standing looks like, and the order the pane lists them in:
+# whoever blocks the PR first, whoever has yet to answer last.
+_REVIEWER_STATES = {
+    "CHANGES_REQUESTED": ("changes_requested", "✗"),
+    "APPROVED": ("approved", "✓"),
+    "COMMENTED": ("commented", "✎"),
+    "DISMISSED": ("commented", "✎"),
+}
+_REVIEWER_ORDER = ("changes_requested", "approved", "commented", "pending")
+
+
+def build_reviewers(rest_pr: NetworkPullRequest) -> list[UIReviewer]:
+    """
+    Everyone asked to review the PR and where each one stands.
+
+    Someone asked again after reviewing is back in `reviewRequests`, so they
+    count as pending and their old review is not shown: that is what GitHub
+    itself does, and the point of a re-request.
+    """
+    requested = [user.login for user in rest_pr.requestedReviewers if user.login]
+    pending = set(requested)
+    reviewed = []
+    for review in rest_pr.latestReviews:
+        login = review.user.login
+        if not login or login in pending or review.state == "PENDING":
+            continue
+        state, icon = _REVIEWER_STATES.get(review.state, ("commented", "✎"))
+        reviewed.append(UIReviewer(login=login, state=state, icon=icon, when=format_relative(review.submitted_at)))
+    reviewers = reviewed + [UIReviewer(login=login, state="pending", icon="○", when="") for login in requested]
+    return sorted(reviewers, key=lambda r: _REVIEWER_ORDER.index(r.state))
 
 
 def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
@@ -69,11 +102,17 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         labels=label_names,
         formatted_created_at=format_date(rest_pr.createdAt) if rest_pr.createdAt else "",
         formatted_updated_at=format_date(rest_pr.updatedAt) if rest_pr.updatedAt else "",
+        additions=rest_pr.additions,
+        deletions=rest_pr.deletions,
+        opened_age=format_relative(rest_pr.createdAt),
+        updated_age=format_relative(rest_pr.updatedAt),
         is_cross_repository=rest_pr.isCrossRepository,
         head_repository_owner=rest_pr.headRepositoryOwnerLogin,
         head_repository_name=rest_pr.headRepositoryName,
         requested_reviewers=requested_reviewers,
         pending_reviewers=pending_reviewers,
+        reviewers=build_reviewers(rest_pr),
+        assignees=[user.login for user in rest_pr.assignees if user.login],
         checks_state=checks_state,
         failed_checks=[UIFailedCheck(name=name, url=url, job_id=actions_job_id(url)) for name, url in failed],
         has_conflicts=(rest_pr.mergeable == "CONFLICTING"),

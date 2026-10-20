@@ -14,7 +14,11 @@ from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...models.view.merge import UIMergeResult
-from ...operations.merge_operations import classify_merge_result, has_conflict_markers
+from ...operations.merge_operations import (
+    classify_merge_result,
+    has_conflict_markers,
+    parse_merge_tree_conflicts,
+)
 from ...exceptions import GitError
 
 
@@ -128,6 +132,40 @@ class MergeService:
             return ClientSuccess(data=files, message=f"{len(files)} conflicted files")
         except GitError as e:
             return ClientError(error_message=str(e), error_code="CONFLICT_CHECK_ERROR")
+
+    @log_client_operation()
+    def list_merge_conflicts(self, base_ref: str, head_ref: str) -> ClientResult[List[str]]:
+        """
+        Which files would conflict if `base_ref` were merged into `head_ref`.
+
+        Answers without touching the working tree, the index or HEAD:
+        `git merge-tree` merges in memory, so this is safe to ask about a branch
+        that is not checked out. Needs git 2.38 or newer.
+
+        Args:
+            base_ref: Ref that would be merged in (e.g. "origin/develop")
+            head_ref: Ref receiving the merge (e.g. "origin/feature/x")
+
+        Returns:
+            ClientResult[List[str]] with the conflicting paths, empty when the
+            merge would be clean
+        """
+        try:
+            # A conflict makes merge-tree exit 1, which is an answer, not a failure.
+            output = self.git.run_command(
+                ["git", "merge-tree", "--write-tree", "--name-only", head_ref, base_ref],
+                check=False,
+            )
+            if not output.strip():
+                return ClientError(
+                    error_message=f"git could not compare {head_ref} with {base_ref}",
+                    error_code="MERGE_TREE_FAILED",
+                    log_level="warning",
+                )
+            paths = parse_merge_tree_conflicts(output)
+            return ClientSuccess(data=paths, message=f"{len(paths)} conflicting files")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="MERGE_TREE_FAILED")
 
     @log_client_operation()
     def get_unresolved_conflict_files(self) -> ClientResult[List[str]]:

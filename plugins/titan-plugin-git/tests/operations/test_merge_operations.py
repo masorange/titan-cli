@@ -11,6 +11,7 @@ from titan_plugin_git.operations.merge_operations import (
     classify_merge_result,
     format_merge_summary,
     has_conflict_markers,
+    parse_merge_tree_conflicts,
     resolve_merge_source,
 )
 
@@ -294,3 +295,29 @@ class TestHasConflictMarkers:
     def test_handles_empty_content(self):
         """Empty files are resolved."""
         assert has_conflict_markers("") is False
+
+
+class TestParseMergeTreeConflicts:
+    """Tests for reading `git merge-tree --write-tree --name-only` output."""
+
+    def test_reads_the_paths_and_stops_at_the_messages(self):
+        """git's own messages are localized, so only the block before the blank line counts."""
+        output = (
+            "187220c87741d4b096fa04c7c0a80a3ac7e2df5d\n"
+            "app/src/main/kotlin/HomeGraph.kt\n"
+            "gradle/libs.versions.toml\n"
+            "\n"
+            "Auto-fusionando gradle/libs.versions.toml\n"
+            "CONFLICTO (contenido): Conflicto de fusion en gradle/libs.versions.toml"
+        )
+
+        assert parse_merge_tree_conflicts(output) == [
+            "app/src/main/kotlin/HomeGraph.kt",
+            "gradle/libs.versions.toml",
+        ]
+
+    def test_a_clean_merge_is_only_the_tree_oid(self):
+        assert parse_merge_tree_conflicts("187220c87741d4b096fa04c7c0a80a3ac7e2df5d") == []
+
+    def test_no_output_at_all(self):
+        assert parse_merge_tree_conflicts("") == []

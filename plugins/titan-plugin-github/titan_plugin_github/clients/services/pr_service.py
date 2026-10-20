@@ -185,7 +185,11 @@ class PRService:
                 "--author", "@me",
                 "--state", state,
                 "--limit", str(max_results),
-                "--json", "number,title,author,updatedAt,labels,isDraft,state,headRefName,baseRefName,statusCheckRollup,reviewDecision,mergeable,url",
+                # latestReviews/reviewRequests/assignees and the size fields come in this
+                # same call: the pane shows who is reviewing without a second round-trip.
+                "--json", "number,title,author,createdAt,updatedAt,labels,isDraft,state,headRefName,baseRefName,"
+                          "statusCheckRollup,reviewDecision,mergeable,url,latestReviews,reviewRequests,assignees,"
+                          "additions,deletions,changedFiles",
             ] + self.gh.get_repo_arg()
 
             output = self.gh.run_command(args)

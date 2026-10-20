@@ -1,6 +1,7 @@
 """Explaining why a CI job failed: the log excerpt, the AI answer and the report."""
 from titan_plugin_github.models.view import UIJobDiagnosis
 from titan_plugin_github.operations import (
+    build_check_fix_prompt,
     build_job_diagnosis_prompt,
     extract_failure_excerpt,
     format_job_diagnoses,
@@ -60,3 +61,30 @@ def test_report_lists_each_job_and_warns_on_made_up_quotes():
 
     assert text.splitlines()[:4] == ["PR #7 Fix login", "Diagnosed by Claude", "", "✗ build"]
     assert "> boom" in text and "do not trust the cause" in text
+
+
+class TestBuildCheckFixPrompt:
+    """The opening prompt of the interactive session that fixes a PR's checks."""
+
+    FAILURES = [("build & tests", "e: Unresolved reference: foo"), ("detekt", "LongMethod 67/60")]
+
+    def test_names_the_pr_the_branch_and_every_failing_check(self):
+        prompt = build_check_fix_prompt(42, "Add icecat", "feature/icecat", self.FAILURES)
+
+        assert "PR #42 (Add icecat)" in prompt and "`feature/icecat`" in prompt
+        assert "- build & tests" in prompt and "- detekt" in prompt
+        assert "e: Unresolved reference: foo" in prompt and "LongMethod 67/60" in prompt
+        # Titan commits after the session, so the CLI must not do it itself.
+        assert "Do NOT run `git add`, `git commit` or `git push`" in prompt
+
+    def test_carries_the_panel_diagnosis_when_there_is_one(self):
+        prompt = build_check_fix_prompt(42, "t", "b", self.FAILURES, diagnosis="detekt: create() is too long")
+
+        assert "detekt: create() is too long" in prompt
+        assert "it can be wrong" in prompt  # the diagnosis is a hint, not a fact
+
+    def test_without_a_diagnosis_nothing_is_claimed(self):
+        assert "already worked out" not in build_check_fix_prompt(42, "t", "b", self.FAILURES)
+
+    def test_no_failing_check_reported(self):
+        assert "- (none reported)" in build_check_fix_prompt(42, "t", "b", [])

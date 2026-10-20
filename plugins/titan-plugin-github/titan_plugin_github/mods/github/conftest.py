@@ -25,7 +25,9 @@ def flatten():
         if isinstance(element, (Button, Link)):
             return [element.label]
         if isinstance(element, Box):
-            return [line for child in element.children for line in flatten(child)]
+            lines = [line for child in element.children for line in flatten(child)]
+            # A row is one line in the pane: the first child at the left, the rest at the right.
+            return [" ".join(lines)] if element.row else lines
         return []
     return flatten
 
@@ -35,10 +37,15 @@ def pr():
     """A github plugin PR (the fields the mod reads of a UIPullRequest) as the client returns it."""
     from titan_plugin_github.models.view import UIFailedCheck
 
-    def pr(number, review="review required", checks="passing", failed=0, draft=False, conflicts=False):
+    def pr(number, review="review required", checks="passing", failed=0, draft=False, conflicts=False,
+           reviewers=(), assignees=(), labels=()):
         return SimpleNamespace(
             number=number, title=f"PR {number}", author_name="ana", is_draft=draft, review_status_summary=review,
             checks_state=checks, has_conflicts=conflicts, url=f"https://github.com/o/r/pull/{number}",
             failed_checks=[UIFailedCheck(f"job{i}", f"https://github.com/o/r/actions/runs/1/job/{i}", job_id=i) for i in range(failed)],
+            reviewers=list(reviewers), assignees=list(assignees), labels=list(labels),
+            branch_info=f"feat/{number} → develop", stats="+10 −2", files_changed=3,
+            additions=10, deletions=2,
+            opened_age="5d ago", updated_age="2h ago",
         )
     return pr

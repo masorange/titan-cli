@@ -53,6 +53,50 @@ def build_job_diagnosis_prompt(job_name: str, excerpt: str) -> Tuple[str, str]:
     return f"Job: {job_name}\n\nLog excerpt:\n{excerpt}", JOB_DIAGNOSIS_SYSTEM
 
 
+def build_check_fix_prompt(
+    pr_number: int,
+    pr_title: str,
+    branch: str,
+    failures: Sequence[Tuple[str, str]],
+    diagnosis: str = "",
+) -> str:
+    """
+    The prompt handed to the interactive AI CLI to fix a PR's failing checks.
+
+    Args:
+        pr_number: The PR whose checks fail
+        pr_title: Its title
+        branch: The branch already checked out for the session
+        failures: One (job name, log excerpt) pair per failed check
+        diagnosis: What the pane already worked out, when it has
+
+    Returns:
+        Prompt text
+    """
+    parts = [
+        f"The checks of PR #{pr_number} ({pr_title}) are failing. Its branch, `{branch}`, "
+        f"is checked out here.",
+        "",
+        "Failing checks:",
+        "\n".join(f"- {name}" for name, _ in failures) or "- (none reported)",
+    ]
+    if diagnosis:
+        parts += ["", "What Titan already worked out from the logs (it can be wrong):", diagnosis]
+    for name, excerpt in failures:
+        parts += ["", f"--- log excerpt of {name} ---", excerpt]
+    parts += [
+        "",
+        "Please fix them:",
+        "1. Read the excerpts and find what actually breaks, in this repository.",
+        "2. Fix it, and run whatever reproduces the check locally to confirm.",
+        "3. Do NOT run `git add`, `git commit` or `git push` - Titan offers to commit and "
+        "push what you changed once you exit.",
+        "",
+        "When it builds, exit.",
+    ]
+    return "\n".join(parts)
+
+
 def _squash(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 

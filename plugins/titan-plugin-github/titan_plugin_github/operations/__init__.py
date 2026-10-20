@@ -23,6 +23,7 @@ from .comment_operations import (
 )
 
 from .ci_diagnosis_operations import (
+    build_check_fix_prompt,
     extract_failure_excerpt,
     build_job_diagnosis_prompt,
     parse_job_diagnosis,
@@ -77,6 +78,7 @@ from .code_review_operations import (
 __all__ = [
     # CI diagnosis operations
     "extract_failure_excerpt",
+    "build_check_fix_prompt",
     "build_job_diagnosis_prompt",
     "parse_job_diagnosis",
     "format_job_diagnoses",

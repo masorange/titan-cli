@@ -109,6 +109,7 @@ A `UIPullRequest` object with the following fields:
 - `base_ref`: Target branch name
 - `branch_info`: Formatted branch information (e.g., "feature/xyz → main")
 - `stats`: Formatted change statistics (e.g., "+123 -45")
+- `additions` / `deletions`: The same counts as numbers, for a UI that colours them apart
 - `files_changed`: Number of files changed
 - `is_mergeable`: Whether the PR can be merged
 - `is_draft`: Whether the PR is a draft
@@ -116,6 +117,14 @@ A `UIPullRequest` object with the following fields:
 - `labels`: List of label names
 - `requested_reviewers`: GitHub usernames of all users requested to review
 - `pending_reviewers`: GitHub usernames of users who haven't reviewed yet
+- `reviewers`: `UIReviewer(login, state, icon, when)` per person involved, the ones who block
+  the PR first and the ones still pending last. `state` is `"changes_requested"`, `"approved"`,
+  `"commented"` or `"pending"`; `icon` is `✗ ✓ ✎ ○`; `when` is how long ago they reviewed
+  (`"2d ago"`, empty while pending); `has_reviewed` says whether `request_pr_review` can ask
+  them again. A reviewer asked again after reviewing counts as pending, as GitHub shows them,
+  and a requested team is named by its slug. Filled by `list_my_prs`.
+- `assignees`: GitHub usernames assigned to the PR. Filled by `list_my_prs`.
+- `opened_age` / `updated_age`: How long ago the PR was opened and last touched (`"5d ago"`)
 - `checks_summary`: Compact check counts (e.g., "2 failing, 5 passing")
 - `review_status_summary`: "approved", "changes requested", "review required" or "draft"
 - `checks_state`: One state for all checks: `"failing"`, `"running"`, `"passing"` or `"none"`
@@ -126,6 +135,10 @@ A `UIPullRequest` object with the following fields:
 - `url`: The PR's web page
 - `has_conflicts`: True when GitHub reports the PR as conflicting. Filled by
   `list_pending_review_prs` and `list_my_prs`; `list_all_prs` does not fetch it.
+
+Which fields come back depends on what the call asks GitHub for: a list method fills what its
+own `--json` requests, so `reviewers`, `assignees`, `opened_age`, `updated_age`, `stats` and
+`files_changed` are empty on the lists that do not fetch them.
 
 ### List pull requests pending review
 

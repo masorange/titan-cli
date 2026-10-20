@@ -1,0 +1,41 @@
+name: "Resolve PR Conflicts"
+description: "Merge the base branch into one of your conflicting PRs, resolving the conflicts with an interactive AI session"
+
+params:
+  # The PR to un-conflict; empty asks among your conflicting PRs.
+  conflict_pr_number: ""
+  remote: "origin"
+
+steps:
+  - id: select_conflicted_pr
+    name: "Select PR with Conflicts"
+    plugin: github
+    step: select_conflicted_pr
+
+  # A merge on a dirty tree cannot be rolled back, and the checkout would fail
+  # anyway: this stops before anything is touched.
+  - id: check_clean_state
+    name: "Check Branch State"
+    plugin: github
+    step: check_clean_state
+
+  - id: checkout_pr_branch
+    name: "Checkout PR Branch"
+    plugin: github
+    step: checkout_pr_branch
+
+  # Nested, not extended, so the branch is always restored below: a nested
+  # workflow's Exit - an aborted merge, nothing to merge - comes back to this
+  # one as Success, while an extended workflow's Exit would stop everything and
+  # leave the user on the PR's branch.
+  - id: merge_base_branch
+    name: "Merge the Base Branch"
+    workflow: "plugin:git/merge-branch"
+    params:
+      source_branch: "${selected_pr_base_branch}"
+      remote: "${remote}"
+
+  - id: restore_branch
+    name: "Back to Your Branch"
+    plugin: github
+    step: checkout_original_branch

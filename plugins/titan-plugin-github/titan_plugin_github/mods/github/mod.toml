@@ -2,7 +2,7 @@
 name = "github"
 version = "0.1.0"
 icon = "🔀"
-description = "Side panel with review requests (one press reviews them), your PRs, the merge queue and CI check diagnosis"
+description = "Side panel with review requests (review, approve, request changes or comment on them), your PRs, the merge queue and CI check diagnosis"
 requires_plugins = ["github"]
 events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
@@ -11,7 +11,7 @@ ai_task = "PR check diagnosis"
 
 [sections.prs]
 title = "Pull requests"
-description = "Review requests, your PRs, check diagnosis and the review button."
+description = "Review requests with their review, approve, request-changes and comment buttons, your PRs with reviewers, conflicts and check diagnosis."
 
 [sections.queue]
 title = "Merge queue"
@@ -51,5 +51,17 @@ min = 1
 [options.review_workflow]
 type = "string"
 title = "Review workflow"
-description = "Workflow a review request's Review button runs, given the PR as review_pr_number; empty for no button."
+description = "Workflow a review request's Review button runs, given the PR as review_pr_number; empty for no button (Approve/Request changes/Comment stay)."
 default = "review-pr"
+
+[options.conflicts_workflow]
+type = "string"
+title = "Conflict workflow"
+description = "Workflow the ⚒ Resolve conflicts button runs, given the PR as conflict_pr_number; empty for no button."
+default = "resolve-pr-conflicts"
+
+[options.checks_workflow]
+type = "string"
+title = "Failing checks workflow"
+description = "Workflow the ⚒ Fix with AI button runs, given the PR as fix_pr_number; empty for no button."
+default = "fix-pr-checks"
