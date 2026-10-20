@@ -124,15 +124,15 @@ def review_actions(m, pr: UIPullRequest, options) -> Box:
     )
 
 
-REVIEWER_TONE = {"changes_requested": "error", "approved": "success", "commented": "info", "pending": "subtle"}
+REVIEWER_TONE = {"changes_requested": "error", "approved": "success", "commented": "info", "pending": "primary"}
 
 
 def reviewer_line(m, pr: UIPullRequest, reviewer):
     """One reviewer; pressable to ask them again, which only means something once they have reviewed."""
     label = f"{reviewer.icon} @{reviewer.login}" + (f" · {reviewer.when}" if reviewer.when else "")
     if not reviewer.has_reviewed:
-        return Text(label, color=REVIEWER_TONE[reviewer.state], dim=True)
-    return Button(f"{label}  ⟳", lambda: actions.rerequest(m, pr.number, [reviewer.login]), dim=True)
+        return Text(label, color=REVIEWER_TONE[reviewer.state])
+    return Button(f"{label}  ⟳", lambda: actions.rerequest(m, pr.number, [reviewer.login]))
 
 
 def reviewers_fold(m, pr: UIPullRequest) -> Box:
