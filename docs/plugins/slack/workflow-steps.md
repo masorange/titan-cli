@@ -69,7 +69,7 @@ Use these steps to resolve a target conversation, read its recent messages, and 
 ## Notes
 
 - Built-in workflows may use only a subset of these steps.
-- `select_default_or_search_channel_target` is the step that uses repo-configured `default_channels`; when none are configured, or the user chooses to search instead, it falls back to the unified `select_target` search (person or channel). It is available for custom workflows but is not used by any built-in workflow.
+- `select_default_or_search_channel_target` is the step that uses repo-configured `default_channels`; the checklist's last row, "🔍 Another channel (type its name)…", searches for a channel by name and adds it to the checked ones; when none are configured, or nothing is checked, it falls back to the unified `select_target` search (person or channel). It is available for custom workflows but is not used by any built-in workflow.
 - The built-in summary workflow uses the unified `select_target` step directly, so it can resolve either a person or a channel from one search.
 
 <!-- BEGIN GENERATED STEP CONTRACTS -->

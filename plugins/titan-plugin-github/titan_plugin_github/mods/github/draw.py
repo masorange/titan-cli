@@ -1,13 +1,14 @@
 """The pane's element tree, drawn from `m.state` only: it never waits on the network."""
 from typing import Optional
 
-from titan_cli.core.mods import Box, Button, Input, Link, Text
+from titan_cli.core.mods import Box, Button, Input, Link, Option, Text, choice_card, error_card
 from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest
 
 from .diagnosis import Diagnosis, diagnosis_text, refresh_ai_label, start_diagnosis
-from .models import Composer, Prs, Queue
-from .sections.prs import actions, conflicts
+from .models import Composer, Others, Prs, Queue
+from .sections.prs import actions, conflicts, merge
 
+QUEUE_CHECKS = {"passing": ("✓ checks", "success"), "failing": ("✗ checks failing", "error")}
 QUEUE_TONE = {"QUEUED": "subtle", "AWAITING_CHECKS": "warning", "MERGEABLE": "success", "UNMERGEABLE": "error", "LOCKED": "error"}
 # A PR with no review decision yet is waiting for one, as GitHub's own lists put it.
 REVIEW_LABEL = {"approved": "approved", "changes requested": "changes requested"}
@@ -27,7 +28,32 @@ def section(title, color: str, *body):
     return Box(title if isinstance(title, Text) else Text(title, bold=True, color=color), *body, border=color)
 
 
-def diagnosis_of(m, pr: UIPullRequest, options) -> Box:
+def error_box(m, text: str, what: str = "error", retry: Optional[str] = None) -> Box:
+    """An error that can be copied whole, in the shared error card; `retry` names the read to run again."""
+    reread = m.state.get(f"refresh_{retry}") if retry else None
+    retrying = bool(retry and m.state.get(f"retrying:{retry}"))
+
+    def press():
+        m.state.set(f"retrying:{retry}", True)
+
+        def again():
+            try:
+                reread()
+            finally:
+                m.state.set(f"retrying:{retry}", False)
+
+        m.run(again)
+
+    actions = [Button("… retrying" if retrying else "⟳ Retry", (lambda: None) if retrying else press, dim=retrying)] if reread else []
+    return error_card(text, copy=m.ui.copy, what=what, actions=actions)
+
+
+# What the pane's own frame takes off the width a PR row is drawn in: the section's
+# border and padding (4), the group's fold (2) and the row's indent (3).
+ROW_INSET = 9
+
+
+def diagnosis_of(m, pr: UIPullRequest, options, width: int = 40) -> Box:
     d: Optional[Diagnosis] = (m.state.get("diagnoses") or {}).get(str(pr.number))
     running = d is not None and d.status == "running"
     if running:
@@ -42,6 +68,7 @@ def diagnosis_of(m, pr: UIPullRequest, options) -> Box:
 
     done = d is not None and d.status == "done"
     urls = {c.name: c.url for c in pr.failed_checks}
+    run_ids = sorted({c.run_id for c in pr.failed_checks if c.run_id})
     return Box(
         Button(label, press, dim=not running),
         d is not None and d.status == "error" and Text(f"Could not diagnose: {d.error}", color="error"),
@@ -62,15 +89,22 @@ def diagnosis_of(m, pr: UIPullRequest, options) -> Box:
             lambda: m.ui.copy(diagnosis_text(pr, d), f"#{pr.number} " + ("error" if d.status == "error" else "diagnosis")),
             dim=True,
         ),
-        # Saying why it broke is half the job; this hands the logs (and the
-        # diagnosis, when there is one) to an interactive session on the branch.
-        not running and (options or {}).get("checks_workflow") and action_button(
-            "⚒ Fix with AI",
-            lambda: m.workflows.run(options["checks_workflow"], {
-                "fix_pr_number": pr.number,
-                "check_diagnosis": diagnosis_text(pr, d) if done else "",
-            }),
-            "error",
+        not running and choice_card(
+            [
+                # A cancelled runner or a flaky test needs no fix, only another go.
+                run_ids and Option("⟳ Re-run failed jobs", lambda: actions.rerun(m, pr.number, run_ids)),
+                # Saying why it broke is half the job; this hands the logs (and the
+                # diagnosis, when there is one) to an interactive session on the branch.
+                (options or {}).get("checks_workflow") and Option(
+                    "⚒ Fix with AI",
+                    lambda: m.workflows.run(options["checks_workflow"], {
+                        "fix_pr_number": pr.number,
+                        "check_diagnosis": diagnosis_text(pr, d) if done else "",
+                    }),
+                    "error",
+                ),
+            ],
+            width=width - ROW_INSET,
         ),
         indent=3,
     )
@@ -100,11 +134,11 @@ def composer_box(m, c: Composer) -> Box:
 ACTION_WIDTH = max(len(label) for label in ("Review", "✓ Approve", "✗ Request changes", "✎ Comment"))
 
 
-def action_button(label: str, on_press, variant: str) -> Button:
-    return Button(label.ljust(ACTION_WIDTH), on_press, variant=variant)
+def action_button(label: str, on_press, variant: str, width: int = ACTION_WIDTH) -> Button:
+    return Button(label.ljust(width), on_press, variant=variant)
 
 
-def review_actions(m, pr: UIPullRequest, options) -> Box:
+def review_actions(m, pr: UIPullRequest, options, width: int = 40) -> Box:
     """What can be done about a review request: review it in a workflow, or answer GitHub right here."""
     in_flight = actions.running(m, pr.number)
     if in_flight:
@@ -114,12 +148,18 @@ def review_actions(m, pr: UIPullRequest, options) -> Box:
         return composer_box(m, c)
     workflow = (options or {}).get("review_workflow")
     return Box(
-        # Review runs the workflow on this PR, skipping its PR picker.
-        workflow and action_button("Review", lambda: m.workflows.run(workflow, {"review_pr_number": pr.number}), "default"),
-        action_button("✓ Approve", lambda: actions.start(m, pr.number, "approve"), "success"),
-        # Request changes goes out with no body, exactly as the review-pr workflow submits it.
-        action_button("✗ Request changes", lambda: actions.start(m, pr.number, "request_changes"), "error"),
-        action_button("✎ Comment", lambda: actions.open_composer(m, pr.number), "default"),
+        choice_card(
+            [
+                # Review runs the workflow on this PR, skipping its PR picker.
+                workflow and Option("Review", lambda: m.workflows.run(workflow, {"review_pr_number": pr.number})),
+                Option("✓ Approve", lambda: actions.start(m, pr.number, "approve"), "success"),
+                # Request changes goes out with no body, exactly as the review-pr workflow submits it.
+                Option("✗ Request changes", lambda: actions.start(m, pr.number, "request_changes"), "error"),
+                Option("✎ Comment", lambda: actions.open_composer(m, pr.number)),
+            ],
+            width=width - ROW_INSET,
+            title="Actions",
+        ),
         indent=3,
     )
 
@@ -191,15 +231,46 @@ def conflicts_fold(m, pr: UIPullRequest, options) -> Box:
     )
 
 
-def my_pr_detail(m, pr: UIPullRequest, options) -> Box:
+def notify_text(options, pr: UIPullRequest) -> str:
+    """The channel message for a PR, from the `notify_message` option."""
+    template = (options or {}).get("notify_message") or "Merging [#{number} {title}]({url})"
+    return template.format(number=pr.number, title=pr.title, url=pr.url, author=pr.author_name, branch=pr.head_ref)
+
+
+def merge_confirmation(m, pr: UIPullRequest, queue: Optional[Queue], width: int):
+    """Merging cannot be undone, so the first press asks and this card is the second."""
+    what = "join the merge queue" if merge.uses_queue(pr, queue) else "squash and merge"
+    return choice_card(
+        [
+            Option("✓ Confirm", lambda: actions.merge(m, pr.number), "success"),
+            Option("✗ Cancel", lambda: actions.cancel_merge(m)),
+        ],
+        width=width - ROW_INSET,
+        title=f"Sure? This will {what}.",
+        border="warning",
+    )
+
+
+def my_pr_detail(m, pr: UIPullRequest, options, queue: Optional[Queue] = None, queued: bool = False,
+                 width: int = 40) -> Box:
     """What is worth knowing about a PR of your own, and what can be done about it.
 
-    Two lines carry four facts: what it lands on and how old it is, what it
-    changes and when it was last touched ("↻"), each pair on one line with the
-    time pushed to the right edge.
+    Top to bottom: the facts (what it lands on and how old it is, what it
+    changes and when it was last touched "↻", each pair on one line with the
+    time pushed to the right edge, then the labels), the folds (conflicts,
+    reviewers, assignees), and last the things to press, set apart by a gap.
     """
     reviewed = [r.login for r in pr.reviewers if r.has_reviewed]
     in_flight = actions.running(m, pr.number)
+    notify = bool(m.state.get("slack_on") and (options or {}).get("notify_workflow"))
+    # A PR already in the queue has had its merge asked for; one in flight is busy.
+    reasons = [] if queued or in_flight else merge.blockers(pr)
+    confirming = not queued and not in_flight and not reasons and actions.merge_pending(m) == pr.number
+    hint = (
+        f"… {actions.PROGRESS[in_flight]}" if in_flight else
+        "⇢ waiting in the merge queue" if queued else
+        "Not ready to merge: " + ", ".join(reasons) if reasons else ""
+    )
     return Box(
         (pr.branch_info or pr.opened_age) and Box(
             Text(pr.branch_info or " ", dim=True),
@@ -216,9 +287,22 @@ def my_pr_detail(m, pr: UIPullRequest, options) -> Box:
         pr.reviewers and reviewers_fold(m, pr),
         pr.assignees and fold(m, f"assignees_open:{pr.number}", f"Assignees ({len(pr.assignees)})", False,
                               [Text(f"@{login}", dim=True) for login in pr.assignees]),
-        in_flight and Text(f"… {actions.PROGRESS[in_flight]}", dim=True),
-        not in_flight and reviewed and action_button(
-            f"⟳ Re-request review ({len(reviewed)})", lambda: actions.rerequest(m, pr.number), "default"),
+        Text(" "),
+        confirming and merge_confirmation(m, pr, queue, width),
+        choice_card(
+            [
+                not queued and not in_flight and not reasons and not confirming and Option(
+                    merge.label(pr, queue), lambda: actions.ask_merge(m, pr.number), "success"),
+                notify and Option(
+                    "✉ Notify channel", lambda: m.workflows.run(options["notify_workflow"], {
+                        "slack_message_markdown": notify_text(options, pr)})),
+                not in_flight and reviewed and Option(
+                    f"⟳ Re-request review ({len(reviewed)})", lambda: actions.rerequest(m, pr.number)),
+            ],
+            width=width - ROW_INSET,
+            title="Actions",
+            hint=hint,
+        ),
         indent=3,
     )
 
@@ -233,7 +317,8 @@ def toggle_row(m, number: int) -> None:
     m.state.update("rows_open", lambda all_: {**(all_ or {}), key: not bool((all_ or {}).get(key))}, default={})
 
 
-def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None) -> Box:
+def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None, queue: Optional[Queue] = None,
+           width: int = 40) -> Box:
     entry = queued.get(pr.number)
     review = (
         Text("○ draft", dim=True)
@@ -264,10 +349,10 @@ def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None)
         expanded and [
             # The number is the fold now, so the way to GitHub lives in here.
             pr.url and Box(Text(Link("↗ Open on GitHub", pr.url)), indent=3),
-            is_mine and my_pr_detail(m, pr, options),
+            is_mine and my_pr_detail(m, pr, options, queue, entry is not None, width),
             # Fixing a red check is the author's job, so only my own PRs get a diagnosis.
-            is_mine and pr.checks_state == "failing" and diagnosis_of(m, pr, options),
-            not is_mine and review_actions(m, pr, options),
+            is_mine and pr.checks_state == "failing" and diagnosis_of(m, pr, options, width),
+            not is_mine and review_actions(m, pr, options, width),
         ],
     )
 
@@ -304,7 +389,9 @@ def queue_row(e: UIMergeQueueEntry) -> Box:
         Text(" "),
         Text(Text(f"{e.position}. ", dim=True), pr_link(e.pr_number, e.url, "accent" if e.is_mine else "info"), f" {e.title}"),
         Text("   ", Text(f"@{e.author} · ", dim=True), Text(f"● {e.state_label}", color=QUEUE_TONE.get(e.state, "subtle")),
-             e.eta_label and Text(f" · {e.eta_label}", bold=True)),
+             e.checks_state in QUEUE_CHECKS and Text(f" · {QUEUE_CHECKS[e.checks_state][0]}", color=QUEUE_CHECKS[e.checks_state][1]),
+             e.eta_label and Text(f" · {e.eta_label}", bold=True),
+             e.queued_age and Text(f" · queued {e.queued_age}", dim=True)),
     )
 
 
@@ -312,13 +399,30 @@ def queue_fold(m, queue: Queue):
     return fold(
         m, "queue_open",
         "Merge queue · unavailable" if queue.error else
-        f"Merge queue · {queue.branch} ({queue.total})" + (f" · {queue.merge_method}" if queue.merge_method else ""),
+        f"Merge queue · {queue.branch} ({queue.total})" + (f" · {queue.merge_method}" if queue.merge_method else "")
+        + (f" · next {queue.next_eta}" if queue.next_eta and queue.entries else ""),
         bool(queue.entries or queue.error),
-        queue.error and Text(queue.error, color="error"),
+        queue.error and error_box(m, queue.error, "merge queue error", retry="queue"),
         not queue.error and queue.total == 0 and Text("Queue empty", dim=True),
         [queue_row(e) for e in queue.entries],
         queue.total > len(queue.entries) and Text(f"…and {queue.total - len(queue.entries)} more", dim=True),
     )
+
+
+def others_fold(m, prs: Prs, read: Optional[Others], queued: dict, options, width: int = 40):
+    """Everyone else's open PRs, read apart from yours: loading while that read is out."""
+    if read is None:
+        return fold(m, "others_open", "Other PRs · loading…", False)
+    if read.error:
+        return fold(m, "others_open", "Other PRs · unavailable", False,
+                    error_box(m, f"Could not read the other PRs: {read.error}", retry="others"))
+    known = {p.number for p in prs.to_review} | {p.number for p in prs.mine}
+    others = [p for p in read.prs if p.number not in known]
+    unlisted = prs.open_count - len(others) - len(known)
+    return fold(m, "others_open", f"Other PRs ({len(others)})", False,
+                not others and Text("Nothing else open", dim=True),
+                [pr_row(p, False, queued, m, options, width=width) for p in others],
+                unlisted > 0 and Text(f"…and {unlisted} more on GitHub", dim=True))
 
 
 def draw(m, width: int, options=None, shown=None):
@@ -345,16 +449,17 @@ def draw(m, width: int, options=None, shown=None):
             not prs.error and prs.to_review and Text(f"  ⚠ {len(prs.to_review)} to review", bold=True, color="warning"),
         )
         if prs.error:
-            parts.append(section(title, tone, Text(f"Could not read PRs: {prs.error}", dim=True)))
+            parts.append(section(title, tone, error_box(m, f"Could not read PRs: {prs.error}", retry="prs")))
         else:
             parts.append(section(title, tone, Box(
                 # Empty groups start closed; each one keeps what the person last chose.
                 fold(m, "review_open", f"Needs your review ({len(prs.to_review)})", bool(prs.to_review),
                      not prs.to_review and Text("Nothing pending", dim=True),
-                     [pr_row(p, False, queued, m, options) for p in prs.to_review]),
+                     [pr_row(p, False, queued, m, options, width=width) for p in prs.to_review]),
                 fold(m, "mine_open", f"Your PRs ({len(prs.mine)})", bool(prs.mine),
                      not prs.mine and Text("No open PRs", dim=True),
-                     [pr_row(p, True, queued, m, options) for p in prs.mine]),
+                     [pr_row(p, True, queued, m, options, queue, width) for p in prs.mine]),
+                others_fold(m, prs, m.state.get("others"), queued, options, width),
                 model_picker(m, options),
                 gap=1,
             )))

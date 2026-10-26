@@ -852,6 +852,27 @@ class PRService:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
+    def rerun_failed_jobs(self, run_id: int) -> ClientResult[None]:
+        """
+        Re-run the failed (and cancelled) jobs of a GitHub Actions workflow run.
+
+        Jobs that passed are not run again. GitHub only accepts this once the
+        whole run has finished.
+
+        Args:
+            run_id: The run id, as in `.../actions/runs/<run_id>/job/<job>`
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            repo = self.gh.get_repo_string()
+            self.gh.run_command(["api", "-X", "POST", f"/repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs"])
+            return ClientSuccess(data=None, message=f"Failed jobs of run {run_id} queued to re-run")
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @log_client_operation()
     def get_merge_queue(self, max_entries: int = 10) -> ClientResult[UIMergeQueue]:
         """
         Get the merge queue of the repository's default branch.

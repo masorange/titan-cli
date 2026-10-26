@@ -17,11 +17,11 @@ from ...models import Composer
 
 # What the pane shows while the action is in flight, and what the toast says after.
 PROGRESS = {"approve": "approving", "request_changes": "requesting changes", "comment": "commenting",
-            "rerequest": "asking for a review again"}
+            "rerequest": "asking for a review again", "merge": "merging", "rerun": "re-running failed jobs"}
 VERB = {"approve": "approve", "request_changes": "request changes on", "comment": "comment on",
-        "rerequest": "ask for a review again on"}
+        "rerequest": "ask for a review again on", "merge": "merge", "rerun": "re-run failed jobs of"}
 DONE = {"approve": "Approved", "request_changes": "Changes requested on", "comment": "Commented on",
-        "rerequest": "Review requested again on"}
+        "rerequest": "Review requested again on", "merge": "Merged", "rerun": "Re-running failed jobs of"}
 # The review events this pane submits; a comment takes the issue-comment path instead.
 EVENT = {"approve": "APPROVE", "request_changes": "REQUEST_CHANGES"}
 
@@ -68,6 +68,26 @@ def send(m) -> None:
     start(m, current.number, current.kind, body)
 
 
+def merge_pending(m) -> Optional[int]:
+    """The PR whose merge awaits a second press, if any."""
+    return m.state.get("merge_confirm")
+
+
+def ask_merge(m, number: int) -> None:
+    """First press: merging cannot be undone, so the button asks again."""
+    m.state.set("merge_confirm", number)
+
+
+def cancel_merge(m) -> None:
+    m.state.set("merge_confirm", None)
+
+
+def merge(m, number: int) -> None:
+    """Second press: squash and merge, or join the queue when the branch has one."""
+    cancel_merge(m)
+    start(m, number, "merge")
+
+
 def running(m, number: int) -> Optional[str]:
     """The action in flight on this PR, if any."""
     return (m.state.get("acting") or {}).get(str(number))
@@ -82,7 +102,13 @@ def rerequest(m, number: int, logins: Optional[List[str]] = None) -> None:
     start(m, number, "rerequest", logins=logins)
 
 
-def start(m, number: int, kind: str, body: str = "", logins: Optional[List[str]] = None) -> None:
+def rerun(m, number: int, run_ids: List[int]) -> None:
+    """Run the failed jobs of these workflow runs again, in the same CI run."""
+    start(m, number, "rerun", run_ids=run_ids)
+
+
+def start(m, number: int, kind: str, body: str = "", logins: Optional[List[str]] = None,
+          run_ids: Optional[List[int]] = None) -> None:
     """Claim the PR and send on a background thread; a second press while it runs does nothing.
 
     The button's state is from the last repaint, so two quick presses both saw
@@ -102,10 +128,11 @@ def start(m, number: int, kind: str, body: str = "", logins: Optional[List[str]]
     if not claimed:
         return
     close_composer(m)
-    m.run(lambda: _send(m, number, kind, body, logins))
+    m.run(lambda: _send(m, number, kind, body, logins, run_ids))
 
 
-def _send(m, number: int, kind: str, body: str, logins: Optional[List[str]] = None) -> None:
+def _send(m, number: int, kind: str, body: str, logins: Optional[List[str]] = None,
+          run_ids: Optional[List[int]] = None) -> None:
     github = m.client("github")
     try:
         if github is None:
@@ -114,9 +141,24 @@ def _send(m, number: int, kind: str, body: str, logins: Optional[List[str]] = No
             result = github.add_issue_comment(number, body)
         elif kind == "rerequest":
             result = github.request_pr_review(number, logins)
+        elif kind == "rerun":
+            result = ClientSuccess(data=None, message="")
+            for run_id in run_ids or []:
+                result = github.rerun_failed_jobs(run_id)
+                if isinstance(result, ClientError):
+                    break
+        elif kind == "merge":
+            # The queue is detected per PR, not assumed from the pane's own read.
+            result = github.merge_pr(number)
         else:
             result = github.submit_review(number, None, EVENT[kind], body)
         match result:
+            case ClientSuccess(data=merged) if kind == "merge":
+                if merged.merged or merged.queued:
+                    m.ui.toast(f"#{number}: {merged.message}" if merged.queued else f"Merged #{number}")
+                    refresh(m)
+                else:
+                    m.ui.toast(f"Could not merge #{number}: {merged.message}", severity="error")
             case ClientSuccess():
                 who = f" from @{', @'.join(logins)}" if logins else ""
                 m.ui.toast(f"{DONE[kind]} #{number}{who}")

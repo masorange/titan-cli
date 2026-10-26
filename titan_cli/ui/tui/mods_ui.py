@@ -74,6 +74,10 @@ class TitanModHost:
             logger.exception("mod_dock_click_failed", mod=mod)
 
     def toast(self, mod: str, text: str, severity: str) -> None:
+        # An error is never a toast: it opens the error card, with its copy button.
+        if severity == "error":
+            self._on_app_thread(lambda: self._app.show_error(text, mod))
+            return
         # Escaped: a mod's text is not markup, and a stray `[/x]` would raise.
         self._on_app_thread(
             lambda: self._app.notify(escape(text), title=mod, severity=severity)

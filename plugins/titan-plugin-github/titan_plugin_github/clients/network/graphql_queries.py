@@ -132,12 +132,19 @@ query($owner: String!, $repo: String!, $first: Int!) {
       configuration {
         mergeMethod
       }
+      nextEntryEstimatedTimeToMerge
       entries(first: $first) {
         totalCount
         nodes {
           position
           state
           estimatedTimeToMerge
+          enqueuedAt
+          headCommit {
+            statusCheckRollup {
+              state
+            }
+          }
           pullRequest {
             number
             title

@@ -27,7 +27,7 @@ from titan_cli.ui.tui.widgets import (
     DimText,
     Button,
     SuccessText,
-    ErrorText,
+    ErrorCard,
     TabbedPanel,
     TabPanel,
 )
@@ -237,8 +237,7 @@ class TestConnectionModal(ModalScreen):
         except Exception as e:
             # Show error - remove loading and show error
             content.remove_children()
-            content.mount(ErrorText(f"{Icons.ERROR} Connection failed!\n\n"))
-            content.mount(DimText(f"Error: {str(e)}"))
+            content.mount(ErrorCard(e, "Connection failed"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""

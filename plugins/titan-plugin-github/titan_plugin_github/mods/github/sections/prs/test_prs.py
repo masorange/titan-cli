@@ -24,3 +24,11 @@ def test_new_review_requests_only_after_a_good_poll(mod, pr):
     assert mod.sections.prs.prs.new_review_requests(None, first) == []
     assert mod.sections.prs.prs.new_review_requests(first, second) == [5]
     assert mod.sections.prs.prs.new_review_requests(mod.models.Prs(error="down"), second) == []
+
+
+def test_read_others_is_its_own_read(mod, pr):
+    github = SimpleNamespace(list_all_prs=lambda: ClientSuccess(data=[pr(4)]))
+    assert [p.number for p in mod.sections.prs.prs.read_others(github).prs] == [4]
+
+    github.list_all_prs = lambda: ClientError(error_message="i/o timeout")
+    assert mod.sections.prs.prs.read_others(github).error == "i/o timeout"

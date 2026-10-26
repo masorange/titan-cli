@@ -168,8 +168,11 @@ class CopyButton(Static):
     }
     """
 
-    def __init__(self, text: str, label: str = "") -> None:
-        super().__init__(self.GLYPH)
+    def __init__(self, text: str, label: str = "", caption: str = "") -> None:
+        """`caption` turns the bare glyph into a labelled button ("⧉ Copy error")."""
+        super().__init__(f"{self.GLYPH} {caption}" if caption else self.GLYPH)
+        if caption:
+            self.styles.width = len(caption) + 4
         self._text = text
         self._label = label
         self.tooltip = f"Copy {label}" if label else "Copy"

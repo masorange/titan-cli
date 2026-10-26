@@ -49,20 +49,40 @@ def labels(box):
     return [c.label for c in box.children if isinstance(c, Button)]
 
 
+def choices(box):
+    """Every button in a choice card, wherever its layout put them (one row, a grid or a column)."""
+    found = []
+    for child in box.children:
+        if isinstance(child, Button):
+            found.append(child)
+        elif isinstance(child, Box):
+            found += choices(child)
+    return found
+
+
+def names(box):
+    return [b.label.strip() for b in choices(box)]
+
+
+def action_card(i, **kwargs):
+    """The card of actions at the foot of the open issue."""
+    return card(i, **kwargs).children[1].children[-1].children[0]
+
+
 def test_the_card_reads_summary_people_description_then_actions_last():
     sections = card(issue()).children[1].children
 
     assert sections[0].parts == ("Do it",)
     assert labels(sections[2]) == ["▸ Description"]
-    assert labels(sections[-1]) == ["▶ Plan", "✋ Take", "▸ Move", "▸ Fix version"]
+    assert names(sections[-1].children[0]) == ["▶ Plan", "✋ Take", "▸ Move", "▸ Fix version"]
 
 
 def test_an_issue_already_in_the_working_status_does_not_offer_take():
-    assert labels(card(issue(status="In Progress")).children[1].children[-1]) == ["▶ Plan", "▸ Move", "▸ Fix version"]
+    assert names(action_card(issue(status="In Progress"))) == ["▶ Plan", "▸ Move", "▸ Fix version"]
 
 
 def test_the_issue_being_taken_says_so():
-    assert labels(card(issue(), taking="PROJ-1").children[1].children[-1])[1] == "Taking…"
+    assert names(action_card(issue(), taking="PROJ-1"))[1] == "Taking…"
 
 
 # -- moving an issue to another status ---------------------------------------
@@ -85,11 +105,11 @@ def test_the_move_button_unfolds_the_statuses_and_pressing_one_moves_the_issue()
     done = mod.Transitions("done", [transition("In Progress"), transition("Done")])
 
     sections = card(issue(), transitions=done, move_open=True, act=act).children[1].children
-    picker, buttons = sections[-2], sections[-1]
+    picker, buttons = sections[-2], sections[-1].children[0]
 
-    assert "▾ Move" in labels(buttons)
-    assert labels(picker) == ["🔵 In Progress", "🔵 Done"]
-    picker.children[2].on_press()
+    assert "▾ Move" in names(buttons)
+    assert names(picker) == ["🔵 In Progress", "🔵 Done"]
+    choices(picker)[1].on_press()
     assert act.move.call_args.args[1] == "Done"
 
 
@@ -106,10 +126,10 @@ def test_a_closed_picker_adds_nothing_and_a_move_in_progress_blocks_the_buttons(
     act = actions()
     busy = mod.move_section(issue(), mod.Transitions("done", [transition("Done")]), True, "PROJ-1", act)
 
-    busy.children[1].on_press()
+    choices(busy)[0].on_press()
 
     act.move.assert_not_called()
-    assert "Moving…" in labels(card(issue(), moving="PROJ-1").children[1].children[-1])
+    assert "Moving…" in names(action_card(issue(), moving="PROJ-1"))
 
 
 def version(name, released=False, id_="1"):
@@ -125,10 +145,10 @@ def test_the_fix_version_picker_ticks_the_current_one_and_pressing_another_repla
     done = mod.Versions("done", [version("1.0", True, "10"), version("2.0", False, "20"), version("3.0", False, "30")])
 
     sections = card(current, act=act, versions=done, fix_open=True).children[1].children
-    picker, buttons = sections[-2], sections[-1]
+    picker, buttons = sections[-2], sections[-1].children[0]
 
     assert labels(picker) == ["☑ 2.0", "☐ 3.0", "✕ Clear"]
-    assert "▾ Fix version" in labels(buttons)
+    assert "▾ Fix version" in names(buttons)
     picker.children[1].on_press()
     act.set_fix.assert_not_called()
     picker.children[2].on_press()

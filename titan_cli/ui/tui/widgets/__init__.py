@@ -6,6 +6,7 @@ Reusable Textual widgets for the Titan TUI.
 from .dock import Dock, DockItem
 from .header import HeaderWidget
 from .panel import Panel
+from .error_card import ErrorCard
 from .panel_container import PanelContainer
 from .table import Table
 from .button import Button
@@ -39,7 +40,6 @@ from .text import (
     PrimaryText,
     BoldPrimaryText,
     SuccessText,
-    ErrorText,
     WarningText,
     ItalicText,
     DimItalicText,
@@ -50,6 +50,7 @@ __all__ = [
     "DockItem",
     "HeaderWidget",
     "Panel",
+    "ErrorCard",
     "PanelContainer",
     "Table",
     "Button",
@@ -85,7 +86,6 @@ __all__ = [
     "PrimaryText",
     "BoldPrimaryText",
     "SuccessText",
-    "ErrorText",
     "WarningText",
     "ItalicText",
     "DimItalicText",

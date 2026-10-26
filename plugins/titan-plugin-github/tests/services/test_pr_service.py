@@ -631,6 +631,27 @@ def test_get_actions_job_log_keeps_the_end(pr_service, mock_gh_network):
     assert mock_gh_network.run_command.call_args.args[0] == ["api", "/repos/o/r/actions/jobs/42/logs"]
 
 
+def test_rerun_failed_jobs_posts_to_the_run(pr_service, mock_gh_network):
+    """The failed jobs of a run are re-run through its own endpoint"""
+    mock_gh_network.get_repo_string.return_value = "o/r"
+
+    result = pr_service.rerun_failed_jobs(9)
+
+    assert isinstance(result, ClientSuccess)
+    assert mock_gh_network.run_command.call_args.args[0] == ["api", "-X", "POST", "/repos/o/r/actions/runs/9/rerun-failed-jobs"]
+
+
+def test_rerun_failed_jobs_reports_a_refusal(pr_service, mock_gh_network):
+    """GitHub refuses while the run is still going: the reason comes back as an error"""
+    from titan_plugin_github.exceptions import GitHubAPIError
+    mock_gh_network.get_repo_string.return_value = "o/r"
+    mock_gh_network.run_command.side_effect = GitHubAPIError("Cannot rerun a workflow run that is in progress")
+
+    result = pr_service.rerun_failed_jobs(9)
+
+    assert isinstance(result, ClientError) and "in progress" in result.error_message
+
+
 def test_get_actions_job_log_zero_tail_returns_nothing(pr_service, mock_gh_network):
     """`log[-0:]` is the whole log: asking for no characters must give none"""
     mock_gh_network.get_repo_string.return_value = "o/r"
@@ -745,6 +766,22 @@ def test_get_merge_queue_entries_carry_the_pr_url(pr_service, mock_graphql_netwo
     result = pr_service.get_merge_queue()
 
     assert result.data.entries[0].url == "https://github.com/o/r/pull/10"
+
+
+def test_get_merge_queue_entries_carry_age_checks_and_next_eta(pr_service, mock_graphql_network):
+    """Queue time, the merge commit's checks and the head-of-queue estimate reach the UI model"""
+    node = queue_node(1, 10, "someone")
+    node["enqueuedAt"] = "2000-01-01T00:00:00Z"
+    node["headCommit"] = {"statusCheckRollup": {"state": "FAILURE"}}
+    response = merge_queue_list_response(nodes=[node, queue_node(2, 11, "other")], total=2)
+    response["data"]["repository"]["mergeQueue"]["nextEntryEstimatedTimeToMerge"] = 600
+    mock_graphql_network.run_query.return_value = response
+
+    queue = pr_service.get_merge_queue().data
+
+    assert queue.next_eta_label == "~10m"
+    assert queue.entries[0].checks_state == "failing" and queue.entries[0].queued_age.endswith("ago")
+    assert queue.entries[1].checks_state == "" and queue.entries[1].queued_age == ""
 
 
 def test_get_pull_request_carries_url_and_actions_job_ids(pr_service, mock_gh_network, sample_pr_json):

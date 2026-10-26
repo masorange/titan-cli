@@ -136,6 +136,7 @@ class UIFailedCheck:
     name: str
     url: str  # Actions job page, or the external CI's target URL; "" when unknown
     job_id: Optional[int] = None  # GitHub Actions job id (for get_actions_job_log); None for external CI
+    run_id: Optional[int] = None  # GitHub Actions workflow run id (for rerun_failed_jobs); None for external CI
 
 
 @dataclass
@@ -300,6 +301,8 @@ class UIMergeQueueEntry:
     eta_label: str  # "<1m", "~12m", "~1h05", or "" without an estimate
     is_mine: bool  # Authored by the authenticated user
     url: str = ""  # The queued PR's web page
+    queued_age: str = ""  # "12m ago", or "" when unknown
+    checks_state: str = ""  # Checks on the queue's merge commit: "passing", "failing", "running" or ""
 
 
 @dataclass
@@ -310,6 +313,7 @@ class UIMergeQueue:
     merge_method: str  # "squash", "merge", "rebase" or ""
     total: int  # Entries in the queue, including those not listed
     entries: List[UIMergeQueueEntry] = field(default_factory=list)
+    next_eta_label: str = ""  # When the head of the queue should merge, as eta_label
 
 
 @dataclass

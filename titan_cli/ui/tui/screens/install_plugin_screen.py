@@ -30,7 +30,7 @@ from titan_cli.ui.tui.widgets import (
     BoldText,
     Button,
     DimText,
-    ErrorText,
+    ErrorCard,
     Panel,
     PromptInput,
     StepIndicator,
@@ -289,14 +289,14 @@ class InstallPluginScreen(BaseScreen):
             pass
 
         body = self.query_one("#content-body", Container)
-        for w in body.query(ErrorText):
+        for w in body.query(ErrorCard):
             w.remove()
         try:
             validate_url(self._raw_url)
             self._base_url, self._requested_ref = parse_repo_url(self._raw_url)
             return True
         except ValueError as e:
-            body.mount(ErrorText(f"{Icons.ERROR} {e}"))
+            body.mount(ErrorCard(e))
             return False
 
     # -----------------------------------------------------------------------

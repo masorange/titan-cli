@@ -22,7 +22,7 @@ from titan_cli.core.mods.loader import read_mods_config, reload_mod
 from titan_cli.core.mods.settings import set_mod_enabled, set_mod_section
 from titan_cli.core.mods.status import FAILED, ModEntry, mod_entries, source_kind
 from titan_cli.ui.tui.icons import Icons
-from titan_cli.ui.tui.widgets import BoldPrimaryText, BoldText, DimText, LabeledSwitch, ListDetailPanel, Text
+from titan_cli.ui.tui.widgets import BoldPrimaryText, BoldText, DimText, ErrorCard, LabeledSwitch, ListDetailPanel, Text
 
 from .base import BaseScreen
 
@@ -161,7 +161,7 @@ class ModsScreen(BaseScreen):
             Static(status_markup(entry), id="mods-status"),
         ]
         if entry.status.state == FAILED:
-            widgets.append(Static(f"[red]{escape(entry.status.error or '')}[/red]"))
+            widgets.append(ErrorCard(entry.status.error or ""))
         if manifest.description:
             widgets += [Text(""), BoldText("Description:"), DimText(manifest.description)]
         widgets.append(Text(""))

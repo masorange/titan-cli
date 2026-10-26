@@ -101,7 +101,7 @@ $banner-end: {ACCENT};
     color: $success;
 }}
 
-.error, ErrorText {{
+.error {{
     color: $error;
 }}
 

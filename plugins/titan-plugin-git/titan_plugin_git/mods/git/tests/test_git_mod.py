@@ -140,7 +140,7 @@ def test_the_filter_keeps_only_the_branches_that_match(mod, flatten):
 
 
 def test_uncommitted_work_leaves_a_branch_with_no_actions(mod, flatten):
-    """The reason is shown, a row opens but offers nothing, and a commit is offered."""
+    """The reason is shown, a row opens but offers nothing, and the current branch opens with a commit offered."""
     from titan_cli.core.mods import ModBus
 
     m = ModBus().api("git")
@@ -149,12 +149,20 @@ def test_uncommitted_work_leaves_a_branch_with_no_actions(mod, flatten):
     m.state.set("branches_open", True)
     m.state.set("open_branch", "main")
 
-    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    lines = [line.strip() for line in flatten(mod.draw.draw(m, 44, OPTIONS))]
 
+    # With no row for the branch you are on, the commit stands alone above the rows.
     assert "⚠ 2 uncommitted files - commit or stash before switching" in lines
     assert "✦ Commit with AI" in lines
     assert "commit or stash to use this branch" in lines
     assert "⎇ Switch to it" not in lines and not any("Merge" in line for line in lines)
+
+    # With the current branch listed it starts open, holds the commit, and closing it sticks.
+    m.state.set("open_branch", None)
+    m.state.set("branches", branches_state(mod, current="feat/x", blocked="2 uncommitted files - commit or stash before switching"))
+    assert "✦ Commit with AI" in [line.strip() for line in flatten(mod.draw.draw(m, 44, OPTIONS))]
+    m.state.set("open_branch", "")
+    assert "✦ Commit with AI" not in [line.strip() for line in flatten(mod.draw.draw(m, 44, OPTIONS))]
 
 
 
@@ -178,7 +186,7 @@ def test_a_branch_unfolds_into_its_actions(mod, flatten):
     assert "▸ Merge a branch into it…" in lines
     assert "main" not in lines[lines.index("▸ Merge a branch into it…") + 1:]  # the picker is closed
 
-    m.state.set("merge_source_for", "feature/login")
+    m.state.set("branch_menu:feature/login", "Merge a branch into it…")
     picking = flatten(mod.draw.draw(m, 44, OPTIONS))
 
     assert "▾ Merge a branch into it…" in picking
@@ -258,7 +266,7 @@ def open_new_branch_fold(mod, host):
     m.state.set("repo", mod.models.Repo(branch="feat/x"))
     m.state.set("branches", branches_state(mod, current="feat/x"))
     m.state.set("open_branch", "feat/x")
-    m.state.set("new_branch_for", "feat/x")
+    m.state.set("branch_menu:feat/x", "New branch from it…")
     return m
 
 
@@ -365,7 +373,7 @@ def test_creating_branches_off_the_branch_you_are_on_and_closes_the_fold(mod):
     # The name is put in the shape git accepts before it is used, field included.
     assert host.git.created == [("feat/new-thing", "feat/x")]
     assert m.state.get(mod.sections.branches.new_branch.NAME) == ""
-    assert m.state.get("new_branch_for") is None
+    assert m.state.get("branch_menu:feat/x") is None
     assert host.toasts == [("Created feat/new-thing from feat/x", "information")]
     assert refreshed == [True]
 
@@ -399,7 +407,7 @@ def test_the_create_pr_button_runs_the_workflow_titan_would_pick(mod, flatten):
     m.state.set("open_branch", "feat/x")
 
     lines = flatten(mod.draw.draw(m, 44, OPTIONS))
-    assert "⬈ Create PR" in lines
+    assert "⬈ Create PR" in [line.strip() for line in lines]  # padded to its grid cell
 
     # The mod asks by the name it knows; resolving to the repo's own is Titan's job.
     mod.sections.branches.branches.create_pr(m, OPTIONS)
@@ -590,7 +598,7 @@ def test_the_picker_offers_the_base_branch_first(mod, flatten):
         main_branch="main",
     ))
     m.state.set("open_branch", "feat/x")
-    m.state.set("merge_source_for", "feat/x")
+    m.state.set("branch_menu:feat/x", "Merge a branch into it…")
 
     lines = flatten(mod.draw.draw(m, 44, OPTIONS))
     offered = lines[lines.index("▾ Merge a branch into it…") + 1:]

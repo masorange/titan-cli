@@ -12,7 +12,7 @@ def read_queue(github, shown: int) -> Queue:
     match github.get_merge_queue(max_entries=shown):
         case ClientSuccess(data=q):
             return Queue(configured=q.is_configured, branch=q.branch, merge_method=q.merge_method,
-                         total=q.total, entries=list(q.entries))
+                         total=q.total, entries=list(q.entries), next_eta=q.next_eta_label)
         case ClientError(error_message=err):
             return Queue(error=err)
 
