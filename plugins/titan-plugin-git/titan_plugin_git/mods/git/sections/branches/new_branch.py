@@ -27,10 +27,13 @@ STATUS = "new_branch_status"  # "suggesting", "creating" or None
 ERROR = "new_branch_error"
 
 
-def toggle(m, branch: str) -> None:
-    """Open the fold under `branch`, or close it; a new name starts from nothing."""
-    opening = m.state.get("new_branch_for") != branch
-    m.state.set("new_branch_for", branch if opening else None)
+def menu_key(branch: str) -> str:
+    """Where the branch's choice card keeps which of its dropdowns is open."""
+    return f"branch_menu:{branch}"
+
+
+def reset(m) -> None:
+    """The fold was opened: a new name starts from nothing."""
     m.state.set(NAME, "")
     m.state.set(ERROR, None)
     m.state.set(STATUS, None)
@@ -184,7 +187,7 @@ def run_create(m, name: str, source: str) -> None:
     try:
         match git.create_and_switch_branch(name, source):
             case ClientSuccess():
-                m.state.set("new_branch_for", None)
+                m.state.set(menu_key(source), None)
                 m.state.set(NAME, "")
                 m.ui.toast(f"Created {name} from {source}", "information")
             case ClientError(error_message=err):

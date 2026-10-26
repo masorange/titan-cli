@@ -12,7 +12,8 @@ from textual.widgets import Static
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.worker import Worker, WorkerState
 
-from titan_cli.ui.tui.widgets import HeaderWidget
+from titan_cli.engine.results import Error
+from titan_cli.ui.tui.widgets import ErrorCard, HeaderWidget
 from titan_cli.ui.tui.icons import Icons
 
 from titan_cli.core.interrupt import (
@@ -138,7 +139,7 @@ class WorkflowExecutionScreen(BaseScreen):
             self.workflow = self.config.workflows.get_workflow(self.workflow_name)
             if not self.workflow:
                 logger.error("workflow_not_found", workflow_name=self.workflow_name)
-                self._output(f"[red]{Icons.ERROR} Workflow '{self.workflow_name}' not found.[/red]")
+                self._error_card(f"Workflow '{self.workflow_name}' not found.")
                 self._output("[dim]Press ESC or Q to return[/dim]")
                 return
 
@@ -172,14 +173,13 @@ class WorkflowExecutionScreen(BaseScreen):
             )
 
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
-            self._output(f"[red]{Icons.ERROR} Error loading workflow: {e}[/red]")
+            self._error_card(e, "Error loading workflow")
             self._output("[dim]Press ESC or Q to return[/dim]")
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             logger.exception("workflow_load_unexpected_error", workflow_name=self.workflow_name, error=str(e))
-            self._output(f"[red]{Icons.ERROR} Unexpected error loading workflow:[/red]")
-            self._output(f"[red]{type(e).__name__}: {e}[/red]")
+            self._error_card(e, "Unexpected error loading workflow")
             self._output(f"[dim]{error_details}[/dim]")
             self._output("[dim]Press ESC or Q to return[/dim]")
 
@@ -258,10 +258,10 @@ class WorkflowExecutionScreen(BaseScreen):
                 cancelled_by_user=cancel_requested(),
             )
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
-            self._output(f"\n[red]{Icons.ERROR} Workflow failed: {e}[/red]")
+            self._error_card(e, "Workflow failed")
             self._output("[dim]Press ESC or Q to return[/dim]")
         except Exception as e:
-            self._output(f"\n[red]{Icons.ERROR} Unexpected error: {type(e).__name__}: {e}[/red]")
+            self._error_card(e, "Unexpected error")
             self._output("[dim]Press ESC or Q to return[/dim]")
         finally:
             clear_abort_check()
@@ -303,6 +303,15 @@ class WorkflowExecutionScreen(BaseScreen):
         try:
             header = self.query_one("#workflow-description", DimText)
             header.update(description)
+        except Exception:
+            pass
+
+    def _error_card(self, error, title: str = "") -> None:
+        """Show an error in a panel that copies it, at the end of the execution output."""
+        try:
+            execution_widget = self.query_one("#execution-content", WorkflowExecutionContent)
+            execution_widget.mount(ErrorCard(error, title))
+            execution_widget._scroll_to_end()
         except Exception:
             pass
 
@@ -660,11 +669,13 @@ class WorkflowExecutionContent(Widget):
                 pass
 
         elif isinstance(message, TextualWorkflowExecutor.WorkflowFailed):
-            # Steps handle their own error display via ctx.textual
-            # Just show a simple notification without duplicating the error message
+            # A failure is an error card in the output, never a toast. A step that showed
+            # its own error card has it there; a run a mod refused, or a step that failed
+            # without saying why, gets one from here.
             if message.step_name == "mods":
-                # No step ran, so no step printed the reason: a mod refused the run.
-                reason = f": {message.error_message}" if message.error_message else ""
-                self.app.notify(f"❌ Workflow refused by a mod{reason}", severity="error", timeout=10)
-            else:
-                self.app.notify(f"❌ Workflow failed at step: {message.step_name}", severity="error", timeout=10)
+                self._error_card(message.error_message or "A mod refused the run", "Workflow refused by a mod")
+            elif not message.error_shown:
+                self._error_card(
+                    Error(message.error_message, exception=message.exception),
+                    f"Workflow failed at step '{message.step_name}'",
+                )

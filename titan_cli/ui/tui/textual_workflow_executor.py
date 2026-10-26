@@ -9,7 +9,6 @@ import uuid
 from typing import Any, Dict, Optional
 
 import structlog
-from rich.markup import escape
 from textual.message import Message
 
 from titan_cli.core.interrupt import WorkflowAborted, abort_requested
@@ -66,11 +65,15 @@ class TextualWorkflowExecutor:
 
     class WorkflowFailed(Message):
         """Emitted when workflow fails."""
-        def __init__(self, workflow_name: str, step_name: str, error_message: str) -> None:
+        def __init__(self, workflow_name: str, step_name: str, error_message: str,
+                     exception: Optional[BaseException] = None, error_shown: bool = False) -> None:
             super().__init__()
             self.workflow_name = workflow_name
             self.step_name = step_name
             self.error_message = error_message
+            self.exception = exception
+            # The failing step already showed its error as a card.
+            self.error_shown = error_shown
 
     class StepStarted(Message):
         """Emitted when a step starts executing."""
@@ -451,7 +454,9 @@ class TextualWorkflowExecutor:
                             self.WorkflowFailed(
                                 workflow_name=workflow.name,
                                 step_name=step_name,
-                                error_message=step_result.message
+                                error_message=step_result.message,
+                                exception=step_result.exception,
+                                error_shown=bool(getattr(ctx.textual, "error_shown", False)),
                             )
                         )
                         return Error(f"Workflow failed at step '{step_name}'", step_result.exception)
@@ -551,7 +556,7 @@ class TextualWorkflowExecutor:
         # A step shows its own errors; one a mod refused never ran, so nothing
         # would say why it failed.
         if not ran and is_error(result) and ctx.textual is not None:
-            ctx.textual.error_text(escape(result.message))
+            ctx.textual.error_text(result.message)
         return result
 
     def _dispatch_step(self, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:

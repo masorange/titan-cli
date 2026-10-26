@@ -203,6 +203,10 @@ class GitHubClient:
         """Get the end of a GitHub Actions job's log (e.g. a failed check)."""
         return self._pr_service.get_actions_job_log(job_id, tail_chars)
 
+    def rerun_failed_jobs(self, run_id: int) -> ClientResult[None]:
+        """Re-run the failed jobs of a GitHub Actions workflow run."""
+        return self._pr_service.rerun_failed_jobs(run_id)
+
     def get_merge_queue(self, max_entries: int = 10) -> ClientResult[UIMergeQueue]:
         """Get the merge queue of the repository's default branch (read-only)."""
         return self._pr_service.get_merge_queue(max_entries)

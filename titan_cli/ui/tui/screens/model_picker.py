@@ -23,7 +23,7 @@ from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
     Button,
     DimText,
-    ErrorText,
+    ErrorCard,
     StyledOption,
     StyledOptionList,
 )
@@ -156,8 +156,7 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         content.remove_children()
 
         if error:
-            content.mount(ErrorText("Could not load the model list."))
-            content.mount(DimText(error))
+            content.mount(ErrorCard(error, "Could not load the model list."))
         elif not models:
             content.mount(DimText(self.empty_message))
 
@@ -176,7 +175,7 @@ class SelectModelModal(ModalScreen[Optional[str]]):
             # gateway, so a surprise there must still fall through to the typed entry
             # rather than leaving an empty modal with no way forward.
             content.remove_children()
-            content.mount(ErrorText("Could not show the model list."))
+            content.mount(ErrorCard("Could not show the model list."))
             self._mount_custom_entry(content, keep=True)
             return
 

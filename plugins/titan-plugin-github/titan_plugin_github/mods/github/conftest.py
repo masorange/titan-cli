@@ -44,7 +44,7 @@ def pr():
             checks_state=checks, has_conflicts=conflicts, url=f"https://github.com/o/r/pull/{number}",
             failed_checks=[UIFailedCheck(f"job{i}", f"https://github.com/o/r/actions/runs/1/job/{i}", job_id=i) for i in range(failed)],
             reviewers=list(reviewers), assignees=list(assignees), labels=list(labels),
-            branch_info=f"feat/{number} → develop", stats="+10 −2", files_changed=3,
+            branch_info=f"feat/{number} → develop", base_ref="develop", head_ref=f"feat/{number}", stats="+10 −2", files_changed=3,
             additions=10, deletions=2,
             opened_age="5d ago", updated_age="2h ago",
         )

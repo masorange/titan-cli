@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Prs
+from ...models import Others, Prs
 
 
 def read_prs(github) -> Prs:
@@ -19,6 +19,17 @@ def read_prs(github) -> Prs:
                 return Prs(repo=repo, error=err)
     to_review, mine, open_count = results
     return Prs(repo=repo, to_review=to_review, mine=mine, open_count=open_count)
+
+
+def read_others(github) -> Others:
+    """Every open PR, in a read of its own (the longest one, so it never blocks the other lists)."""
+    if github is None:
+        return Others(error="github plugin not available")
+    match github.list_all_prs():
+        case ClientSuccess(data=data):
+            return Others(prs=data)
+        case ClientError(error_message=err):
+            return Others(error=err)
 
 
 def new_review_requests(before: Optional[Prs], after: Prs) -> List[int]:

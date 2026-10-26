@@ -15,12 +15,24 @@ class Prs:
 
 
 @dataclass(frozen=True)
+class Others:
+    """Every open PR of the repo, read on its own: the slow read must not hold back your PRs.
+
+    The pane drops the ones that are already yours or waiting on you.
+    """
+
+    prs: List[UIPullRequest] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class Queue:
     configured: bool = False
     branch: str = ""
     merge_method: str = ""
     total: int = 0
     entries: List[UIMergeQueueEntry] = field(default_factory=list)
+    next_eta: str = ""
     error: Optional[str] = None
 
 

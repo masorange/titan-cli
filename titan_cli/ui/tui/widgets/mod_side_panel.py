@@ -35,6 +35,7 @@ PANEL_WIDTH = 56
 MIN_PANEL_WIDTH = 24
 MIN_MAIN_WIDTH = 40  # what a drag must leave to the screen's own content
 RAIL_WIDTH = 4  # an emoji is two cells wide, plus a margin on each side
+SCROLLBAR_WIDTH = 2  # Textual's default vertical scrollbar
 COLLAPSED_WIDTH = RAIL_WIDTH + 1  # the rail and the panel's left border
 
 _COLORS = {
@@ -499,6 +500,9 @@ class ModSidePanel(Horizontal):
     ModSidePanel #mod-panel-body {{
         height: 1fr;
         padding: 0 1;
+        /* The scrollbar's columns are always set aside, so a line laid out for the
+           pane's width fits whether or not the pane scrolls. */
+        scrollbar-gutter: stable;
     }}
     """
 
@@ -581,7 +585,9 @@ class ModSidePanel(Horizontal):
         header.update(RichText(f"▸ {title}  (F4)", no_wrap=True, overflow="ellipsis"))
 
         body = self.query_one("#mod-panel-body", VerticalScroll)
-        width = max(10, host.width - RAIL_WIDTH - 3)
+        # Less the panel's left border (1), the body's padding (2) and its scrollbar (2):
+        # a row spread to more than that is cut at the right edge, where the price is.
+        width = max(10, host.width - RAIL_WIDTH - 1 - 2 - SCROLLBAR_WIDTH)
         try:
             tree = host.render(pane, width)
         except Exception:

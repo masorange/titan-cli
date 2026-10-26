@@ -17,6 +17,7 @@ from textual.binding import Binding
 
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
+    ErrorCard,
     Button,
     Text,
     DimText,
@@ -328,7 +329,7 @@ class PluginManagementScreen(BaseScreen):
             details.mount(DimText(
                 f"The plugin '{plugin_name}' is installed but crashed while loading:"
             ))
-            details.mount(Static(f"[red]{str(load_error)}[/red]"))
+            details.mount(ErrorCard(str(load_error)))
             details.mount(Text(""))
             if record:
                 details.mount(DimText(

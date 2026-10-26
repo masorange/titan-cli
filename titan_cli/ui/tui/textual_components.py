@@ -7,7 +7,7 @@ Steps can import widgets directly from titan_cli.ui.tui.widgets and mount them u
 """
 
 import threading
-from typing import Optional, List, Any
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 from contextlib import contextmanager
 from textual.widget import Widget
 from textual.widgets import LoadingIndicator, Static, Markdown
@@ -57,6 +57,9 @@ class TextualComponents:
         self.app = app
         self.output_widget = output_widget
         self._active_step_container = None
+        # Whether the running step has shown an error card: the executor shows one
+        # of its own for a step that failed without saying why.
+        self.error_shown = False
 
     def begin_step(self, step_name: str) -> None:
         """
@@ -66,6 +69,8 @@ class TextualComponents:
             step_name: Name of the step
         """
         from titan_cli.ui.tui.widgets import StepContainer
+
+        self.error_shown = False
 
         def _create_container():
             container = StepContainer(step_name=step_name)
@@ -110,6 +115,10 @@ class TextualComponents:
             from titan_cli.ui.tui.widgets import Panel
             ctx.textual.mount(Panel("Success!", panel_type="success"))
         """
+        from titan_cli.ui.tui.widgets import ErrorCard
+        if isinstance(widget, ErrorCard):
+            self.error_shown = True
+
         def _mount():
             # Mount to active step container if it exists, otherwise to output widget
             target = self._active_step_container if self._active_step_container else self.output_widget
@@ -241,6 +250,24 @@ class TextualComponents:
         panel_widget = Panel(text=text, panel_type=panel_type, show_icon=show_icon, use_markdown=use_markdown)
         self.mount(panel_widget)
 
+    def error_card(self, error: Any, title: str = "", actions: Sequence[Tuple[str, Callable[[], None]]] = ()) -> None:
+        """
+        Show an error in a bordered panel with a button that copies it to the clipboard.
+
+        Args:
+            error: A message, an engine `Error`, a `ClientError` or an exception
+                (an exception's traceback goes in the copy, not on screen).
+            title: Optional line above the message.
+            actions: Extra buttons next to Copy, as (label, on_press) pairs.
+
+        Example:
+            ctx.textual.error_card(result)  # result: ClientError
+            ctx.textual.error_card("Push rejected", title="Could not publish")
+        """
+        from titan_cli.ui.tui.widgets import ErrorCard
+        self.error_shown = True
+        self.mount(ErrorCard(error, title, actions))
+
     def table(
         self,
         headers: List[str],
@@ -356,20 +383,22 @@ class TextualComponents:
         widget.styles.height = "auto"
         self.mount(widget)
 
-    def error_text(self, text: str) -> None:
+    def error_text(self, text: str, actions: Sequence[Tuple[str, Callable[[], None]]] = ()) -> None:
         """
-        Append error text (red, uses theme system).
+        Show an error: an error card with the button that copies it.
+
+        Every error a step shows goes through the card, so it can always be copied
+        and the step can add buttons of its own.
 
         Args:
-            text: Text to display
+            text: The error message (plain text, no markup)
+            actions: Extra buttons next to Copy, as (label, on_press) pairs
 
         Example:
             ctx.textual.error_text("Failed to connect to API")
+            ctx.textual.error_text(err, actions=[("⟳ Retry", retry)])
         """
-        from titan_cli.ui.tui.widgets import ErrorText
-        widget = ErrorText(text)
-        widget.styles.height = "auto"
-        self.mount(widget)
+        self.error_card(text, actions=actions)
 
     def warning_text(self, text: str) -> None:
         """

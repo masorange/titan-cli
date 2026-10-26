@@ -41,7 +41,7 @@ from titan_cli.ui.tui.screens.model_picker import DEFAULT_OPTION_ID
 from titan_cli.ui.tui.widgets import (
     Button,
     DimText,
-    ErrorText,
+    ErrorCard,
     StyledOption,
     StyledOptionList,
     SuccessText,
@@ -1017,7 +1017,7 @@ class TaskRoutingRow(Container):
             if resolution.candidates:
                 yield WarningText(f"{Icons.WARNING} Needs setup - {resolution.reason}")
             else:
-                yield ErrorText(f"{Icons.ERROR} No AI available - {resolution.reason}")
+                yield ErrorCard(f"No AI available - {resolution.reason}")
 
     def _instance_lines(self, resolution: AIRouteDecision) -> ComposeResult:
         """

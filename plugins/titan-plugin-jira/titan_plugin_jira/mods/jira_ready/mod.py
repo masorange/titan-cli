@@ -20,7 +20,7 @@ confirmed search live in `m.store`, so they survive a restart.
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence
 
-from titan_cli.core.mods import Box, Button, Input, Link, Text
+from titan_cli.core.mods import Box, Button, Input, Link, Option, Text, choice_card
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.models import (
     UIJiraComment,
@@ -394,8 +394,12 @@ def move_options(issue: UIJiraIssue, transitions: List[UIJiraTransition]) -> Lis
     return options
 
 
+# What an issue card's border and the results section's take off the pane's width.
+CARD_INSET = 8
+
+
 def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open: bool,
-                 moving: Optional[str], act: CardActions) -> Optional[Box]:
+                 moving: Optional[str], act: CardActions, width: int = 40) -> Optional[Box]:
     """The statuses the open issue can move to; pressing one moves it. Nothing while the picker is closed."""
     if not is_open:
         return None
@@ -407,13 +411,11 @@ def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open
     if not options:
         return Box(Text("Jira offers no other status from here", dim=True), border="subtle")
     busy = moving == issue.key
-    return Box(
-        Text("Move to", dim=True),
-        *(
-            Button(f"{t.to_status_icon} {t.to_status}", lambda status=t.to_status: None if busy else act.move(issue, status), dim=busy)
-            for t in options
-        ),
-        border="subtle",
+    return choice_card(
+        [Option(f"{t.to_status_icon} {t.to_status}", lambda status=t.to_status: None if busy else act.move(issue, status))
+         for t in options],
+        width=width - CARD_INSET,
+        title="Move to",
     )
 
 
@@ -458,16 +460,15 @@ def fix_version_section(issue: UIJiraIssue, versions: Optional[Versions], is_ope
 
 
 def actions(issue: UIJiraIssue, url: str, options, taking: Optional[str], moving: Optional[str],
-            move_open: bool, fix_open: bool, plan, take, toggle_move, toggle_fix) -> Box:
-    buttons = []
+            move_open: bool, fix_open: bool, plan, take, toggle_move, toggle_fix, width: int = 40) -> Box:
+    choices = []
     if options["plan_workflow"]:
-        buttons.append(Button("▶ Plan", lambda: plan(issue.key), variant="default"))
+        choices.append(Option("▶ Plan", lambda: plan(issue.key)))
     if options["take_status"] and issue.status.strip().lower() != options["take_status"].strip().lower():
-        label = "Taking…" if taking == issue.key else "✋ Take"
-        buttons.append(Button(label, lambda: take(issue), variant="default"))
-    buttons.append(Button("Moving…" if moving == issue.key else f"{'▾' if move_open else '▸'} Move", lambda: toggle_move(issue.key), variant="default"))
-    buttons.append(Button(f"{'▾' if fix_open else '▸'} Fix version", lambda: toggle_fix(issue), variant="default"))
-    return Box(*buttons, url and Text(Link("↗ Open", url)), row=True)
+        choices.append(Option("Taking…" if taking == issue.key else "✋ Take", lambda: take(issue)))
+    choices.append(Option("Moving…" if moving == issue.key else f"{'▾' if move_open else '▸'} Move", lambda: toggle_move(issue.key)))
+    choices.append(Option(f"{'▾' if fix_open else '▸'} Fix version", lambda: toggle_fix(issue)))
+    return Box(choice_card(choices, width=width - CARD_INSET, title="Actions"), url and Text(Link("↗ Open", url)))
 
 
 def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unfolded: bool,
@@ -475,7 +476,7 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
                ai_label: Optional[str], act: CardActions, transitions: Optional[Transitions] = None,
                move_open: bool = False, moving: Optional[str] = None, versions: Optional[Versions] = None,
                fix_open: bool = False, fixing: Optional[str] = None, fix_released: bool = False,
-               parent: Optional[Parent] = None) -> Box:
+               parent: Optional[Parent] = None, width: int = 40) -> Box:
     """
     The open issue: its line, summary, who has it, status, description, comments,
     the AI summary, the statuses it can move to once asked; the actions always last.
@@ -495,10 +496,10 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
             description(issue, unfolded, act.fold),
             comments_section(issue.key, comments, comments_open, act.toggle_comments),
             summary_section(issue, summary, ai_label, act),
-            move_section(issue, transitions, move_open, moving, act),
+            move_section(issue, transitions, move_open, moving, act, width),
             fix_version_section(issue, versions, fix_open, fixing, act, fix_released),
             actions(issue, url, options, taking, moving, move_open, fix_open, act.plan, act.take,
-                    act.toggle_move, act.toggle_fix),
+                    act.toggle_move, act.toggle_fix, width),
             gap=1,
         ),
         border="primary",
@@ -619,7 +620,7 @@ def search_control(draft: str, confirmed: str, change_search, submit_search, cle
 
 def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
         toggle_project_browse, change_project_filter, show_more_projects, change_search, submit_search,
-        clear_search, open_control, show_more, act: CardActions):
+        clear_search, open_control, show_more, act: CardActions, width: int = 40):
     statuses, filters, projects = active_statuses(m), active_filters(m), active_projects(m)
     confirmed = m.store.get("search", "")
     search_draft = m.state.get("search_draft", confirmed)
@@ -674,7 +675,7 @@ def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projec
                                    m.state.get("move_open") == i.key, m.state.get("moving"),
                                    versions.get(project_key(i.key)), m.state.get("fix_open") == i.key,
                                    m.state.get("fixing"), bool(m.state.get("fix_released")),
-                                   parents.get(i.parent_key) if i.parent_key else None)
+                                   parents.get(i.parent_key) if i.parent_key else None, width)
                         if i.key == selected else issue_line(i, False, act.select)
                         for i in ready.issues
                     ),
@@ -1001,4 +1002,4 @@ def register(on, options):
                           lambda issue: m.run(lambda: summarize(m, issue)), copy_summary, pick_ai, toggle_move, move, toggle_fix, set_fix, toggle_released)
         return draw(m, options, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
                    toggle_project_browse, change_project_filter, show_more_projects, change_search, submit_search,
-                   clear_search, open_control, show_more, act)
+                   clear_search, open_control, show_more, act, e.width)

@@ -131,7 +131,8 @@ A `UIPullRequest` object with the following fields:
   (check runs and external commit statuses alike)
 - `failed_checks`: `UIFailedCheck(name, url, job_id)` for each failed check, `url` being the
   Actions job page or the external CI's link, `job_id` the Actions job id to pass to
-  `get_actions_job_log` (`None` for external CI)
+  `get_actions_job_log` (`None` for external CI), `run_id` the Actions run id to pass to
+  `rerun_failed_jobs`
 - `url`: The PR's web page
 - `has_conflicts`: True when GitHub reports the PR as conflicting.
 
@@ -381,6 +382,24 @@ Queueing goes through GraphQL, so it needs a client with a GraphQL network confi
 regular merge does not. Without one, a pull request whose base branch requires a queue
 comes back with `merged=False` and `queued=False` rather than being merged directly.
 
+### Re-run failed jobs
+
+Re-runs the failed and cancelled jobs of a GitHub Actions workflow run; jobs that passed are
+not run again. GitHub only accepts it once the whole run has finished.
+
+**Call:**
+
+```python
+client.rerun_failed_jobs(run_id=123456789)
+```
+
+**Parameters:**
+
+- `run_id`: Required. Workflow run id (`UIFailedCheck.run_id`).
+
+**Result:** `ClientSuccess` once GitHub has queued the re-run; `ClientError` (`API_ERROR`) with
+GitHub's reason otherwise, e.g. the run is still in progress.
+
 ### Get the merge queue state of a pull request
 
 Returns whether the base branch requires a merge queue and whether the pull request is
@@ -445,7 +464,9 @@ client.get_merge_queue(max_entries=8)
 and `entries`. Each `UIMergeQueueEntry` carries `position`, `pr_number`, `title`,
 `author`, `state`, a readable `state_label` (`"running checks"`, `"ready to merge"`…),
 `eta_seconds`, a compact `eta_label` (`"~12m"`), `is_mine` for the
-authenticated user's own pull requests and the PR's `url`.
+authenticated user's own pull requests, the PR's `url`, `queued_age` (`"12m ago"`) and
+`checks_state` of the queue's merge commit (`"passing"`, `"failing"`, `"running"` or `""`).
+`UIMergeQueue.next_eta_label` is GitHub's estimate for the head of the queue.
 
 ---
 

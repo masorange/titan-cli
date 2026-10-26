@@ -2,7 +2,7 @@
 name = "github"
 version = "0.1.0"
 icon = "🔀"
-description = "Side panel with review requests (review, approve, request changes or comment on them), your PRs, the merge queue and CI check diagnosis"
+description = "Side panel with review requests (review, approve, request changes or comment on them), your PRs (with a merge button), the other open PRs, the merge queue and CI check diagnosis"
 requires_plugins = ["github"]
 events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
@@ -11,7 +11,7 @@ ai_task = "PR check diagnosis"
 
 [sections.prs]
 title = "Pull requests"
-description = "Review requests with their review, approve, request-changes and comment buttons, your PRs with reviewers, conflicts and check diagnosis."
+description = "Review requests with their review, approve, request-changes and comment buttons, your PRs with reviewers, conflicts, check diagnosis and a merge button, and the other open PRs."
 
 [sections.queue]
 title = "Merge queue"
@@ -65,3 +65,15 @@ type = "string"
 title = "Failing checks workflow"
 description = "Workflow the ⚒ Fix with AI button runs, given the PR as fix_pr_number; empty for no button."
 default = "fix-pr-checks"
+
+[options.notify_workflow]
+type = "string"
+title = "Notify workflow"
+description = "Workflow the ✉ Notify channel button runs, given the message as slack_message_markdown; it shows only while the Slack plugin is active. Empty for no button."
+default = "plugin:slack/post-message"
+
+[options.notify_message]
+type = "string"
+title = "Notify message"
+description = "Markdown the Notify channel button posts. Fields: {number}, {title}, {url}, {author}, {branch}."
+default = "Merging [#{number} {title}]({url})"
