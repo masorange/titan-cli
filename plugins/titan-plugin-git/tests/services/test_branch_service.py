@@ -32,6 +32,15 @@ class TestBranchServiceGetCurrentBranch:
             ["git", "rev-parse", "--abbrev-ref", "HEAD"]
         )
 
+    def test_get_current_branch_in_a_repository_without_commits(self, mock_git_network):
+        """An unborn branch is named by symbolic-ref when rev-parse has no commit to resolve"""
+        mock_git_network.run_command.side_effect = [GitCommandError("ambiguous argument 'HEAD'"), "main"]
+
+        result = BranchService(mock_git_network).get_current_branch()
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data == "main"
+
     def test_get_current_branch_error(self, mock_git_network):
         """Test error when getting current branch"""
         mock_git_network.run_command.side_effect = GitCommandError("Failed to get branch")
