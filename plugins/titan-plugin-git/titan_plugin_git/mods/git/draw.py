@@ -1,7 +1,7 @@
 """The pane's element tree, drawn from `m.state` only: it never waits on the network."""
 from typing import Optional
 
-from titan_cli.core.mods import Box, Button, Input, Option, Text, choice_card
+from titan_cli.core.mods import Box, Button, Input, Option, Text, choice_card, error_card
 from titan_plugin_git.models.formatting import split_squash_pr_suffix
 from titan_plugin_git.operations import filter_branches, graph_lanes, merge_sources
 
@@ -232,8 +232,7 @@ def branches_section(m, options, width: int = 40):
     if branches is None:
         return section("Loading branches…", "subtle")
     if branches.error and not branches.items:
-        return section(Text("⎇ Switch branch", bold=True, color="error"), "error",
-                       Text(branches.error, color="error", wrap=True))
+        return error_card(branches.error, copy=m.ui.copy, title="⎇ Switch branch")
 
     query = m.state.get("branch_filter", "")
     # The branch you are on cannot be switched to, but it is the usual target of a
@@ -336,8 +335,7 @@ def worktrees_section(m, options, width: int = 40):
     if worktrees is None:
         return section("Loading worktrees…", "subtle")
     if worktrees.error:
-        return section(Text("⎇ Worktrees", bold=True, color="error"), "error",
-                       Text(worktrees.error, color="error", wrap=True))
+        return error_card(worktrees.error, copy=m.ui.copy, title="⎇ Worktrees")
 
     is_open = m.state.get("worktrees_open", False)
     return Box(
@@ -394,7 +392,7 @@ def repo_section(m, options):
     return section(
         head,
         "info",
-        repo.error and Text(repo.error, color="error"),
+        repo.error and error_card(repo.error, copy=m.ui.copy),
         not repo.commits and Text("No commits", dim=True),
         first and Button(label, lambda: m.state.set("commits_open", not commits_open), dim=True),
         commits_open and Box(*(

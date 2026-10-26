@@ -45,7 +45,12 @@ class BranchService:
             ClientResult[str] with current branch name
         """
         try:
-            branch = self.git.run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            try:
+                branch = self.git.run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            except GitCommandError:
+                # An unborn branch has no commit for `rev-parse` to resolve, but HEAD
+                # still names the branch it will become.
+                branch = self.git.run_command(["git", "symbolic-ref", "--short", "HEAD"])
             return ClientSuccess(data=branch, message=f"Current branch: {branch}")
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="BRANCH_ERROR")
