@@ -151,8 +151,16 @@ def test_the_search_is_always_there_and_reaches_beyond_the_recent_branches(mod, 
     tree = mod.draw.draw(m, 44, OPTIONS)
     assert any(isinstance(e, Input) for e in walk(tree))  # two branches only, and the field is there
 
+    assert "✕" not in flatten(tree)  # nothing typed, nothing to clear
+
     m.state.set("branch_filter", "old")
-    assert "▸ feat/old-one · remote" in flatten(mod.draw.draw(m, 44, OPTIONS))
+    m.state.set("branch_search_error", "No branch named old")
+    tree = mod.draw.draw(m, 44, OPTIONS)
+    assert "▸ feat/old-one · remote" in flatten(tree)
+
+    clear = next(e for e in walk(tree) if getattr(e, "label", None) == "✕")
+    clear.on_press()
+    assert (m.state.get("branch_filter"), m.state.get("branch_search_error")) == ("", None)
 
 
 def walk(element):

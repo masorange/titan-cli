@@ -62,9 +62,13 @@ def switch_to_typed(m, query: str) -> None:
         found = filter_branches(state.all or state.items, query)
         m.state.set(SEARCH_ERROR, f"{len(found)} branches match; type more of the name" if found else f"No branch named {query.strip()}")
         return
-    m.state.set(SEARCH_ERROR, None)
-    m.state.set("branch_filter", "")
     m.run(lambda: switch_to(m, target.name))
+
+
+def clear_search(m) -> None:
+    """Empty the search field and what it complained about: the list goes back to the recent branches."""
+    m.state.set("branch_filter", "")
+    m.state.set(SEARCH_ERROR, None)
 
 
 def switch_to(m, branch: str) -> None:
@@ -82,6 +86,9 @@ def switch_to(m, branch: str) -> None:
 
     match git.checkout(branch):
         case ClientSuccess():
+            # The search found what it was for; a name left typed would hide the new list.
+            clear_search(m)
+            m.state.set("open_branch", None)
             m.ui.toast(f"Switched to {branch}", "information")
         case ClientError(error_message=err):
             m.ui.toast(f"Could not switch to {branch}: {err}", "error")

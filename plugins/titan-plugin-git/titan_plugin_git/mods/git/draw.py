@@ -8,7 +8,7 @@ from titan_plugin_git.operations import filter_branches, graph_lanes, merge_sour
 from .models import Branches, Repo, Worktrees
 from .sections.branches import branches as branch_actions_api
 from .sections.branches import new_branch as new_branch_api
-from .sections.branches.branches import SEARCH_ERROR, create_pr, merge_into, switch_to, switch_to_typed
+from .sections.branches.branches import SEARCH_ERROR, clear_search, create_pr, merge_into, switch_to, switch_to_typed
 from .sections.worktrees.worktrees import blocked_removal, prune_worktrees, remove_worktree
 
 SEARCH_SHOWN = 12  # matches listed under the search; the rest are counted
@@ -273,11 +273,15 @@ def branches_section(m, options, width: int = 40):
             dim=True,
         ),
         is_open and Box(
-            Input(
-                value=query,
-                placeholder="Search or type a branch, Enter to switch",
-                on_change=lambda value: (m.state.set("branch_filter", value), m.state.set(SEARCH_ERROR, None)),
-                on_submit=lambda value: switch_to_typed(m, value),
+            Box(
+                Input(
+                    value=query,
+                    placeholder="Search or type a branch, Enter to switch",
+                    on_change=lambda value: (m.state.set("branch_filter", value), m.state.set(SEARCH_ERROR, None)),
+                    on_submit=lambda value: switch_to_typed(m, value),
+                ),
+                query and Button("✕", lambda: clear_search(m), dim=True),
+                row=True,
             ),
             search_error and Text(f"  {search_error}", color="warning", wrap=True),
             not others and not query.strip() and Text("  No other branch", dim=True),

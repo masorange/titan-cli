@@ -246,3 +246,23 @@ def test_enter_with_uncommitted_work_says_why_and_stays(mod):
     m, checked_out, _ = searching(mod, "main", blocked="1 uncommitted file - commit or stash before switching")
     assert checked_out == []
     assert m.state.get("branch_search_error") == "1 uncommitted file - commit or stash before switching"
+
+
+def test_a_switch_from_a_row_clears_the_search_too(mod):
+    m, _ = bus_for(fake_git())
+    m.state.set("branch_filter", "log")
+    m.state.set("open_branch", "feat/login")
+
+    mod.sections.branches.branches.switch_to(m, "feat/login")
+
+    assert m.state.get("branch_filter") == ""
+    assert m.state.get("open_branch") is None
+
+
+def test_a_failed_switch_keeps_what_was_typed(mod):
+    m, _ = bus_for(fake_git(checkout=ClientError(error_message="conflict")))
+    m.state.set("branch_filter", "log")
+
+    mod.sections.branches.branches.switch_to(m, "feat/login")
+
+    assert m.state.get("branch_filter") == "log"
