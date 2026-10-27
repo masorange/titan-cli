@@ -97,6 +97,12 @@ class GitHubClient:
         """List your PRs."""
         return self._pr_service.list_my_prs(state, max_results)
 
+    def list_my_involved_prs(
+        self, state: str = "open", max_results: int = 50
+    ) -> ClientResult[List[UIPullRequest]]:
+        """List the PRs you opened or are assigned to."""
+        return self._pr_service.list_my_involved_prs(state, max_results)
+
     def list_all_prs(
         self, state: str = "open", max_results: int = 50
     ) -> ClientResult[List[UIPullRequest]]:

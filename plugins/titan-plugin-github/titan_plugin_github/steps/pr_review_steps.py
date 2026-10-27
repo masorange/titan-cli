@@ -1019,7 +1019,7 @@ def _handle_resolve_thread(
 
 def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Select a PR from the user's open PRs to review comments.
+    Select a PR to review comments from: the open PRs the user opened or is assigned to.
 
     Outputs (saved to ctx.data):
         selected_pr_number (int): The selected PR number
@@ -1041,13 +1041,13 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
         return Error("GitHub client not available")
 
     # Fetch user's open PRs (returns ClientResult[List[UIPullRequest]])
-    with ctx.textual.loading("Fetching your open PRs..."):
-        result = ctx.github.list_my_prs(state="open")
+    with ctx.textual.loading("Fetching your open and assigned PRs..."):
+        result = ctx.github.list_my_involved_prs(state="open")
 
     match result:
         case ClientSuccess(data=prs):
             if not prs:
-                ctx.textual.dim_text("You don't have any open PRs.")
+                ctx.textual.dim_text("You have no open PRs, authored or assigned.")
                 ctx.textual.end_step("success")
                 return Exit("No open PRs found")
 
@@ -1058,7 +1058,7 @@ def select_pr_for_review_step(ctx: WorkflowContext) -> WorkflowResult:
                     OptionItem(
                         value=pr.number,
                         title=build_pr_selection_title(pr),
-                        description=f"Branch: {build_pr_selection_description(pr)}",
+                        description=build_pr_selection_description(pr, include_author=True),
                     )
                 )
 

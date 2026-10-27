@@ -123,7 +123,7 @@ A `UIPullRequest` object with the following fields:
   (`"2d ago"`, empty while pending); `has_reviewed` says whether `request_pr_review` can ask
   them again. A reviewer asked again after reviewing counts as pending, as GitHub shows them,
   and a requested team is named by its slug. Filled by `list_my_prs`.
-- `assignees`: GitHub usernames assigned to the PR. Filled by `list_my_prs`.
+- `assignees`: GitHub usernames assigned to the PR. Filled by `list_my_prs` and `list_my_involved_prs`.
 - `opened_age` / `updated_age`: How long ago the PR was opened and last touched (`"5d ago"`)
 - `checks_summary`: Compact check counts (e.g., "2 failing, 5 passing")
 - `review_status_summary`: "approved", "changes requested", "review required" or "draft"
@@ -172,9 +172,25 @@ client.list_my_prs(state="open", max_results=25)
 - `state`: Optional. PR state such as `open`, `closed`, or `merged`.
 - `max_results`: Optional. Maximum number of PRs to return.
 
+### List pull requests you opened or are assigned to
+
+Returns pull requests created by the authenticated user plus those assigned to them. Used by
+`respond-pr-comments`, so anyone who self-assigns a PR can answer its comments.
+
+**Call:**
+
+```python
+client.list_my_involved_prs(state="open", max_results=25)
+```
+
+**Parameters:**
+
+- `state`: Optional. PR state such as `open`, `closed`, or `merged`.
+- `max_results`: Optional. Maximum number of PRs to return.
+
 ### How the filtered lists are built
 
-`list_pending_review_prs` and `list_my_prs` list the repository and pick from the result; they
+`list_pending_review_prs`, `list_my_prs` and `list_my_involved_prs` list the repository and pick from the result; they
 never query GitHub's search index. An organization can keep its repositories out of that index,
 and a search that cannot see them answers *nothing* rather than failing, so a search-backed
 list is empty and no error is raised — indistinguishable from having no PRs. Because the

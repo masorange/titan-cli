@@ -2,12 +2,13 @@ from titan_plugin_github.models.view import UIComment, UICommentThread, UIPullRe
 from titan_plugin_github.operations.pr_operations import (
     build_quote_reply,
     prs_authored_by,
+    prs_authored_or_assigned_to,
     prs_awaiting_review_from,
     split_titan_review_body,
 )
 
 
-def _pr(number: int, author: str, requested=()) -> UIPullRequest:
+def _pr(number: int, author: str, requested=(), assignees=()) -> UIPullRequest:
     return UIPullRequest(
         number=number,
         title=f"PR {number}",
@@ -27,6 +28,7 @@ def _pr(number: int, author: str, requested=()) -> UIPullRequest:
         formatted_created_at="",
         formatted_updated_at="",
         requested_reviewers=list(requested),
+        assignees=list(assignees),
     )
 
 
@@ -176,3 +178,14 @@ class TestBuildQuoteReply:
 
         assert result.startswith("> line 1\n> line 2\n> line 3\n> […]\n\nok")
         assert "> line 4" not in result
+
+
+def test_prs_authored_or_assigned_to_keeps_both_ignoring_case():
+    """A PR I opened and a PR assigned to me are both mine to answer."""
+    prs = [_pr(1, "finxo"), _pr(2, "someone"), _pr(3, "other", assignees=["FinXo"]), _pr(4, "x", assignees=["y"])]
+
+    assert [pr.number for pr in prs_authored_or_assigned_to(prs, "finxo")] == [1, 3]
+
+
+def test_prs_authored_or_assigned_to_without_a_login_keeps_nothing():
+    assert prs_authored_or_assigned_to([_pr(1, "finxo", assignees=["finxo"])], "") == []

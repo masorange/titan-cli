@@ -97,7 +97,7 @@ Use these steps to build and submit GitHub issues.
 
 Use these steps for the contributor flow of responding to PR comments and restoring local branch state afterward.
 
-- `select_pr_for_review`: select a pull request that needs comment response work
+- `select_pr_for_review`: select a pull request you opened or are assigned to that needs comment response work
 - `fetch_pending_comments`: load unresolved PR comments into workflow context
 - `check_clean_state`: ensure the current branch is safe to leave before checkout
 - `checkout_pr_branch`: switch to the PR branch while preserving original branch context

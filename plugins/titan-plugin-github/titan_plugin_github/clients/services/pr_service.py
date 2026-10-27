@@ -26,7 +26,11 @@ from ...models.mappers import (
     from_network_pr_file,
     from_network_pr_created,
 )
-from ...operations.pr_operations import prs_authored_by, prs_awaiting_review_from
+from ...operations.pr_operations import (
+    prs_authored_by,
+    prs_authored_or_assigned_to,
+    prs_awaiting_review_from,
+)
 from ...exceptions import GitHubAPIError
 from ...messages import msg
 
@@ -167,6 +171,33 @@ class PRService:
 
         mine = prs_authored_by(prs, login)[:max_results]
         return ClientSuccess(data=mine, message=f"Found {len(mine)} PRs")
+
+    @log_client_operation()
+    def list_my_involved_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
+        """
+        List the PRs you opened or are assigned to.
+
+        Args:
+            state: PR state (open, closed, merged, all)
+            max_results: Maximum number of results
+
+        Returns:
+            ClientResult[List[UIPullRequest]]
+        """
+        match self.get_current_user():
+            case ClientSuccess(data=login):
+                pass
+            case ClientError() as error:
+                return error
+
+        match self._list_repo_prs(state, self._scan_limit(max_results)):
+            case ClientSuccess(data=prs):
+                pass
+            case ClientError() as error:
+                return error
+
+        involved = prs_authored_or_assigned_to(prs, login)[:max_results]
+        return ClientSuccess(data=involved, message=f"Found {len(involved)} PRs")
 
     @log_client_operation()
     def list_all_prs(self, state: str = "open", max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
