@@ -37,6 +37,20 @@ class TestStatusServiceGetStatus:
         assert result.data.status_summary == "Clean"
         assert result.data.sync_status == "synced"
 
+    def test_get_status_in_a_repository_without_commits(self, mock_git_network):
+        """An unborn branch is reported by name instead of failing on HEAD"""
+        mock_git_network.run_command.side_effect = [
+            GitCommandError("fatal: ambiguous argument 'HEAD'"),  # rev-parse needs a commit
+            "main",  # symbolic-ref
+            "?? README.md",  # git status --short
+            GitCommandError("no upstream"),  # upstream status
+        ]
+
+        result = StatusService(mock_git_network).get_status()
+
+        assert isinstance(result, ClientSuccess)
+        assert result.data.branch == "main"
+
     def test_get_status_with_modified_files(self, mock_git_network):
         """Test getting status with modified files"""
         mock_git_network.run_command.side_effect = [

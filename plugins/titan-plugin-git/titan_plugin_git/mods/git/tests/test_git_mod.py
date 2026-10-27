@@ -670,3 +670,21 @@ def test_no_show_more_when_the_history_ran_out(mod, flatten):
     m.state.set("repo", mod.models.Repo(branch="x", commits=_commits(4)))    # a short page: that is all of it
 
     assert "＋ Show more" not in flatten(mod.draw.draw(m, 44, OPTIONS))
+
+
+@pytest.mark.parametrize("key, model", [("repo", "Repo"), ("branches", "Branches"), ("worktrees", "Worktrees")])
+def test_a_failed_read_can_be_copied_whole(mod, flatten, key, model):
+    from titan_cli.core.mods import ModBus
+
+    copied = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, copy=lambda mod, text, what: copied.append((text, what)))
+    m = bus.api("git")
+    fields = {"branch": "feat/x"} if model == "Repo" else {}
+    m.state.set(key, getattr(mod.models, model)(error="fatal: ambiguous argument 'HEAD'", **fields))
+
+    tree = mod.draw.draw(m, 44, {}) if key == "repo" else getattr(mod.draw, f"{key}_section")(m, {}, 44)
+    _press(tree, "⧉ Copy error")
+
+    assert "fatal: ambiguous argument 'HEAD'" in flatten(tree)
+    assert copied[0][1] == "error" and "fatal: ambiguous argument 'HEAD'" in copied[0][0]
