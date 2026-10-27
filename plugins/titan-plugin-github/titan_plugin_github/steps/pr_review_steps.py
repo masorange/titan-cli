@@ -353,8 +353,8 @@ def judge_pr_comments_step(ctx: WorkflowContext) -> WorkflowResult:
     prompt = build_judgement_prompt(
         pr_number,
         ctx.get("selected_pr_title", "") or (getattr(pr, "title", "") or ""),
-        ctx.get("selected_pr_head_branch", "") or (getattr(pr, "head_branch", "") or ""),
-        getattr(pr, "base_branch", "") or "",
+        ctx.get("selected_pr_head_branch", "") or (getattr(pr, "head_ref", "") or ""),
+        ctx.get("selected_pr_base_branch", "") or (getattr(pr, "base_ref", "") or ""),
         str(Path(ctx.get("project_root", ".")).resolve()),
         str(root / MATERIAL_DIR),
         len(threads),
