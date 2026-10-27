@@ -1554,6 +1554,7 @@ def send_comment_replies_step(ctx: WorkflowContext) -> WorkflowResult:
         comment_commits (Dict[int, str]): Map of comment_id -> commit_hash
         pending_responses (Dict[int, Dict]): Map of comment_id -> {"text": ..., "source": ...}
         push_successful (bool): Whether push succeeded
+        pending_comment_threads (List[UICommentThread]): Threads used for quote-reply context
 
     Returns:
         Success: Replies sent
@@ -1583,9 +1584,9 @@ def send_comment_replies_step(ctx: WorkflowContext) -> WorkflowResult:
         return Skip("No replies to send")
 
     # Build thread lookup for context display
-    review_threads: List[UICommentThread] = ctx.get("review_threads", [])
+    pending_threads: List[UICommentThread] = ctx.get("pending_comment_threads", []) or []
     thread_by_id = {}
-    for thread in review_threads:
+    for thread in pending_threads:
         if thread.main_comment:
             thread_by_id[thread.main_comment.id] = thread
 
