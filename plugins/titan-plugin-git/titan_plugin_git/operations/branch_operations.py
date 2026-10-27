@@ -6,6 +6,7 @@ These functions can be used by any step and are easily testable.
 """
 
 import re
+from dataclasses import replace
 from typing import List, Optional, Sequence
 
 from ..models.view.branch import UIGitBranch
@@ -167,6 +168,41 @@ def filter_branches(branches: Sequence[UIGitBranch], query: str) -> List[UIGitBr
     if not needle:
         return list(branches)
     return [b for b in branches if needle in b.name.lower()]
+
+
+def switch_targets(
+    local: Sequence[UIGitBranch], remote: Sequence[UIGitBranch], current: str
+) -> List[UIGitBranch]:
+    """
+    Every branch a checkout can move to: the local ones, then the remote ones with
+    no local branch yet, named without their remote ("origin/feat/x" is "feat/x",
+    which `git checkout` turns into a local branch tracking it). The branch you are
+    on and the remote's HEAD pointer are left out.
+    """
+    targets = [b for b in local if b.name != current]
+    known = {b.name for b in local}
+    for b in remote:
+        if "/" not in b.name or " -> " in b.name:
+            continue
+        name = b.name.split("/", 1)[1]
+        if name == "HEAD" or name in known or name == current:
+            continue
+        known.add(name)
+        targets.append(replace(b, name=name, display_name=name, is_remote=True))
+    return targets
+
+
+def match_branch(query: str, branches: Sequence[UIGitBranch]) -> Optional[UIGitBranch]:
+    """
+    The branch a typed name means: the one named exactly so, or else the only one
+    whose name contains it, ignoring case. None when nothing matches or several do.
+    """
+    needle = (query or "").strip()
+    exact = next((b for b in branches if b.name == needle), None)
+    if exact or not needle:
+        return exact
+    found = filter_branches(branches, needle)
+    return found[0] if len(found) == 1 else None
 
 
 def merge_sources(

@@ -8,12 +8,19 @@ def branch(name, current=False):
     return SimpleNamespace(name=name, is_current=current, formatted_date="2 d", upstream_info="")
 
 
-def fake_git(status=None, branches=(), checkout=None, pull=None, pulled=None, push=None, pushed=None):
+def fake_git(status=None, branches=(), checkout=None, pull=None, pulled=None, push=None, pushed=None,
+             local=(), remote=(), checked_out=None):
+    def do_checkout(name):
+        if checked_out is not None:
+            checked_out.append(name)
+        return checkout or ClientSuccess(data=None)
+
     return SimpleNamespace(
+        get_branches=lambda remote_=False, **kw: ClientSuccess(data=list(remote if kw.get("remote", remote_) else local)),
         get_status=lambda: ClientSuccess(data=status or SimpleNamespace(
             branch="feature", modified_files=[], staged_files=[], untracked_files=[])),
         list_recent_branches=lambda limit: ClientSuccess(data=list(branches)),
-        checkout=lambda name: checkout or ClientSuccess(data=None),
+        checkout=do_checkout,
         pull=lambda remote, branch: (pulled is not None and pulled.append((remote, branch)),
                                      pull or ClientSuccess(data=None))[1],
         push=lambda remote, branch: (pushed is not None and pushed.append((remote, branch)),
@@ -187,3 +194,55 @@ def test_a_failure_still_releases_the_claim(mod):
     mod.sections.branches.branches.run_remote(m, "push", "feature")
 
     assert mod.sections.branches.branches.running(m) is None
+
+
+def ui_branch(name, current=False, remote=False):
+    from titan_plugin_git.models.view.branch import UIGitBranch
+    return UIGitBranch(name=name, display_name=name, is_current=current, is_remote=remote)
+
+
+def test_read_branches_also_lists_every_branch_a_checkout_reaches(mod):
+    git = fake_git(branches=[branch("feature", current=True)],
+                   local=[ui_branch("feature", current=True), ui_branch("main")],
+                   remote=[ui_branch("origin/main", remote=True), ui_branch("origin/feat/theirs", remote=True)])
+
+    branches = mod.sections.branches.branches.read_branches(git, {"recent_branches": 8})
+
+    assert [(b.name, b.is_remote) for b in branches.all] == [("main", False), ("feat/theirs", True)]
+
+
+def searching(mod, query, blocked=None):
+    git_branches = [ui_branch("main"), ui_branch("feat/login"), ui_branch("feat/login-v2"), ui_branch("feat/theirs", remote=True)]
+    checked_out = []
+    m, toasts = bus_for(fake_git(checked_out=checked_out))
+    m.state.set("branches", mod.models.Branches(items=git_branches[:1], all=git_branches, current="feature", blocked=blocked))
+    m.state.set("branch_filter", query)
+    mod.sections.branches.branches.switch_to_typed(m, query)
+    return m, checked_out, toasts
+
+
+def test_enter_switches_to_the_branch_named_exactly(mod):
+    m, checked_out, toasts = searching(mod, "feat/login")
+    assert checked_out == ["feat/login"]
+    assert toasts == [("Switched to feat/login", "information")]
+    assert m.state.get("branch_filter") == ""
+
+
+def test_enter_switches_to_a_remote_only_branch_by_part_of_its_name(mod):
+    _, checked_out, _ = searching(mod, "theirs")
+    assert checked_out == ["feat/theirs"]
+
+
+def test_enter_on_an_ambiguous_or_unknown_name_switches_nowhere(mod):
+    m, checked_out, _ = searching(mod, "login")
+    assert checked_out == []
+    assert m.state.get("branch_search_error") == "2 branches match; type more of the name"
+
+    m, checked_out, _ = searching(mod, "nope")
+    assert checked_out == [] and m.state.get("branch_search_error") == "No branch named nope"
+
+
+def test_enter_with_uncommitted_work_says_why_and_stays(mod):
+    m, checked_out, _ = searching(mod, "main", blocked="1 uncommitted file - commit or stash before switching")
+    assert checked_out == []
+    assert m.state.get("branch_search_error") == "1 uncommitted file - commit or stash before switching"

@@ -2,9 +2,11 @@
 from typing import Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
-from titan_plugin_git.operations import push_rejected_hint, switching_blocked_by
+from titan_plugin_git.operations import filter_branches, match_branch, push_rejected_hint, switch_targets, switching_blocked_by
 
 from ...models import Branches
+
+SEARCH_ERROR = "branch_search_error"  # why Enter in the search switched to nothing
 
 
 def read_branches(git, options) -> Branches:
@@ -22,11 +24,47 @@ def read_branches(git, options) -> Branches:
 
     main = getattr(git, "main_branch", "") or ""
 
+    every = all_branches(git, current)
+
     match git.list_recent_branches(limit=options["recent_branches"]):
         case ClientSuccess(data=branches):
-            return Branches(items=list(branches), current=current, blocked=blocked, main_branch=main)
+            return Branches(items=list(branches), all=every, current=current, blocked=blocked, main_branch=main)
         case ClientError(error_message=err):
-            return Branches(current=current, blocked=blocked, main_branch=main, error=err)
+            return Branches(all=every, current=current, blocked=blocked, main_branch=main, error=err)
+
+
+def all_branches(git, current: str) -> list:
+    """Every local and remote branch a checkout reaches; empty when git cannot list them."""
+    lists = []
+    for remote in (False, True):
+        match git.get_branches(remote=remote):
+            case ClientSuccess(data=branches):
+                lists.append(list(branches))
+            case _:
+                lists.append([])
+    return switch_targets(lists[0], lists[1], current)
+
+
+def switch_to_typed(m, query: str) -> None:
+    """
+    Enter in the search field: switch to the branch the text names - exactly, or as
+    the only branch containing it. Anything else is said under the field, and nothing
+    is checked out.
+    """
+    state = m.state.get("branches")
+    if state is None:
+        return
+    if state.blocked:
+        m.state.set(SEARCH_ERROR, state.blocked)
+        return
+    target = match_branch(query, state.all or state.items)
+    if target is None:
+        found = filter_branches(state.all or state.items, query)
+        m.state.set(SEARCH_ERROR, f"{len(found)} branches match; type more of the name" if found else f"No branch named {query.strip()}")
+        return
+    m.state.set(SEARCH_ERROR, None)
+    m.state.set("branch_filter", "")
+    m.run(lambda: switch_to(m, target.name))
 
 
 def switch_to(m, branch: str) -> None:
