@@ -10,7 +10,6 @@ OPTIONS = {
     "recent_commits": 10,
     "branches_refresh_seconds": 60,
     "recent_branches": 8,
-    "branch_filter_threshold": 8,
     "commit_workflow": "commit-ai",
     "create_pr_workflow": "create-pr-ai",
     "suggestion_diff_chars": 4000,
@@ -137,6 +136,37 @@ def test_the_filter_keeps_only_the_branches_that_match(mod, flatten):
     lines = flatten(mod.draw.draw(m, 44, OPTIONS))
 
     assert "▸ feature/login · 2 d" in lines and "▸ main · 2 d" not in lines
+
+
+def test_the_search_is_always_there_and_reaches_beyond_the_recent_branches(mod, flatten):
+    from titan_cli.core.mods import ModBus, Input
+
+    m = ModBus().api("git")
+    m.state.set("repo", mod.models.Repo(branch="feat/x"))
+    state = branches_state(mod)
+    every = [*state.items, SimpleNamespace(name="feat/old-one", is_current=False, is_remote=True, formatted_date="")]
+    m.state.set("branches", mod.models.Branches(items=state.items, all=every, current="feat/x", main_branch="main"))
+    m.state.set("branches_open", True)
+
+    tree = mod.draw.draw(m, 44, OPTIONS)
+    assert any(isinstance(e, Input) for e in walk(tree))  # two branches only, and the field is there
+
+    assert "✕" not in flatten(tree)  # nothing typed, nothing to clear
+
+    m.state.set("branch_filter", "old")
+    m.state.set("branch_search_error", "No branch named old")
+    tree = mod.draw.draw(m, 44, OPTIONS)
+    assert "▸ feat/old-one · remote" in flatten(tree)
+
+    clear = next(e for e in walk(tree) if getattr(e, "label", None) == "✕")
+    clear.on_press()
+    assert (m.state.get("branch_filter"), m.state.get("branch_search_error")) == ("", None)
+
+
+def walk(element):
+    yield element
+    for child in getattr(element, "children", ()):
+        yield from walk(child)
 
 
 def test_uncommitted_work_leaves_a_branch_with_no_actions(mod, flatten):

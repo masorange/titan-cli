@@ -10,11 +10,13 @@ from titan_plugin_git.operations.branch_operations import (
     check_branch_exists,
     determine_safe_checkout_target,
     filter_branches,
+    match_branch,
     merge_sources,
     order_branches_by_use,
     parse_checkout_targets,
     push_rejected_hint,
     should_delete_before_create,
+    switch_targets,
     switching_blocked_by,
 )
 
@@ -381,3 +383,40 @@ def test_the_prompt_carries_the_repo_s_prefixes_and_pr_labels():
     # Nothing to say about either is said as nothing, not as an empty list.
     bare, _ = build_branch_name_prompt("api.py | 2 +-", "")
     assert "Prefixes" not in bare and "Labels" not in bare and "Diff:" not in bare
+
+
+def remote(name):
+    return UIGitBranch(name=name, display_name=name, is_current=False, is_remote=True)
+
+
+class TestSwitchTargets:
+    """Tests for switch_targets function."""
+
+    def test_local_branches_then_remote_ones_without_a_local_branch(self):
+        local = [branch("feat/here", current=True), branch("main")]
+        remotes = [remote("origin/HEAD -> origin/main"), remote("origin/main"), remote("origin/feat/theirs")]
+
+        targets = switch_targets(local, remotes, "feat/here")
+
+        assert [(b.name, b.is_remote) for b in targets] == [("main", False), ("feat/theirs", True)]
+
+    def test_the_current_branch_is_never_a_target_even_from_the_remote(self):
+        assert switch_targets([], [remote("origin/feat/here")], "feat/here") == []
+
+
+class TestMatchBranch:
+    """Tests for match_branch function."""
+
+    def test_an_exact_name_wins_over_longer_matches(self):
+        branches = [branch("feat/login-v2"), branch("feat/login")]
+
+        assert match_branch("feat/login", branches).name == "feat/login"
+
+    def test_a_part_matching_one_branch_is_that_branch(self):
+        assert match_branch("LOGIN", [branch("feat/login"), branch("main")]).name == "feat/login"
+
+    def test_a_part_matching_several_is_no_answer(self):
+        assert match_branch("feat", [branch("feat/a"), branch("feat/b")]) is None
+
+    def test_nothing_typed_is_no_answer(self):
+        assert match_branch("  ", [branch("main")]) is None

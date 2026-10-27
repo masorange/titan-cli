@@ -666,11 +666,16 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
                 marks += f" {Icons.CHECK}"
             if choice.identifier == self.pending_instance != self.current:
                 marks += " (selected)"
+            description = choice.description
+            if choice.identifier == self.current and self.current_model:
+                # The row would otherwise say the instance's GLOBAL model while the
+                # footer says the one in force here (a task's own pin).
+                description = f"model: {self.current_model}"
             options.append(
                 StyledOption(
                     id=choice.identifier,
                     title=f"{choice.title}{marks}",
-                    description=choice.description,
+                    description=description,
                 )
             )
         return options

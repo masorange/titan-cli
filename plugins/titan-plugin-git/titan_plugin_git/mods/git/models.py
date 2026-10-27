@@ -31,6 +31,8 @@ class Branches:
     """
 
     items: List[UIGitBranch] = field(default_factory=list)
+    # Every branch a checkout can reach, remote-only ones included: what the search looks through.
+    all: List[UIGitBranch] = field(default_factory=list)
     current: str = ""
     main_branch: str = ""  # the plugin's configured base branch, the usual merge source
     blocked: Optional[str] = None

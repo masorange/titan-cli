@@ -8,8 +8,10 @@ from titan_plugin_git.operations import filter_branches, graph_lanes, merge_sour
 from .models import Branches, Repo, Worktrees
 from .sections.branches import branches as branch_actions_api
 from .sections.branches import new_branch as new_branch_api
-from .sections.branches.branches import create_pr, merge_into, switch_to
+from .sections.branches.branches import SEARCH_ERROR, clear_search, create_pr, merge_into, switch_to, switch_to_typed
 from .sections.worktrees.worktrees import blocked_removal, prune_worktrees, remove_worktree
+
+SEARCH_SHOWN = 12  # matches listed under the search; the rest are counted
 
 
 def section(title, color: str, *body):
@@ -219,6 +221,7 @@ def branch_row(m, branch, state: Branches, options, switchable: bool = True, wid
         Text(branch.name, bold=branch.is_current),
         branch.formatted_date and Text(f" · {branch.formatted_date}", dim=True),
         branch.is_current and Text(" · here", dim=True),
+        getattr(branch, "is_remote", False) and Text(" · remote", dim=True),
     )
     return Box(
         Button(title, lambda: m.state.set("open_branch", "" if is_open else branch.name)),
@@ -239,7 +242,11 @@ def branches_section(m, options, width: int = 40):
     # merge, so it sits above the switcher with its merge actions only.
     current = next((b for b in branches.items if b.is_current), None)
     others = [b for b in branches.items if not b.is_current]
-    shown = filter_branches(others, query)
+    # With nothing typed the list is the recent branches; a search looks through every
+    # branch a checkout reaches, remote-only ones included.
+    found = filter_branches(branches.all or others, query) if query.strip() else others
+    shown = found[:SEARCH_SHOWN]
+    search_error = m.state.get(SEARCH_ERROR)
     is_open = m.state.get("branches_open", False)
     # The card says at a glance whether a switch is possible at all.
     tone = "warning" if branches.blocked else "subtle"
@@ -265,14 +272,21 @@ def branches_section(m, options, width: int = 40):
             dim=True,
         ),
         is_open and Box(
-            len(others) >= options.get("branch_filter_threshold", 8) and Input(
-                value=query,
-                placeholder="Filter branches",
-                on_change=lambda value: m.state.set("branch_filter", value),
+            Box(
+                Input(
+                    value=query,
+                    placeholder="Search or type a branch, Enter to switch",
+                    on_change=lambda value: (m.state.set("branch_filter", value), m.state.set(SEARCH_ERROR, None)),
+                    on_submit=lambda value: switch_to_typed(m, value),
+                ),
+                query and Button("✕", lambda: clear_search(m), dim=True),
+                row=True,
             ),
-            not others and Text("  No other branch", dim=True),
-            others and not shown and Text("  No branch matches", dim=True),
+            search_error and Text(f"  {search_error}", color="warning", wrap=True),
+            not others and not query.strip() and Text("  No other branch", dim=True),
+            query.strip() and not found and Text("  No branch matches", dim=True),
             [branch_row(m, b, branches, options, width=width) for b in shown],
+            len(found) > SEARCH_SHOWN and Text(f"  …and {len(found) - SEARCH_SHOWN} more; type more of the name", dim=True),
         ),
         border=tone,
     )

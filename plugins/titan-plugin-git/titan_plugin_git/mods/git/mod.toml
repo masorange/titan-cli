@@ -63,13 +63,6 @@ title = "Branches shown"
 default = 8
 min = 1
 
-[options.branch_filter_threshold]
-type = "int"
-title = "Filter field from"
-description = "Show a filter field once the switcher lists this many branches."
-default = 8
-min = 1
-
 [options.commit_workflow]
 type = "string"
 title = "Commit workflow"
