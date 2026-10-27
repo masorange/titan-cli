@@ -67,6 +67,22 @@ class LiteLLMClient:
             )
         return models
 
+    def cost_map(self) -> dict:
+        """The proxy's public price list; it needs no key."""
+        root = self.base_url.removesuffix("/v1")
+        response = self._http_client.get(f"{root}/public/litellm_model_cost_map")
+        response.raise_for_status()
+        return response.json()
+
+    def model_info(self) -> dict:
+        """Per-alias metadata including prices; unlike the cost map it needs the key."""
+        root = self.base_url.removesuffix("/v1")
+        response = self._http_client.get(
+            f"{root}/model/info", headers={"Authorization": f"Bearer {self.api_key}"}
+        )
+        response.raise_for_status()
+        return response.json()
+
     def test_connection(self, model: Optional[str] = None) -> bool:
         if model:
             self._client.chat.completions.create(

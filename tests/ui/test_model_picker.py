@@ -13,6 +13,7 @@ from textual.widgets import Input, Static
 from titan_cli.core.models import AIConfig, AIConnectionConfig
 from titan_cli.ui.tui.app import TitanApp
 from titan_cli.ui.tui.screens.model_picker import (
+    CUSTOM_OPTION_ID,
     ModelChoice,
     SelectModelModal,
     cli_model_loader,
@@ -175,8 +176,9 @@ class TestQuickModelShortcut:
 
         asyncio.run(run())
 
+        # Models are listed alphabetically, so `home` lands on big-model.
         config.update_ai_connection.assert_called_once_with(
-            "work", {"default_model": "fast-model"}
+            "work", {"default_model": "big-model"}
         )
 
     def test_escape_changes_nothing(self, monkeypatch):
@@ -328,6 +330,65 @@ class TestModalOptions:
         )
 
         assert [o.description for o in options[:3]] == ["", "openai", ""]
+
+    def test_grouped_models_sit_under_a_header_per_maker_with_typing_last(self):
+        modal = SelectModelModal("t", "s", lambda: [])
+        options = modal._options(
+            [
+                ModelChoice("gpt-5", group="OpenAI"),
+                ModelChoice("claude-b", group="Anthropic"),
+                ModelChoice("claude-a", group="Anthropic"),
+            ]
+        )
+
+        assert [(o.title, o.disabled) for o in options[:-1]] == [
+            ("Anthropic (2)", True),
+            ("claude-a", False),
+            ("claude-b", False),
+            ("OpenAI (1)", True),
+            ("gpt-5", False),
+        ]
+        assert options[-1].id == CUSTOM_OPTION_ID
+
+    def test_a_price_shows_under_the_model(self):
+        from titan_cli.ai.model_prices import price_table
+
+        cost_map = {
+            "a": {"base_model": "claude-x", "tier": "paid", "input_cost_per_token": 5e-6, "output_cost_per_token": 2.5e-5},
+            "b": {"base_model": "gpt-free", "tier": "free", "input_cost_per_token": 0, "output_cost_per_token": 0},
+        }
+        table = price_table(cost_map, ["claude-x", "gpt-free", "unknown"])
+
+        assert table["claude-x"].describe() == "$5.00 in · $25.00 out per 1M"
+        assert table["gpt-free"].describe() == "free"
+        assert "unknown" not in table
+
+
+class TestVendor:
+    def test_the_maker_comes_from_the_id_not_from_the_gateway(self):
+        from titan_cli.ai.model_vendor import vendor
+
+        assert vendor("claude-opus-5") == "Anthropic"
+        assert vendor("gpt-oss-120b") == "OpenAI"
+        assert vendor("qwen3-coder") == "Qwen"
+        assert vendor("qwen/qwen3-coder-480b") == "Qwen"
+        assert vendor("some-unknown") == "Other"
+
+
+class TestPricesFromModelInfo:
+    def test_the_alias_is_priced_and_the_free_tier_wins(self):
+        from titan_cli.ai.model_prices import prices_from_model_info
+
+        payload = {"data": [
+            {"model_name": "gpt-oss-120b", "model_info": {"tier": "paid", "input_cost_per_token": 1e-7, "output_cost_per_token": 4e-7}},
+            {"model_name": "gpt-oss-120b", "model_info": {"tier": "free", "input_cost_per_token": 0, "output_cost_per_token": 0}},
+            {"model_name": "no-price", "model_info": {}},
+        ]}
+
+        prices = prices_from_model_info(payload)
+
+        assert prices["gpt-oss-120b"].describe() == "free"
+        assert "no-price" not in prices
 
 
 class TestSavedNotice:
