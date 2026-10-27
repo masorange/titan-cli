@@ -1513,9 +1513,13 @@ def write_review_material_at(
     is computed against, so the base versions are exactly the "before" of that diff.
 
     `root_path` is the PR worktree for the review, where the session reads the code next to
-    its material. Respond to PR Comments passes a directory OUTSIDE the repository instead:
-    it works in the user's own checkout, which it also commits from, and material inside that
-    tree would be swept into the commit.
+    its material. Respond to PR Comments passes a directory INSIDE the repository instead
+    (the user's own checkout, `_material_root` in `pr_review_steps.py`): a restricted session
+    cannot read outside its working directory. The untracked directory is not swept into a
+    commit and is excluded from `git status`.
+
+    Side effect on that checkout: `prepare_material_dir` removes whatever already exists at
+    `<root_path>/.titan-review` (directory, file or symlink) before writing fresh material.
 
     `head_ref` is where the PR head is in THIS repository, and it has to be told because it
     is not the same in both workflows. The review's is `refs/titan/review/pr-N`, which its

@@ -78,8 +78,10 @@ def build_judgement_prompt(
     what to decide and what the answer must look like, and leaves the reading to the CLI.
 
     The repository is named by its absolute path because a CLI that starts elsewhere reads
-    another checkout, and the material sits OUTSIDE it: this is the user's own branch, and
-    anything written inside it would be swept into the next commit.
+    another checkout. The material sits INSIDE it, in `.titan-review/`, because a restricted
+    session cannot read outside its working directory; being untracked and excluded from
+    `git status`, it is not swept into the next commit. Preparing it removes any existing
+    `.titan-review` in the user's real checkout (`prepare_material_dir`).
     """
     from .review_material_operations import BASE_DIR, DIFFS_DIR, MATERIAL_DIR, PR_FILE, WHOLE_DIFF_FILE
 
@@ -105,7 +107,7 @@ def build_judgement_prompt(
         f"You are the author of pull request #{pr_number} \"{title}\" ({head} → {base}), "
         f"deciding what to do with the {comment_count} review comment(s) still pending on it.\n\n"
         f"`{repo_root}` is the repository, checked out at the PR head. Read it as you need. "
-        f"Everything else is in `{material_dir}`, outside the repository:\n"
+        f"Everything else is in `{material_dir}`:\n"
         f"- `comments.md`: the pending comments, each with its `comment_id`. These are what "
         "you are judging.\n"
         f"- `{rel(PR_FILE)}`: the PR description and every comment already on it, replies "
