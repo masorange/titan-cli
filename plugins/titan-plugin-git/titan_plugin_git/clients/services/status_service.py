@@ -43,8 +43,7 @@ class StatusService:
             ClientResult[UIGitStatus]
         """
         try:
-            # Get current branch
-            branch = self.git.run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            branch = self._current_branch()
 
             # Get status
             status_output = self.git.run_command(["git", "status", "--short"])
@@ -95,6 +94,15 @@ class StatusService:
 
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STATUS_ERROR")
+
+    def _current_branch(self) -> str:
+        """The current branch name, also in a repository that has no commits yet."""
+        try:
+            return self.git.run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        except GitCommandError:
+            # An unborn branch has no commit for `rev-parse` to resolve, but HEAD
+            # still names the branch it will become.
+            return self.git.run_command(["git", "symbolic-ref", "--short", "HEAD"])
 
     @log_client_operation()
     def get_untracked_files(self) -> ClientResult[List[str]]:
