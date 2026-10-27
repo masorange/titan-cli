@@ -26,6 +26,29 @@ class _ReplyPanel(PanelContainer):
         yield self.reply_widget
 
 
+class _VerdictPanel(PanelContainer):
+    """What the judging session concluded about this comment, in the thread it belongs to.
+
+    It sits between the comment and the options because that is where it is read: above the
+    thread it scrolls away behind the diff and the replies, and by the time the buttons are
+    on screen there is nothing left saying what was judged.
+
+    `PanelContainer` and not `Panel`: the latter is `width: auto`, so a verdict's reason -
+    one long sentence, plus the files and the callers - runs off the right edge instead of
+    wrapping.
+    """
+
+    def __init__(self, lines: List[tuple], variant: str = "default", **kwargs):
+        super().__init__(variant=variant, title="AI verdict", **kwargs)
+        self.lines = lines
+
+    def compose(self) -> ComposeResult:
+        for label, value in self.lines:
+            if label:
+                yield BoldText(label)
+            yield Text(value)
+
+
 class CommentThread(PanelContainer):
     """
     Widget for organizing a review comment thread (GraphQL structure).
@@ -61,6 +84,8 @@ class CommentThread(PanelContainer):
         thread_number: Optional[str] = None,
         options: Optional[List[ChoiceOption]] = None,
         on_select: Optional[Callable[[Any], None]] = None,
+        verdict_lines: Optional[List[tuple]] = None,
+        verdict_variant: str = "default",
         **kwargs,
     ):
         """
@@ -71,6 +96,9 @@ class CommentThread(PanelContainer):
             thread_number: Thread number (e.g., "Thread 1 of 8")
             options: Action buttons to display
             on_select: Callback for action button selection
+            verdict_lines: (heading, text) pairs from the judging session, shown right above
+                the options; empty or None when no session judged this comment
+            verdict_variant: Border variant for that panel
         """
         # Always use default variant - outdated styling is CSS-only
         super().__init__(variant="default", title=thread_number, **kwargs)
@@ -78,6 +106,8 @@ class CommentThread(PanelContainer):
         self.thread = thread
         self.options = options or []
         self.on_select_callback = on_select
+        self.verdict_lines = verdict_lines or []
+        self.verdict_variant = verdict_variant
 
         # Add CSS class for outdated threads (only affects border color)
         if thread.is_outdated:
@@ -104,6 +134,10 @@ class CommentThread(PanelContainer):
 
                 # Wrap in panel with border
                 yield _ReplyPanel(reply_widget=reply_widget)
+
+        # The verdict, last before the options: it is what the choice is made on.
+        if self.verdict_lines:
+            yield _VerdictPanel(self.verdict_lines, variant=self.verdict_variant)
 
         # Action buttons (if provided)
         if self.options and self.on_select_callback:

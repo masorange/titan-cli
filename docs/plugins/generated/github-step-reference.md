@@ -781,19 +781,19 @@ Fetch unresolved review threads for the selected PR using GraphQL.
 
 **Used by built-in workflows:** `respond-pr-comments`
 
-**Available to later steps:** `review_threads`
+**Available to later steps:** `pending_comment_threads`
 
 **Outputs (saved to ctx.data)**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `review_threads` | List[UICommentThread] | Unresolved review threads |
+| `pending_comment_threads` | List[UICommentThread] | General comments and unresolved review threads, in the order they are shown |
 
 **Returns**
 
 | Result | Saved for later steps | Description |
 |--------|-----------------------|-------------|
-| `Success` | `review_threads` | Threads fetched |
+| `Success` | `pending_comment_threads` | Threads fetched |
 | `Exit` | - | No unresolved threads |
 | `Error` | - | Failed to fetch threads |
 
@@ -857,6 +857,51 @@ Save the current branch and checkout the PR branch.
 |--------|-----------------------|-------------|
 | `Success` | `original_branch` | PR branch checked out |
 | `Error` | - | Failed to fetch or checkout |
+
+### `judge_pr_comments`
+
+Decide, in one session over the whole PR, what each pending comment deserves.
+
+**How to read this contract**
+
+- `Inputs (from ctx.data)` shows what the step expects before it runs.
+- `Outputs (saved to ctx.data)` shows the metadata keys later steps can read after `Success` or `Skip`.
+- `Returns` describes the workflow result type (`Success`, `Skip`, `Error`, `Exit`), not a separate function return payload.
+
+**Workflow usage**
+
+```yaml
+- plugin: github
+  step: judge_pr_comments
+```
+
+**Used by built-in workflows:** `respond-pr-comments`
+
+**Available to later steps:** `comment_verdicts`, `verdict_files`, `judgement_material_dir`
+
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `selected_pr_number` | int | - |
+| `pending_comment_threads` | List[UICommentThread] | - |
+| `change_manifest, review_diff_manager` | from the review bundle steps | - |
+
+**Outputs (saved to ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `comment_verdicts` | Dict[int, CommentVerdict] | by comment id |
+| `verdict_files` | Dict[int, str] | absolute path of each verdict's file |
+| `judgement_material_dir` | str | where the material was written |
+
+**Returns**
+
+| Result | Saved for later steps | Description |
+|--------|-----------------------|-------------|
+| `Success` | `comment_verdicts`, `verdict_files`, `judgement_material_dir` | with the verdicts, or with none when the session could not run - the |
+| `workflow then behaves as it did before, asking the user with no verdict.` | - | - |
+| `Error` | - | Textual UI unavailable. |
 
 ### `review_comments`
 
@@ -1150,7 +1195,7 @@ Fetch all data needed for a full PR review cycle.
   step: fetch_pr_review_bundle
 ```
 
-**Used by built-in workflows:** `review-pr`, `review-pr-thread-resolution`
+**Used by built-in workflows:** `respond-pr-comments`, `review-pr`, `review-pr-thread-resolution`
 
 **Available to later steps:** `review_pr`, `review_diff`, `review_changed_files`, `review_changed_files_with_stats`, `review_commit_sha`, `review_threads`, `review_general_comments`, `pr_template`
 
@@ -1198,7 +1243,7 @@ Build a structured manifest of the PR changes (no AI involved).
   step: build_change_manifest
 ```
 
-**Used by built-in workflows:** `review-pr`
+**Used by built-in workflows:** `respond-pr-comments`, `review-pr`
 
 **Available to later steps:** `change_manifest`
 

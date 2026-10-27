@@ -1,5 +1,5 @@
 name: "Respond to PR Comments"
-description: "Review and address pending comments on your pull requests"
+description: "Review and address pending comments on pull requests you opened or are assigned to"
 
 hooks:
   - after_review
@@ -26,6 +26,29 @@ steps:
     name: "Checkout PR Branch"
     plugin: github
     step: checkout_pr_branch
+    on_error: continue
+
+  # The PR's diff, its files and their base versions: what the judging session reads.
+  # Shared with Review PR, which fetches exactly the same bundle.
+  - id: fetch_bundle
+    name: "Fetch PR Review Bundle"
+    plugin: github
+    step: fetch_pr_review_bundle
+    on_error: continue
+
+  - id: build_manifest
+    name: "Build Change Manifest"
+    plugin: github
+    step: build_change_manifest
+    on_error: continue
+
+  # One session reads the whole PR and judges every pending comment at once. It changes
+  # nothing: its verdicts are shown in the next step for the user to accept, edit or reject.
+  # on_error: continue - without verdicts the workflow asks comment by comment, as before.
+  - id: judge_comments
+    name: "Judge Comments"
+    plugin: github
+    step: judge_pr_comments
     on_error: continue
 
   # Review comments - if fails, skip to restore

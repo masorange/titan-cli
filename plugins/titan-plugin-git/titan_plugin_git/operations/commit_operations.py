@@ -16,7 +16,12 @@ from titan_cli.core.diffs import (
 from ..models.view import UIGitCommit, UIGitGraphRow
 
 
-def build_ai_commit_prompt(diff_text: str, files_list: list, max_diff_chars: int = 8000) -> str:
+def build_ai_commit_prompt(
+    diff_text: str,
+    files_list: list,
+    max_diff_chars: int = 8000,
+    extra_context: Optional[str] = None,
+) -> str:
     """
     Build the AI prompt for generating a commit message.
 
@@ -28,6 +33,12 @@ def build_ai_commit_prompt(diff_text: str, files_list: list, max_diff_chars: int
         diff_text: Full git diff output
         files_list: List of changed file paths
         max_diff_chars: Character budget for the diff body, shared across files
+        extra_context: Why the change was made, when the caller knows it (a review comment
+            being answered, an issue being closed). A diff shows WHAT changed and never why,
+            so "fix: Guard the second caller" is only writable by someone who was told. It
+            is context, not the subject: the message still describes the diff, and a caller
+            that passes a request the diff does not carry out must not get a message
+            describing the request.
 
     Returns:
         Complete prompt string for AI
@@ -44,6 +55,18 @@ def build_ai_commit_prompt(diff_text: str, files_list: list, max_diff_chars: int
     diff_preview = budget_diff_across_files(diff_text, max_diff_chars)
     truncated = len(diff_preview) < len(diff_text)
 
+    context_section = (
+        f"""
+## Why this change was made
+{extra_context.strip()}
+
+Use this only to understand the intent. Describe what the diff does, not what was asked:
+if the diff does not carry the request out, the message says what the diff does.
+"""
+        if extra_context and extra_context.strip()
+        else ""
+    )
+
     prompt = f"""Analyze these code changes and generate a conventional commit message.
 
 ## Changed files ({len(files_list)} total), with lines added and removed
@@ -54,7 +77,7 @@ def build_ai_commit_prompt(diff_text: str, files_list: list, max_diff_chars: int
 ```diff
 {diff_preview}
 ```
-
+{context_section}
 ## CRITICAL Instructions
 Generate ONE single-line conventional commit message following this EXACT format:
 - type: Description

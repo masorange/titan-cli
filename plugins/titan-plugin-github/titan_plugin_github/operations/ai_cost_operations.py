@@ -23,6 +23,13 @@ class AICallRecord:
     `model_reported` is what the CLI says actually answered. They differ whenever a
     pin was missing or unavailable and the CLI fell back to its own default, which is
     the silent substitution that makes two runs incomparable — so both are kept.
+
+    The last four fields are not consumption; they are what makes consumption readable
+    later. `turns` and `subagents_spawned` say how the session went about the work, and
+    the same prompt and model can grind alone for a hundred turns or delegate and finish
+    in ten. `provider` and `cost_basis` say where the bill went and whether its price was
+    charged or merely published. Two runs that differ in any of them are not comparable,
+    however close their totals look.
     """
 
     phase: str
@@ -39,6 +46,11 @@ class AICallRecord:
     reasoning_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
     cost_usd: Optional[float] = None
+    token_scope: Optional[str] = None
+    turns: Optional[int] = None
+    subagents_spawned: Optional[int] = None
+    provider: Optional[str] = None
+    cost_basis: Optional[str] = None
     usage_source: Optional[str] = None
 
     @property
@@ -80,6 +92,9 @@ class AIReviewCostSummary:
     clis: list[str] = field(default_factory=list)
     models_reported: list[str] = field(default_factory=list)
     substituted_model_calls: int = 0
+    # Every scope the summed tokens came from. More than one means the total adds a
+    # whole session's tokens to a single exchange's and cannot be read as either.
+    token_scopes: list[str] = field(default_factory=list)
 
     @property
     def cost_is_complete(self) -> bool:
@@ -150,11 +165,14 @@ def summarize_ai_calls(records: list[AICallRecord]) -> AIReviewCostSummary:
 
     clis: list[str] = []
     models: list[str] = []
+    scopes: list[str] = []
     for record in records:
         if record.cli not in clis:
             clis.append(record.cli)
         if record.model_reported and record.model_reported not in models:
             models.append(record.model_reported)
+        if record.token_scope and record.token_scope not in scopes:
+            scopes.append(record.token_scope)
 
     return AIReviewCostSummary(
         calls=len(records),
@@ -169,6 +187,7 @@ def summarize_ai_calls(records: list[AICallRecord]) -> AIReviewCostSummary:
         clis=clis,
         models_reported=models,
         substituted_model_calls=sum(1 for r in records if r.model_substituted),
+        token_scopes=scopes,
     )
 
 

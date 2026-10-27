@@ -10,6 +10,7 @@ from titan_cli.core.result import ClientSuccess, ClientError
 from titan_plugin_github.operations.comment_operations import (
     build_ai_review_context,
     build_ai_review_prompt,
+    build_commit_message_context,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
@@ -153,6 +154,64 @@ class TestCreateCommitMessage:
 
         assert "PR review fix" in msg
         assert "By: reviewer456" in msg
+
+    def test_uses_the_generated_subject_when_there_is_one(self):
+        """The AI subject replaces `Fix: <file>`, which names the comment's file."""
+        msg = create_commit_message(
+            "Fix the bug in authentication",
+            "reviewer123",
+            "src/auth.py",
+            comment_line=42,
+            subject="fix: Reject expired tokens before refreshing them",
+        )
+
+        assert msg.splitlines()[0] == "fix: Reject expired tokens before refreshing them"
+        assert "Fix: auth.py" not in msg
+        assert "By: reviewer123" in msg
+
+    def test_body_names_the_comment_it_answers(self):
+        """The history has to be readable without opening the thread."""
+        msg = create_commit_message(
+            "Fix the bug", "reviewer123", "src/auth.py", comment_line=42, subject="fix: Do it"
+        )
+
+        assert "Addresses the review comment by @reviewer123 on src/auth.py:42." in msg
+
+    def test_body_without_a_line(self):
+        """A general comment has no line, and the reference drops it rather than saying None."""
+        msg = create_commit_message("Fix the bug", "reviewer123", None, subject="fix: Do it")
+
+        assert "Addresses the review comment by @reviewer123." in msg
+        assert "None" not in msg
+
+    def test_blank_subject_falls_back(self):
+        """An empty answer from the model must not produce an empty subject line."""
+        msg = create_commit_message("body", "reviewer123", "src/auth.py", subject="   ")
+
+        assert msg.splitlines()[0] == "Fix: auth.py"
+
+
+@pytest.mark.unit
+class TestBuildCommitMessageContext:
+    """Test the 'why' handed to the commit-message model"""
+
+    def test_includes_where_and_the_whole_conversation(self, sample_ui_comment_thread):
+        context = build_commit_message_context(sample_ui_comment_thread)
+
+        assert "src/main.py:42" in context
+        assert "@test-user" in context
+        assert "This needs to be fixed" in context
+
+    def test_keeps_the_end_when_the_thread_is_long(self, sample_ui_comment_thread):
+        """The newest reply is what the fix answers, so it is the part that survives."""
+        thread = sample_ui_comment_thread
+        thread.main_comment.body = "x" * 5000
+
+        context = build_commit_message_context(thread, max_chars=200)
+
+        assert len(context) <= 200
+        assert context.startswith("…")
+        assert thread.replies[-1].body in context
 
 
 @pytest.mark.unit

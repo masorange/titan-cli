@@ -37,6 +37,26 @@ def prs_authored_by(prs: List[UIPullRequest], login: str) -> List[UIPullRequest]
     return [pr for pr in prs if pr.author_name.lower() == who]
 
 
+def prs_authored_or_assigned_to(prs: List[UIPullRequest], login: str) -> List[UIPullRequest]:
+    """
+    The PRs `login` opened or is assigned to, in the order they were listed.
+
+    Args:
+        prs: The repository's PRs
+        login: GitHub login to match, compared case-insensitively as GitHub does
+
+    Returns:
+        The ones authored by or assigned to that login; empty when the login is empty
+    """
+    who = (login or "").strip().lower()
+    if not who:
+        return []
+    return [
+        pr for pr in prs
+        if pr.author_name.lower() == who or any(a.lower() == who for a in pr.assignees)
+    ]
+
+
 def prs_awaiting_review_from(prs: List[UIPullRequest], login: str) -> List[UIPullRequest]:
     """
     The PRs that have a review request standing for `login`.

@@ -16,10 +16,29 @@ Modules:
 from .comment_operations import (
     build_ai_review_context,
     build_ai_review_prompt,
+    build_commit_message_context,
     find_ai_response_file,
     create_commit_message,
     reply_to_comment_batch,
     prepare_replies_for_sending,
+)
+
+from .comment_judgement_operations import (
+    build_fix_session_prompt,
+    build_judgement_prompt,
+    judgement_json_schema,
+    parse_judgement_response,
+    render_comments_file,
+    render_verdict_file,
+    to_verdict,
+    verdict_file_path,
+)
+
+from .respond_tracking_operations import (
+    build_decision_row,
+    build_run_record,
+    run_record_path,
+    verdict_agreement,
 )
 
 from .ci_diagnosis_operations import (
@@ -34,6 +53,7 @@ from .pr_operations import (
     fetch_pr_threads,
     fetch_pr_general_comments,
     prs_authored_by,
+    prs_authored_or_assigned_to,
     prs_awaiting_review_from,
     split_titan_review_body,
     build_quote_reply,
@@ -86,6 +106,19 @@ __all__ = [
     "format_job_diagnoses",
     # Comment operations
     "build_ai_review_context",
+    "build_commit_message_context",
+    "build_decision_row",
+    "build_run_record",
+    "run_record_path",
+    "verdict_agreement",
+    "build_fix_session_prompt",
+    "build_judgement_prompt",
+    "judgement_json_schema",
+    "parse_judgement_response",
+    "render_comments_file",
+    "render_verdict_file",
+    "to_verdict",
+    "verdict_file_path",
     "build_ai_review_prompt",
     "find_ai_response_file",
     "create_commit_message",
@@ -96,6 +129,7 @@ __all__ = [
     "fetch_pr_threads",
     "fetch_pr_general_comments",
     "prs_authored_by",
+    "prs_authored_or_assigned_to",
     "prs_awaiting_review_from",
     "split_titan_review_body",
     "build_quote_reply",

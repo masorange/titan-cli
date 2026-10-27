@@ -29,6 +29,23 @@ class TestBuildAICommitPrompt:
         assert "diff --git a/file.py" in prompt
         assert "CRITICAL Instructions" in prompt
 
+    def test_extra_context_is_included_as_intent(self):
+        """Should carry the caller's 'why' and say it does not replace the diff."""
+        prompt = build_ai_commit_prompt(
+            "diff --git a/file.py\n+new line",
+            ["file.py"],
+            extra_context="Review comment on file.py:10:\n\n@someone: guard the other caller",
+        )
+        assert "Why this change was made" in prompt
+        assert "guard the other caller" in prompt
+        assert "Describe what the diff does" in prompt
+
+    def test_no_context_section_without_extra_context(self):
+        """Should leave the section out entirely when the caller has no context."""
+        for value in (None, "", "   "):
+            prompt = build_ai_commit_prompt("diff", ["file.py"], extra_context=value)
+            assert "Why this change was made" not in prompt
+
     def test_truncate_long_diff(self):
         """Should cut a diff that busts the budget, and say it did."""
         diff = "a" * 10000
