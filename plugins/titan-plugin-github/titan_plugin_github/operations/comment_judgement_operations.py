@@ -73,7 +73,7 @@ def build_judgement_prompt(
 ) -> str:
     """What the judging session is asked, with no procedure beyond the question itself.
 
-    The lesson the review pipeline paid for twice (`review_coverage` D-033): every procedure
+    The lesson the review pipeline paid for twice: every procedure
     Titan imposed turned "find the real problems" into "fill the form". So this prompt says
     what to decide and what the answer must look like, and leaves the reading to the CLI.
 
