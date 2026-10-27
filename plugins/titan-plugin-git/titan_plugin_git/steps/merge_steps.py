@@ -1,9 +1,11 @@
 """
 Merge a branch into the current one, with AI-assisted conflict resolution.
 
-The workflow never moves HEAD: it fetches the source branch and merges the
-remote-tracking ref, so a failure at any point leaves the user on the branch
-they started on.
+The merge itself never moves HEAD: it fetches the source branch and merges the
+remote-tracking ref, so a failure at any point leaves the user on the branch the
+merge landed on. The one checkout is `resolve_merge_target`'s, when the workflow
+was given a `target_branch` other than the current one, and it happens only
+after everything that could refuse the merge has passed.
 """
 
 from titan_cli.engine import WorkflowContext, WorkflowResult, Success, Error, Skip, Exit
@@ -22,26 +24,33 @@ from ..operations import (
 
 def resolve_merge_target(ctx: WorkflowContext) -> WorkflowResult:
     """
-    Resolve which branch gets merged and verify the repo is ready for it.
+    Resolve which branch receives the merge and which one is merged into it.
+
+    `target_branch` is the branch the merge lands on: the one already checked
+    out when it is absent, otherwise the step switches to it first. Everything
+    is validated before that switch, so a refused merge leaves HEAD where the
+    user left it.
 
     Requires:
         ctx.git: An initialized GitClient.
         ctx.textual: The Textual UI context.
 
     Inputs (from ctx.data):
+        target_branch (str, optional): Branch to merge into (defaults to the current one)
         source_branch (str, optional): Branch to merge (defaults to the configured base branch)
         remote (str, optional): Remote name (default: "origin")
 
     Outputs (saved to ctx.data):
         source_branch (str): Resolved branch to merge
-        target_branch (str): Branch receiving the merge
+        target_branch (str): Branch receiving the merge, now checked out
+        previous_branch (str): Branch left behind, equal to target_branch when nothing was switched
         remote (str): Remote name
         merge_ref (str): Ref that will be merged, e.g. "origin/develop"
 
     Returns:
-        Success: Target resolved
+        Success: Target resolved and checked out
         Exit: Working tree is dirty, nothing was touched
-        Error: Git client unavailable or the branch cannot be resolved
+        Error: Git client unavailable, or the branch cannot be resolved or checked out
     """
     if not ctx.textual:
         return Error(msg.Steps.Merge.TEXTUAL_NOT_AVAILABLE)
@@ -62,10 +71,14 @@ def resolve_merge_target(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("error")
             return Error(f"Failed to get current branch: {err}")
 
+    # Resolved against the branch the merge will land on, not the one we stand
+    # on now: "cannot merge X into itself" has to be about the target.
+    target_branch = (ctx.get("target_branch") or "").strip() or current_branch
+
     source_branch, reason = resolve_merge_source(
         explicit_branch=ctx.get("source_branch"),
         main_branch=ctx.git.main_branch,
-        current_branch=current_branch,
+        current_branch=target_branch,
     )
 
     if reason:
@@ -88,17 +101,30 @@ def resolve_merge_target(ctx: WorkflowContext) -> WorkflowResult:
             ctx.textual.end_step("error")
             return Error(f"Failed to check working tree: {err}")
 
+    # Last, once nothing can refuse the merge any more: from here on HEAD moves.
+    if target_branch != current_branch:
+        ctx.textual.dim_text(msg.Steps.Merge.SWITCHING_TARGET.format(branch=target_branch))
+        match ctx.git.checkout(target_branch):
+            case ClientSuccess():
+                pass
+            case ClientError(error_message=err):
+                message = msg.Steps.Merge.SWITCH_TARGET_FAILED.format(branch=target_branch, e=err)
+                ctx.textual.error_text(message)
+                ctx.textual.end_step("error")
+                return Error(message)
+
     remote = ctx.get("remote", "origin")
     merge_ref = build_merge_ref(source_branch, remote)
 
-    ctx.textual.bold_text(f"{merge_ref} → {current_branch}")
+    ctx.textual.bold_text(f"{merge_ref} → {target_branch}")
 
     ctx.textual.end_step("success")
     return Success(
-        f"Merging {merge_ref} into {current_branch}",
+        f"Merging {merge_ref} into {target_branch}",
         metadata={
             "source_branch": source_branch,
-            "target_branch": current_branch,
+            "target_branch": target_branch,
+            "previous_branch": current_branch,
             "remote": remote,
             "merge_ref": merge_ref,
         }

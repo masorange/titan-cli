@@ -79,6 +79,9 @@ class GraphQLMergeQueueEntry:
         pullRequestTitle: Title of the queued pull request
         authorLogin: Login of the pull request's author, if visible
         pullRequestUrl: The queued pull request's web page
+        enqueuedAt: ISO 8601 moment the pull request joined the queue
+        checksState: Rollup state of the queue's merge commit ("SUCCESS",
+            "FAILURE", "ERROR", "PENDING", "EXPECTED"), if any
     """
     position: int
     state: str
@@ -87,6 +90,8 @@ class GraphQLMergeQueueEntry:
     estimatedTimeToMerge: Optional[int] = None
     authorLogin: Optional[str] = None
     pullRequestUrl: str = ""
+    enqueuedAt: Optional[str] = None
+    checksState: Optional[str] = None
 
     @classmethod
     def from_graphql(cls, data: Dict[str, Any]) -> 'GraphQLMergeQueueEntry':
@@ -107,6 +112,8 @@ class GraphQLMergeQueueEntry:
             estimatedTimeToMerge=data.get("estimatedTimeToMerge"),
             authorLogin=(pr.get("author") or {}).get("login"),
             pullRequestUrl=pr.get("url") or "",
+            enqueuedAt=data.get("enqueuedAt"),
+            checksState=((data.get("headCommit") or {}).get("statusCheckRollup") or {}).get("state"),
         )
 
 
@@ -123,6 +130,7 @@ class GraphQLMergeQueue:
         isConfigured: Whether the default branch has a merge queue at all
         mergeMethod: Configured merge method ("MERGE", "SQUASH", "REBASE"), if any
         totalCount: Entries in the queue, including those not fetched
+        nextEntryEstimatedTimeToMerge: Seconds until the next entry merges, if known
         entries: The first entries of the queue, in order
     """
     viewerLogin: Optional[str]
@@ -131,6 +139,7 @@ class GraphQLMergeQueue:
     mergeMethod: Optional[str]
     totalCount: int
     entries: List[GraphQLMergeQueueEntry]
+    nextEntryEstimatedTimeToMerge: Optional[int] = None
 
     @classmethod
     def from_graphql(cls, data: Dict[str, Any]) -> 'GraphQLMergeQueue':
@@ -152,4 +161,5 @@ class GraphQLMergeQueue:
             mergeMethod=((queue or {}).get("configuration") or {}).get("mergeMethod"),
             totalCount=int(entries.get("totalCount") or 0),
             entries=[GraphQLMergeQueueEntry.from_graphql(n) for n in entries.get("nodes") or []],
+            nextEntryEstimatedTimeToMerge=(queue or {}).get("nextEntryEstimatedTimeToMerge"),
         )

@@ -3,6 +3,9 @@ Titan TUI Application
 
 Main Textual application for Titan CLI with a fixed dock and theme support.
 """
+import threading
+
+from rich.text import Text
 from textual.app import App
 from textual.binding import Binding
 
@@ -49,6 +52,29 @@ class TitanApp(App):
         Binding("f6", "toggle_dock", "Dock"),
         Binding("?", "help", "Help"),
     ]
+
+    def show_error(self, error: Any, title: str = "") -> None:
+        """Show an error as an error card in a modal; safe from any thread."""
+        from .screens.error_screen import ErrorScreen
+
+        def show() -> None:
+            self.push_screen(ErrorScreen(error, title))
+
+        if getattr(self, "_thread_id", None) == threading.get_ident():
+            show()
+        elif self.is_running:
+            self.call_from_thread(show)
+
+    def notify(self, message, *, title="", severity="information", timeout=None):
+        """Toasts are informational: an error goes to the error card, never to a toast."""
+        if severity == "error":
+            try:
+                text = Text.from_markup(str(message)).plain  # callers write markup, the card shows plain text
+            except Exception:
+                text = str(message)
+            self.show_error(text, title)
+            return
+        super().notify(message, title=title, severity=severity, timeout=timeout)
 
     def __init__(self, config: TitanConfig = None, initial_screen=None, mod_dirs: Sequence[str] = (), **kwargs):
         """

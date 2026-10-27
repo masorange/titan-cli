@@ -8,11 +8,14 @@ Modules:
     commit_operations: Operations for commit message handling
     diff_operations: Operations for diff parsing and formatting
     branch_operations: Operations for branch management
+    worktree_operations: Operations for inspecting and removing worktrees
     merge_operations: Operations for merging branches and resolving conflicts
 """
 
 from .commit_operations import (
     build_ai_commit_prompt,
+    build_commit_graph,
+    graph_lanes,
     normalize_commit_message,
     capitalize_commit_subject,
     validate_message_length,
@@ -22,6 +25,7 @@ from .commit_operations import (
 from .diff_operations import (
     parse_diff_stat_output,
     expand_rename_path,
+    rename_paths,
     get_max_filename_length,
     colorize_diff_stats,
     colorize_diff_summary,
@@ -30,8 +34,28 @@ from .diff_operations import (
 
 from .branch_operations import (
     check_branch_exists,
+    branch_name_prefixes,
+    validate_branch_name,
+    normalize_branch_name,
+    parse_suggested_branch_name,
+    build_branch_name_prompt,
+    parse_checkout_targets,
+    order_branches_by_use,
+    filter_branches,
+    switch_targets,
+    match_branch,
+    merge_sources,
+    push_rejected_hint,
+    switching_blocked_by,
     determine_safe_checkout_target,
     should_delete_before_create,
+)
+
+from .worktree_operations import (
+    main_worktree_path,
+    removal_blocked_by,
+    same_path,
+    removable_worktrees,
 )
 
 from .merge_operations import (
@@ -51,10 +75,20 @@ __all__ = [
     "capitalize_commit_subject",
     "validate_message_length",
     "process_ai_commit_message",
+    "build_commit_graph",
+    "graph_lanes",
+
+    # Branch naming
+    "branch_name_prefixes",
+    "validate_branch_name",
+    "normalize_branch_name",
+    "parse_suggested_branch_name",
+    "build_branch_name_prompt",
 
     # Diff operations
     "parse_diff_stat_output",
     "expand_rename_path",
+    "rename_paths",
     "get_max_filename_length",
     "colorize_diff_stats",
     "colorize_diff_summary",
@@ -62,8 +96,22 @@ __all__ = [
 
     # Branch operations
     "check_branch_exists",
+    "parse_checkout_targets",
+    "order_branches_by_use",
+    "filter_branches",
+    "switch_targets",
+    "match_branch",
+    "merge_sources",
+    "push_rejected_hint",
+    "switching_blocked_by",
     "determine_safe_checkout_target",
     "should_delete_before_create",
+
+    # Worktree operations
+    "main_worktree_path",
+    "removal_blocked_by",
+    "same_path",
+    "removable_worktrees",
 
     # Merge operations
     "resolve_merge_source",

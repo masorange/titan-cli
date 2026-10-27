@@ -25,7 +25,7 @@ from textual.widgets import Input as TextualInput
 from textual.widgets import Static
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods.elements import Box, Button, Input, Link, Text
+from titan_cli.core.mods.elements import Box, Button, Input, Link, Text, plain
 from titan_cli.ui.tui import colors
 from titan_cli.ui.tui.widgets.button import Button as TitanButton
 
@@ -35,6 +35,7 @@ PANEL_WIDTH = 56
 MIN_PANEL_WIDTH = 24
 MIN_MAIN_WIDTH = 40  # what a drag must leave to the screen's own content
 RAIL_WIDTH = 4  # an emoji is two cells wide, plus a margin on each side
+SCROLLBAR_WIDTH = 2  # Textual's default vertical scrollbar
 COLLAPSED_WIDTH = RAIL_WIDTH + 1  # the rail and the panel's left border
 
 _COLORS = {
@@ -174,6 +175,8 @@ class _Pressable(_Line, can_focus=True):
     @staticmethod
     def _label(button: Button) -> RichText:
         style = Style(dim=True) if button.dim else Style()
+        if isinstance(button.label, Text):
+            return to_rich(button.label, style)
         return RichText(button.label, style=style, no_wrap=True, overflow="ellipsis")
 
     def set_button(self, button: Button) -> None:
@@ -188,7 +191,7 @@ class _Pressable(_Line, can_focus=True):
         try:
             self._button.on_press()
         except Exception:
-            logger.exception("mod_button_failed", label=self._button.label)
+            logger.exception("mod_button_failed", label=plain(self._button.label))
 
 
 class _ModButton(TitanButton):
@@ -213,7 +216,7 @@ class _ModButton(TitanButton):
     """
 
     def __init__(self, button: Button):
-        super().__init__(button.label, variant=self._variant(button))
+        super().__init__(plain(button.label), variant=self._variant(button))
         self._button = button
 
     @classmethod
@@ -222,7 +225,7 @@ class _ModButton(TitanButton):
 
     def set_button(self, button: Button) -> None:
         self._button = button
-        self.label = button.label
+        self.label = plain(button.label)
         self.variant = self._variant(button)
 
     def on_button_pressed(self, event: TitanButton.Pressed) -> None:
@@ -230,7 +233,7 @@ class _ModButton(TitanButton):
         try:
             self._button.on_press()
         except Exception:
-            logger.exception("mod_button_failed", label=self._button.label)
+            logger.exception("mod_button_failed", label=plain(self._button.label))
 
 
 class _ModInput(Widget, can_focus=True, can_focus_children=True):
@@ -497,6 +500,9 @@ class ModSidePanel(Horizontal):
     ModSidePanel #mod-panel-body {{
         height: 1fr;
         padding: 0 1;
+        /* The scrollbar's columns are always set aside, so a line laid out for the
+           pane's width fits whether or not the pane scrolls. */
+        scrollbar-gutter: stable;
     }}
     """
 
@@ -579,7 +585,9 @@ class ModSidePanel(Horizontal):
         header.update(RichText(f"▸ {title}  (F4)", no_wrap=True, overflow="ellipsis"))
 
         body = self.query_one("#mod-panel-body", VerticalScroll)
-        width = max(10, host.width - RAIL_WIDTH - 3)
+        # Less the panel's left border (1), the body's padding (2) and its scrollbar (2):
+        # a row spread to more than that is cut at the right edge, where the price is.
+        width = max(10, host.width - RAIL_WIDTH - 1 - 2 - SCROLLBAR_WIDTH)
         try:
             tree = host.render(pane, width)
         except Exception:

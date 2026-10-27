@@ -74,6 +74,10 @@ class TitanModHost:
             logger.exception("mod_dock_click_failed", mod=mod)
 
     def toast(self, mod: str, text: str, severity: str) -> None:
+        # An error is never a toast: it opens the error card, with its copy button.
+        if severity == "error":
+            self._on_app_thread(lambda: self._app.show_error(text, mod))
+            return
         # Escaped: a mod's text is not markup, and a stray `[/x]` would raise.
         self._on_app_thread(
             lambda: self._app.notify(escape(text), title=mod, severity=severity)
@@ -221,19 +225,33 @@ class TitanModHost:
         from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
 
         config = getattr(self._app, "config", None)
+        # What the menu would run for this name: a project workflow extending it
+        # takes its place, so a mod button and the menu entry do the same thing.
+        resolved = self.resolve_workflow(mod, name) or name
         refusal = None
         if config is None:
             refusal = "Titan has no configuration loaded"
         elif any(isinstance(screen, WorkflowExecutionScreen) for screen in self._app.screen_stack):
             refusal = "another workflow is running; finish it first"
-        elif config.workflows.get_workflow(name) is None:
+        elif config.workflows.get_workflow(resolved) is None:
             refusal = f"there is no workflow '{name}'"
         if refusal is not None:
             self.toast(mod, f"Cannot run {name}: {refusal}", "warning")
             return refusal
-        logger.info("mod_workflow_opened", mod=mod, workflow=name, params=sorted(params))
-        self._on_app_thread(lambda: self._app.push_screen(WorkflowExecutionScreen(config, name, params=params)))
+        logger.info("mod_workflow_opened", mod=mod, workflow=resolved, asked=name, params=sorted(params))
+        self._on_app_thread(lambda: self._app.push_screen(WorkflowExecutionScreen(config, resolved, params=params)))
         return None
+
+    def resolve_workflow(self, mod: str, name: str) -> Optional[str]:
+        """The workflow this Titan runs for `name`, or None when it has none (see `effective_name`)."""
+        config = getattr(self._app, "config", None)
+        if config is None:
+            return None
+        try:
+            return config.workflows.effective_name(name)
+        except Exception:
+            logger.warning("mod_workflow_resolve_failed", mod=mod, workflow=name, exc_info=True)
+            return None
 
     def press_key(self, key: str) -> None:
         """Run the mod function bound to `key` (the app's `mod_key` action lands here)."""

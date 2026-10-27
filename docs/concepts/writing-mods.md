@@ -121,7 +121,7 @@ Every hook receives the same `m` for its mod.
 | `m.ui.badge(pane, text, severity)` | Text under the pane's rail icon (three characters at most); `None` removes it |
 | `m.ui.dock(label, badge, severity, on_click)` | A tile in the dock; `None` as label removes it |
 | `m.ui.home_card(title, text, on_click)` | A card on the home screen; `None` removes it |
-| `m.ui.toast(text, severity)` | `information`, `warning` or `error` |
+| `m.ui.toast(text, severity)` | `information` or `warning`. An `error` is never a toast: it opens an error card (a modal with a copy button), so use `error_card` in your pane when the error belongs there |
 | `m.ui.copy(text, what)` | Copy to the clipboard and say so |
 | `m.state` | `get(key, default)` / `set` / `update(key, fn, default)`: in-memory values (`default` stands in for a missing key); every change repaints the mod's panes |
 | `m.store` | `get` / `set`: small JSON values that survive the session (`~/.local/state/titan/mods/<mod>.json`) |
@@ -130,6 +130,7 @@ Every hook receives the same `m` for its mod.
 | `m.client(name)` | The client of an installed, enabled plugin (`"git"`, `"github"`, `"jira"`), or `None` |
 | `m.keys.bind(key, description, fn)` | App-wide key in Textual's spelling (`"f5"`, `"ctrl+k"`); refused if Titan or another mod has it, returning `False` |
 | `m.workflows.run(name, params)` | Open a workflow as if the user picked it, with `params` over its own; refused while another runs |
+| `m.workflows.resolve(name)` | The workflow `run(name)` would open (a repo's extension of it, if any), or None when this Titan has none |
 | `m.ai` | See [AI](#ai) |
 | `m.deny(reason)` | The answer for a `step.call` hook that blocks a step |
 | `m.log` | A structured logger bound to the mod |
@@ -167,7 +168,9 @@ Box(
 | `Text(*parts, color, bold, dim, wrap)` | Parts are strings, `Link`s or nested `Text` spans. Truncates with an ellipsis unless `wrap=True`. |
 | `Link(label, url)` | Opens an http(s) URL. URLs in any text are links even when wrapped. |
 | `Box(*children, border, row, indent, gap)` | Vertical group; `border` is a colour name; `row=True` puts children on one line: the first at the left, the rest pushed to the right (a title with a switch beside it). |
-| `Button(label, on_press, dim, variant)` | With a `variant` (`primary`, `default`, `success`, `warning`, `error`) it is Titan's own button, for something that does work; without one it reads as a line of the pane, right for a fold or picker. |
+| `Button(label, on_press, dim, variant)` | With a `variant` (`primary`, `default`, `success`, `warning`, `error`) it is Titan's own button, for something that does work; without one it reads as a line of the pane, right for a fold or picker. `label` is a string, or a `Text` when parts of the line need their own style (a name plain, its date dim); a variant button flattens a `Text` to its words. |
+| `error_card(message, copy=m.ui.copy, title, details, copy_text, what, actions, color)` | An **ErrorCard**: a bordered box with the error (wrapped, never cut off), its details dim and a "⧉ Copy error" button that puts it on the clipboard. `actions` are your own `Button`s beside Copy (a "✦ Ask AI to fix", say); `copy_text` replaces what is copied. Import it from `titan_cli.core.mods`. Steps show the same card with `ctx.textual.error_card(error, title, actions)`. |
+| `choice_card(options, width, title, hint, state, key, close, border)` | A **choice card**: a bordered box that asks the user to pick, the standard way to offer actions to choose from. `options` are `Option(label, on_press, variant)`; pass the `width` your `ui.render` received: options that sit together go on one line when they fit, in a grid of equal cells when they do not, and in a column when only one fits. `Option(label, options=[...])` is a dropdown inside the card (`▸`/`▾`) and `Option(label, content=Box(...), on_open=fn)` one with a body of your own, such as a small form; `state=m.state` and `key` keep which one is open (one at a time; two cards in one pane need two keys) and `close` folds it after a pick. Mix options and dropdowns in one card instead of one card per kind. `None` options are dropped. Import `Option` and `choice_card` from `titan_cli.core.mods`. |
 | `Input(value, placeholder, on_change, on_submit)` | A one-line text field. `on_change` fires on every keystroke — keep it to an `m.state` update, never a network or disk call; `on_submit` (optional) fires on Enter, the right place to kick off a search or write to `m.store`. |
 
 Colours are semantic: `primary`, `accent`, `success`, `warning`, `error`, `info`, `subtle`. Lists are flattened and falsy children (`None`, `False`, `""`, `0`, `[]`) dropped, so conditionals and comprehensions read naturally.

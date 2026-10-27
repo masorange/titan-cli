@@ -95,11 +95,23 @@ class GitClient:
         """List branches."""
         return self.branch_service.get_branches(remote=remote)
 
+    def list_recent_branches(
+        self, limit: int = 10, reflog_entries: int = 300
+    ) -> ClientResult[List[UIGitBranch]]:
+        """Local branches ordered by how recently they were worked on."""
+        return self.branch_service.list_recent_branches(limit=limit, reflog_entries=reflog_entries)
+
     def create_branch(
         self, branch_name: str, start_point: str = "HEAD"
     ) -> ClientResult[None]:
         """Create a new branch."""
         return self.branch_service.create_branch(branch_name, start_point)
+
+    def create_and_switch_branch(
+        self, branch_name: str, start_point: str = "HEAD"
+    ) -> ClientResult[None]:
+        """Create a new branch and check it out, carrying any uncommitted work over."""
+        return self.branch_service.create_and_switch(branch_name, start_point)
 
     def delete_branch(self, branch: str, force: bool = False) -> ClientResult[None]:
         """Delete a branch."""
@@ -556,9 +568,11 @@ class GitClient:
         """Run a git command in a specific worktree."""
         return self.worktree_service.run_in_worktree(worktree_path, args)
 
-    def get_commits(self, worktree_path: str, limit: int = 10) -> ClientResult[List[UIGitCommit]]:
-        """Get recent commits from a worktree."""
-        return self.worktree_service.get_commits(worktree_path, limit)
+    def get_commits(
+        self, worktree_path: str, limit: int = 10, all_branches: bool = False
+    ) -> ClientResult[List[UIGitCommit]]:
+        """Get recent commits from a worktree, with their parents and refs, topologically ordered."""
+        return self.worktree_service.get_commits(worktree_path, limit, all_branches)
 
     def get_worktree_diff_stat(self, worktree_path: str) -> ClientResult[str]:
         """Get diff stat of uncommitted changes in a worktree."""

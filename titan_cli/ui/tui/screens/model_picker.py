@@ -19,11 +19,13 @@ from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Input, LoadingIndicator, OptionList, Static
 
+from titan_cli.ai.model_prices import price_table, prices_from_model_info
+from titan_cli.ai.model_vendor import vendor
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
     Button,
     DimText,
-    ErrorText,
+    ErrorCard,
     StyledOption,
     StyledOptionList,
 )
@@ -31,6 +33,8 @@ from titan_cli.ui.tui.widgets import (
 # Sentinel option ids. Neither is a model identifier any source can return, so they
 # cannot collide with a real choice.
 CUSTOM_OPTION_ID = "__custom__"
+# A group header row: a label, never a choice.
+GROUP_OPTION_PREFIX = "__group__"
 # "stop pinning a model; let the CLI or connection use its own". Until this existed there
 # was no way anywhere in the UI to undo a model pin: an emptied text field means "leave it
 # alone" on purpose, so clearing needed an action of its own.
@@ -39,10 +43,11 @@ DEFAULT_OPTION_ID = "__default__"
 
 @dataclass(frozen=True)
 class ModelChoice:
-    """One model on offer. `identifier` is saved verbatim; `description` is for display."""
+    """One model on offer. `identifier` is saved verbatim; `description` and `group` are for display."""
 
     identifier: str
     description: str = ""
+    group: str = ""
 
 
 ModelLoader = Callable[[], Sequence[ModelChoice]]
@@ -156,8 +161,7 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         content.remove_children()
 
         if error:
-            content.mount(ErrorText("Could not load the model list."))
-            content.mount(DimText(error))
+            content.mount(ErrorCard(error, "Could not load the model list."))
         elif not models:
             content.mount(DimText(self.empty_message))
 
@@ -176,21 +180,31 @@ class SelectModelModal(ModalScreen[Optional[str]]):
             # gateway, so a surprise there must still fall through to the typed entry
             # rather than leaving an empty modal with no way forward.
             content.remove_children()
-            content.mount(ErrorText("Could not show the model list."))
+            content.mount(ErrorCard("Could not show the model list."))
             self._mount_custom_entry(content, keep=True)
             return
 
-        current_index = next(
-            (idx for idx, model in enumerate(models) if model.identifier == self.current),
-            None,
-        )
-        if current_index is None:
+        # Looked up by id: group headers are rows too, so a position in `models` no
+        # longer matches a position on screen.
+        if any(model.identifier == self.current for model in models):
+            current_index = option_list.get_option_index(self.current)
+        elif self.current:
             # A CURRENT model that the list does not contain - a newer one, a hand-typed
             # id, a renamed alias. Highlighting the first row would put a reflexive
             # Enter on a model the user never chose, with the check mark nowhere in
-            # sight, so the typed entry is the honest landing spot. With no current
-            # model there is nothing to overwrite, and the first row is fine.
-            current_index = len(options) - 1 if self.current else 0
+            # sight, so the typed entry is the honest landing spot.
+            current_index = option_list.option_count - 1
+        else:
+            # With no current model there is nothing to overwrite; the first model is
+            # fine, and a header is not a model.
+            current_index = next(
+                (
+                    i
+                    for i in range(option_list.option_count)
+                    if not str(option_list.get_option_at_index(i).id).startswith(GROUP_OPTION_PREFIX)
+                ),
+                0,
+            )
         option_list.highlighted = current_index
         self.call_after_refresh(option_list.focus)
 
@@ -207,25 +221,37 @@ class SelectModelModal(ModalScreen[Optional[str]]):
         return [m for m in models if not (m.identifier in seen or seen.add(m.identifier))]
 
     def _options(self, models: Sequence[ModelChoice]) -> List[StyledOption]:
-        options: List[StyledOption] = [
-            StyledOption(
-                id=model.identifier,
-                title=(
-                    f"{model.identifier} {Icons.CHECK}"
-                    if model.identifier == self.current
-                    else model.identifier
-                ),
-                # Sources often fill the description with the id itself (a gateway's
-                # `owned_by`, a CLI's label); repeating the title under it adds nothing.
-                description=(
-                    "" if model.description == model.identifier else model.description
-                ),
+        options: List[StyledOption] = []
+        grouped = any(model.group for model in models)
+        # Groups are alphabetical with the ungrouped last, like the AI prices mod.
+        order = sorted({m.group for m in models}, key=lambda g: (g == "", g.lower()))
+        for group in order if grouped else [""]:
+            members = [m for m in models if m.group == group] if grouped else list(models)
+            if grouped:
+                options.append(
+                    StyledOption(
+                        id=f"{GROUP_OPTION_PREFIX}{group}",
+                        title=f"{group or 'Other'} ({len(members)})",
+                        disabled=True,
+                    )
+                )
+            options.extend(
+                StyledOption(
+                    id=model.identifier,
+                    title=(
+                        f"{model.identifier} {Icons.CHECK}"
+                        if model.identifier == self.current
+                        else model.identifier
+                    ),
+                    # Sources often fill the description with the id itself (a CLI's
+                    # label); repeating the title under it adds nothing.
+                    description=(
+                        "" if model.description == model.identifier else model.description
+                    ),
+                )
+                for model in (sorted(members, key=lambda m: m.identifier.lower()) if grouped else members)
             )
-            for model in models
-        ]
-        # Both meta-actions go AFTER the models, and the order matters for more than
-        # taste: the highlight is computed as an index into `models`, so anything
-        # prepended here would silently point it at the wrong row.
+        # Both meta-actions go AFTER the models, so the typed entry stays the last row.
         if self.allow_clear and self.current:
             options.append(
                 StyledOption(
@@ -320,9 +346,28 @@ def gateway_model_loader(gateway_client) -> ModelLoader:
     def load() -> List[ModelChoice]:
         if gateway_client is None:
             return []
+        models = gateway_client.list_models()
+        ids = [m.id for m in models]
+        # Prices are a courtesy: each source may be missing, and the list still shows.
+        try:
+            prices = prices_from_model_info(gateway_client.model_info())
+        except Exception:
+            prices = {}
+        if any(i not in prices for i in ids):
+            try:
+                public = price_table(gateway_client.cost_map(), ids)
+                prices = {**public, **prices}
+            except Exception:
+                pass
         return [
-            ModelChoice(model.id, model.owned_by or "")
-            for model in gateway_client.list_models()
+            # `owned_by` is the API dialect the gateway speaks (always "openai" behind a
+            # LiteLLM proxy), so the maker is read from the id and shown as the group.
+            ModelChoice(
+                model.id,
+                prices[model.id].describe() if model.id in prices else "",
+                group=vendor(model.id),
+            )
+            for model in models
         ]
 
     return load
@@ -556,6 +601,7 @@ __all__ = [
     "open_model_picker_for_cli",
     "open_model_picker_for_connection",
     "CUSTOM_OPTION_ID",
+    "GROUP_OPTION_PREFIX",
     "cli_model_loader",
     "gateway_model_loader",
     "open_cli_model_picker",

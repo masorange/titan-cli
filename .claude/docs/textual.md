@@ -168,8 +168,16 @@ ctx.textual.dim_text("Secondary information")
 ctx.textual.primary_text("Primary color message")
 ctx.textual.bold_primary_text("Bold primary message")
 ctx.textual.success_text("Operation successful")
-ctx.textual.error_text("Operation failed")
+ctx.textual.error_text("Operation failed")  # an error card: copy button, plain text (no markup)
+ctx.textual.error_text(err, actions=[("⟳ Retry", retry)])  # plus buttons of your own
+# Every error is an ErrorCard, whichever way you show it: Panel(..., panel_type="error"),
+# ctx.textual.panel(..., "error") and app.notify(..., severity="error") all end up as one
+# (the last one in a modal). Toasts (notify) are informational only.
 ctx.textual.warning_text("Warning message")
+
+# An error worth copying (a ClientError, an engine Error, an exception or a message):
+# bordered panel with a "⧉ Copy error" button; an exception's traceback goes in the copy
+ctx.textual.error_card(result, title="Could not publish")
 
 # Tinted, content-width chip — for a fact ABOUT the output, not part of it.
 # Its one use today is naming the AI that served the step; pass it straight to the façade:

@@ -77,6 +77,13 @@ class Panel(Widget):
     }
     """
 
+    def __new__(cls, text: str = "", panel_type: str = "info", *args, **kwargs):
+        """An error is always an ErrorCard (copy button included), whoever builds the panel."""
+        if panel_type == "error":
+            from titan_cli.ui.tui.widgets.error_card import ErrorCard
+            return ErrorCard(text)
+        return super().__new__(cls)
+
     def __init__(
         self,
         text: str,

@@ -238,3 +238,75 @@ def test_select_default_or_search_channel_target_falls_back_when_preferred_targe
     assert isinstance(result, Success)
     assert result.metadata["slack_conversation_ids"] == ["C2"]
     ctx.textual.dim_text.assert_called_once()
+
+
+def _search_another():
+    from titan_plugin_slack.steps.target_steps import _SEARCH_ANOTHER
+    return _SEARCH_ANOTHER
+
+
+def test_checklist_offers_a_row_to_search_another_channel() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = ["eng-backend"]
+    ctx.textual.ask_multiselect.return_value = []
+    ctx.textual.ask_text.return_value = "eng"
+    ctx.slack.search_users.return_value = ClientSuccess(data=[])
+    ctx.slack.search_channels.return_value = ClientSuccess(data=[])
+
+    select_default_or_search_channel_target_step(ctx)
+
+    offered = ctx.textual.ask_multiselect.call_args.args[1]
+    assert [o.value for o in offered] == ["eng-backend", _search_another()]
+
+
+def test_searched_channel_is_added_to_the_checked_ones() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = ["eng-backend"]
+    ctx.textual.ask_multiselect.return_value = ["eng-backend", _search_another()]
+    ctx.textual.ask_text.return_value = "release"
+    found = UISlackChannel(id="C7", name="releases")
+    ctx.slack.search_channels.side_effect = [
+        ClientSuccess(data=[UISlackChannel(id="C2", name="eng-backend")]),  # the checked one, by name
+        ClientSuccess(data=[found]),  # the search
+    ]
+    ctx.textual.ask_option.return_value = found
+
+    result = select_default_or_search_channel_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_conversation_ids"] == ["C2", "C7"]
+
+
+def test_only_the_search_row_posts_to_the_searched_channel() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = ["eng-backend"]
+    ctx.textual.ask_multiselect.return_value = [_search_another()]
+    ctx.textual.ask_text.return_value = "release"
+    found = UISlackChannel(id="C7", name="releases")
+    ctx.slack.search_channels.return_value = ClientSuccess(data=[found])
+    ctx.textual.ask_option.return_value = found
+
+    result = select_default_or_search_channel_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_conversation_ids"] == ["C7"]
+
+
+def test_a_failed_search_does_not_lose_the_checked_channels() -> None:
+    ctx = _build_context()
+    ctx.slack = MagicMock()
+    ctx.slack.default_channels = ["eng-backend"]
+    ctx.textual.ask_multiselect.return_value = ["eng-backend", _search_another()]
+    ctx.textual.ask_text.return_value = "zzzz"
+    ctx.slack.search_channels.side_effect = [
+        ClientSuccess(data=[UISlackChannel(id="C2", name="eng-backend")]),
+        ClientSuccess(data=[]),  # nothing matches the search
+    ]
+
+    result = select_default_or_search_channel_target_step(ctx)
+
+    assert isinstance(result, Success)
+    assert result.metadata["slack_conversation_ids"] == ["C2"]

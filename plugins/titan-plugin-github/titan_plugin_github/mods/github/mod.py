@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .diagnosis import refresh_ai_label
 from . import draw
-from .sections.prs.prs import new_review_requests, read_prs
+from .sections.prs.prs import new_review_requests, read_others, read_prs
 from .sections.queue.queue import left_queue, read_queue
 
 PANE = "github"
@@ -28,11 +28,16 @@ def register(on, options):
         before = m.state.get("prs")
         after = read_prs(m.client("github"))
         m.state.set("prs", after)
+        # Asked here, off the UI thread: finding out may take a round-trip.
+        m.state.set("slack_on", m.client("slack") is not None)
         waiting = len(after.to_review) if after.error is None else 0
         m.ui.badge(PANE, str(waiting) if waiting else None, severity="warning")
         arrived = new_review_requests(before, after)
         if arrived:
             m.ui.toast("Review requested: " + ", ".join(f"#{n}" for n in arrived))
+
+    def refresh_others(m):
+        m.state.set("others", read_others(m.client("github")))
 
     def refresh_queue(m):
         before = m.state.get("queue")
@@ -48,8 +53,13 @@ def register(on, options):
         # How the pane's own review actions (approve, request changes, comment)
         # get the lists read again once GitHub has taken them.
         m.state.set("refresh_prs", lambda: refresh_prs(m))
+        # What an error card's Retry runs again.
+        m.state.set("refresh_others", lambda: refresh_others(m))
+        m.state.set("refresh_queue", lambda: refresh_queue(m))
         m.ui.open(PANE, TITLE)
         m.clock.every(options["prs_refresh_seconds"], lambda: shown["prs"] and refresh_prs(m))
+        # Its own timer, so the slow read of everyone else's PRs runs beside yours, not before them.
+        m.clock.every(options["prs_refresh_seconds"], lambda: shown["prs"] and refresh_others(m))
         m.clock.every(options["queue_refresh_seconds"], lambda: shown["queue"] and refresh_queue(m))
         m.run(lambda: refresh_ai_label(m))
         if options.get("refresh_key"):
@@ -58,6 +68,7 @@ def register(on, options):
 
     def refresh_all(m):
         if shown["prs"]:
+            m.run(lambda: refresh_others(m))
             refresh_prs(m)
         if shown["queue"]:
             refresh_queue(m)
@@ -68,6 +79,8 @@ def register(on, options):
         if e.enabled and "root" in where:
             refresh = {"prs": refresh_prs, "queue": refresh_queue}[e.section]
             m.run(lambda: refresh(m))
+            if e.section == "prs":
+                m.run(lambda: refresh_others(m))
         return next(e)
 
     # Workflows are what change GitHub (a review, a new PR, a merge), so

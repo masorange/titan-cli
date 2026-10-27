@@ -17,6 +17,11 @@ MAX_TARGET_OPTIONS = 20
 SEARCH_OTHER_TARGET = "__search_other_target__"
 
 
+#: The checklist's last row: it leads to a channel search instead of naming a channel itself.
+_SEARCH_ANOTHER = "\0search-another-channel"
+_SEARCH_ANOTHER_LABEL = "🔍 Another channel (type its name)…"
+
+
 def select_user_target_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Select a Slack user target through query filtering and final confirmation.
@@ -121,7 +126,9 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
     channel, it is selected automatically with no prompt at all, producing a
     single `slack_target`. Otherwise, this falls back to a checklist of the
     configured `default_channels` (multiselect, none preselected) so the caller
-    can post to several channels at once, producing `slack_targets`. If no
+    can post to several channels at once, producing `slack_targets`; the last row
+    of that checklist searches for another channel by name and adds it to the
+    checked ones. If no
     default channels are configured, or the user checks none of them, this
     falls back to the unified person-or-channel search (`select_target_step`),
     which also produces a single `slack_target`.
@@ -182,12 +189,15 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
         SelectionOption(value=channel_name, label=channel_name, selected=False)
         for channel_name in configured_channels
     ]
-    selected_names = ctx.textual.ask_multiselect(
+    options.append(SelectionOption(value=_SEARCH_ANOTHER, label=_SEARCH_ANOTHER_LABEL, selected=False))
+    picked = ctx.textual.ask_multiselect(
         "Select the Slack channels to post this message to:",
         options,
     )
+    search_another = _SEARCH_ANOTHER in (picked or [])
+    selected_names = [name for name in (picked or []) if name != _SEARCH_ANOTHER]
 
-    if not selected_names:
+    if not selected_names and not search_another:
         ctx.textual.dim_text("No default channel selected - falling back to manual search.")
         ctx.textual.end_step("skip")
         return select_target_step(ctx)
@@ -207,6 +217,20 @@ def select_default_or_search_channel_target_step(ctx: WorkflowContext) -> Workfl
             case ClientError(error_message=err):
                 unresolved_channels.append(str(channel_name))
                 ctx.textual.warning_text(f"Could not resolve #{channel_name}: {err}")
+
+    if search_another:
+        # Type a name and pick from what Slack finds, like the other channel steps do.
+        ctx.textual.end_step("success" if targets else "skip")
+        match select_channel_target_step(ctx):
+            case Success(metadata=found):
+                extra = found["slack_target"]
+                if all(extra.target_id != target.target_id for target in targets):
+                    targets.append(extra)
+            case Error(message=reason) if not targets:
+                return Error(reason)
+            case Error(message=reason):
+                ctx.textual.warning_text(f"Skipped the searched channel: {reason}")
+        ctx.textual.begin_step("Selected Slack Channels")
 
     if not targets:
         ctx.textual.error_text("None of the selected Slack channels could be resolved.")

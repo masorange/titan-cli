@@ -5,13 +5,15 @@ Pure business logic for commit message handling.
 These functions can be used by any step and are easily testable.
 """
 
-from typing import Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from titan_cli.core.diffs import (
     SAMPLED_DIFF_NOTE,
     budget_diff_across_files,
     format_file_summary,
 )
+
+from ..models.view import UIGitCommit, UIGitGraphRow
 
 
 def build_ai_commit_prompt(
@@ -229,3 +231,102 @@ __all__ = [
     "validate_message_length",
     "process_ai_commit_message",
 ]
+
+
+# --- Commit graph -----------------------------------------------------------
+#
+# The glyphs a lane can take. A commit sits on `NODE`; a lane that only passes
+# through the row is `THROUGH`; edges leaving a commit are drawn on a row of
+# their own below it, as `git log --graph` does.
+NODE = "●"
+THROUGH = "│"
+FORK = "├"
+TURN_RIGHT = "╮"
+TURN_LEFT = "╭"
+JOIN_RIGHT = "╯"
+JOIN_LEFT = "╰"
+ACROSS = "─"
+CROSS = "┼"
+BLANK = " "
+
+
+def _place(lanes: List[Optional[str]], sha: str) -> int:
+    """The lane holding `sha`, or the leftmost free one, opening a new one if need be."""
+    if sha in lanes:
+        return lanes.index(sha)
+    if None in lanes:
+        index = lanes.index(None)
+    else:
+        index = len(lanes)
+        lanes.append(None)
+    lanes[index] = sha
+    return index
+
+
+def _span(cells: List[str], lanes: Sequence[Optional[str]], home: int, targets: Sequence[int]) -> None:
+    """Draw the horizontal run from `home` to the farthest of `targets`, crossing what it must."""
+    if not targets:
+        return
+    left, right = min(home, *targets), max(home, *targets)
+    for j in range(left + 1, right):
+        if j in targets or j == home:
+            continue
+        cells[j] = CROSS if lanes[j] else ACROSS
+
+
+def build_commit_graph(commits: Sequence[UIGitCommit]) -> List[UIGitGraphRow]:
+    """
+    Lay commits out in lanes and return the rows to draw, in order.
+
+    Expects the commits topologically ordered (parents after their children), as
+    `get_commits` returns them: a parent that appeared before its child would get
+    a lane of its own rather than continuing the child's.
+
+    Every commit produces one row. A commit whose edges fork out to lanes that
+    were not already waiting for them produces a second, `is_link` row carrying
+    only those edges - the merge's two sides, or a branch leaving the trunk.
+
+    A commit several lanes were waiting for (they all point at it) collapses them
+    into its own lane on its row, so the lanes close where the history does.
+    """
+    lanes: List[Optional[str]] = []
+    rows: List[UIGitGraphRow] = []
+
+    for commit in commits:
+        home = _place(lanes, commit.hash)
+        # Other lanes expecting this same commit end here: this is where the
+        # branches that merged into it come back together.
+        joining = [j for j, lane in enumerate(lanes) if j != home and lane == commit.hash]
+
+        cells = [THROUGH if lane else BLANK for lane in lanes]
+        _span(cells, lanes, home, joining)
+        for j in joining:
+            cells[j] = JOIN_RIGHT if j > home else JOIN_LEFT
+        cells[home] = NODE
+        rows.append(UIGitGraphRow(cells=tuple(cells), lane=home, commit=commit))
+
+        for j in joining:
+            lanes[j] = None
+
+        # The first parent keeps the commit's own lane; the others take theirs.
+        passing = list(lanes)
+        lanes[home] = commit.parents[0] if commit.parents else None
+        forks = [_place(lanes, parent) for parent in commit.parents[1:]]
+
+        if forks:
+            cells = [THROUGH if lane else BLANK for lane in passing] + [BLANK] * (len(lanes) - len(passing))
+            _span(cells, lanes, home, forks)
+            for j in forks:
+                cells[j] = TURN_RIGHT if j > home else TURN_LEFT
+            cells[home] = FORK
+            rows.append(UIGitGraphRow(cells=tuple(cells), lane=home))
+
+        while lanes and lanes[-1] is None:
+            lanes.pop()
+
+    return rows
+
+
+def graph_lanes(rows: Sequence[UIGitGraphRow]) -> int:
+    """The widest row's lane count: how many columns the graph needs to draw."""
+    return max((len(row.cells) for row in rows), default=0)

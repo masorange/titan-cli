@@ -11,7 +11,6 @@ Widgets:
 - DimText: Muted/dimmed text
 - BoldText: Bold text
 - SuccessText: Success/green color (uses $success theme variable)
-- ErrorText: Error/red color (uses $error theme variable)
 - WarningText: Warning/yellow color (uses $warning theme variable)
 - PrimaryText: Primary theme color (uses $primary theme variable)
 - BoldPrimaryText: Bold text with primary color
@@ -41,7 +40,6 @@ class Text(Static):
     - DimText: Muted/dimmed text
     - BoldText: Bold text
     - SuccessText: Success/green color
-    - ErrorText: Error/red color
     - WarningText: Warning/yellow color
     - PrimaryText: Primary theme color
     - ItalicText: Italic text
@@ -75,11 +73,6 @@ class BoldPrimaryText(Static):
 
 class SuccessText(Static):
     """Text widget with success/green color."""
-    pass
-
-
-class ErrorText(Static):
-    """Text widget with error/red color."""
     pass
 
 

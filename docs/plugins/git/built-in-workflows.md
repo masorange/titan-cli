@@ -1,6 +1,6 @@
 # Git Built-in Workflows
 
-The Git plugin ships two workflows: one for commit creation and push automation, and one for merging a branch into the current one.
+The Git plugin ships three workflows: one for commit creation and push automation, one for merging a branch into another one, and one for switching to another local branch.
 
 ## `commit-ai`
 
@@ -50,9 +50,9 @@ hooks:
 
 ## `merge-branch`
 
-Merges another branch into the branch you are on. When the merge conflicts, it hands the terminal to the configured interactive AI CLI so you can resolve the conflicts, then finishes the merge when you exit.
+Merges another branch into the branch you are on, or into any other local branch via `target_branch`. When the merge conflicts, it hands the terminal to the configured interactive AI CLI so you can resolve the conflicts, then finishes the merge when you exit.
 
-HEAD never moves: the source branch is fetched and merged through its remote-tracking ref, so a failure at any point leaves you on the branch you started on.
+The merge never moves HEAD: the source branch is fetched and merged through its remote-tracking ref, so a failure at any point leaves you on the branch the merge lands on. The single exception is `target_branch`: `resolve_merge_target` checks that branch out, and only after everything that could refuse the merge has passed, so a refused merge still leaves you where you were.
 
 **Source workflow:** `plugins/titan-plugin-git/titan_plugin_git/workflows/merge-branch.yaml`
 
@@ -60,6 +60,7 @@ HEAD never moves: the source branch is fetched and merged through its remote-tra
 
 | Param | Default | Meaning |
 |-------|---------|---------|
+| `target_branch` | `""` | Branch the merge lands on. Empty means the one already checked out; anything else is checked out first. |
 | `source_branch` | `""` | Branch to merge. Empty means the base branch configured for the project (`plugins.git.main_branch`). |
 | `remote` | `"origin"` | Remote the source branch is fetched from. |
 | `merge_commit_no_verify` | `true` | Skip pre-commit and commit-msg hooks on the merge commit. Deliberately not `no_verify`: that key is read by `create_commit`, and `ctx.data` is shared with workflows nested from the hooks. |
@@ -67,7 +68,7 @@ HEAD never moves: the source branch is fetched and merged through its remote-tra
 ### Default flow
 
 1. `before_merge` hook
-2. `git.resolve_merge_target`
+2. `git.resolve_merge_target` (switches to `target_branch` when one is given)
 3. `git.fetch_merge_source`
 4. `git.merge_source_branch`
 5. `core.ai_code_assistant` (skips itself when there are no conflicts)
@@ -78,6 +79,7 @@ HEAD never moves: the source branch is fetched and merged through its remote-tra
 ### Behavior
 
 - **Working tree must be clean.** The workflow exits before touching anything if there are uncommitted changes. A merge on a dirty tree cannot be rolled back safely once it conflicts.
+- **Merging into another branch.** With `target_branch` set, the source branch, the dirty tree and "cannot merge a branch into itself" are all checked against that target *before* the checkout, so a merge that will not happen never moves you.
 - **No conflicts:** git commits the merge itself with the message it suggests. Steps 5 and 6 skip.
 - **Conflicts:** the conflicted files are listed, the AI CLI is launched with a prompt describing them, and on exit `complete_merge` runs `git add --all` plus a commit with git's prepared merge message.
 - **Conflicts still unresolved on exit:** you are asked whether to abort the merge (restoring the previous state) or commit as-is. "Unresolved" is decided by the file content, not by the index, so a file the AI CLI fixed without staging counts as resolved.
@@ -134,3 +136,35 @@ Note that `ctx.data` is shared with nested workflows: a key set by `merge-branch
 - `fetch_merge_source`
 - `merge_source_branch`
 - `complete_merge`
+
+## `switch-branch`
+
+Switches to another local branch. The branches you worked on most recently are offered first: the ones HEAD was switched to (from the reflog), then the rest by the date of their last commit, each one shown with how long ago that was and where it pushes.
+
+The workflow refuses to move while the working tree has modified or staged files - those would travel to the other branch and mix with its work. Untracked files follow HEAD anywhere, so they never block it.
+
+**Source workflow:** `plugins/titan-plugin-git/titan_plugin_git/workflows/switch-branch.yaml`
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `branch` | `""` | Branch to switch to. Empty asks, offering the recently used ones. |
+| `branch_limit` | `10` | How many branches to offer. |
+
+### Default flow
+
+1. `git.switch_branch`
+
+### Example extension
+
+```yaml
+extends: "plugin:git/switch-branch"
+
+params:
+  branch: "develop"
+```
+
+### Related public steps
+
+- `switch_branch`

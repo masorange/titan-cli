@@ -23,6 +23,7 @@ from ..formatting import (
     summarize_review_status,
     format_short_sha,
     actions_job_id,
+    actions_run_id,
 )
 
 
@@ -114,7 +115,7 @@ def from_rest_pr(rest_pr: NetworkPullRequest) -> UIPullRequest:
         reviewers=build_reviewers(rest_pr),
         assignees=[user.login for user in rest_pr.assignees if user.login],
         checks_state=checks_state,
-        failed_checks=[UIFailedCheck(name=name, url=url, job_id=actions_job_id(url)) for name, url in failed],
+        failed_checks=[UIFailedCheck(name=name, url=url, job_id=actions_job_id(url), run_id=actions_run_id(url)) for name, url in failed],
         has_conflicts=(rest_pr.mergeable == "CONFLICTING"),
         url=rest_pr.url,
     )
@@ -255,6 +256,9 @@ _MERGE_QUEUE_STATE_LABELS = {
 }
 
 
+_QUEUE_CHECKS_STATES = {"SUCCESS": "passing", "FAILURE": "failing", "ERROR": "failing", "PENDING": "running", "EXPECTED": "running"}
+
+
 def format_merge_eta(seconds: Optional[int]) -> str:
     """Compact time-to-merge estimate: "<1m", "~12m", "~1h05", or "" when unknown."""
     if seconds is None:
@@ -296,7 +300,10 @@ def from_graphql_merge_queue(graphql_queue: GraphQLMergeQueue) -> UIMergeQueue:
                 eta_label=format_merge_eta(entry.estimatedTimeToMerge),
                 is_mine=viewer is not None and entry.authorLogin == viewer,
                 url=entry.pullRequestUrl,
+                queued_age=format_relative(entry.enqueuedAt),
+                checks_state=_QUEUE_CHECKS_STATES.get(entry.checksState or "", ""),
             )
             for entry in graphql_queue.entries
         ],
+        next_eta_label=format_merge_eta(graphql_queue.nextEntryEstimatedTimeToMerge),
     )

@@ -22,7 +22,7 @@ def flatten():
         if isinstance(element, Text):
             return ["".join("".join(flatten(p)) for p in element.parts)]
         if isinstance(element, (Button, Link)):
-            return [element.label]
+            return flatten(element.label) if isinstance(element.label, Text) else [element.label]
         if isinstance(element, Box):
             return [line for child in element.children for line in flatten(child)]
         return []

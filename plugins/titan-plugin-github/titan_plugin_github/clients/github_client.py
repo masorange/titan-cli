@@ -87,11 +87,9 @@ class GitHubClient:
         """Get a pull request by number."""
         return self._pr_service.get_pull_request(pr_number)
 
-    def list_pending_review_prs(
-        self, max_results: int = 50, include_team_reviews: bool = False
-    ) -> ClientResult[List[UIPullRequest]]:
-        """List PRs pending your review."""
-        return self._pr_service.list_pending_review_prs(max_results, include_team_reviews)
+    def list_pending_review_prs(self, max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
+        """List the open PRs waiting for your review."""
+        return self._pr_service.list_pending_review_prs(max_results)
 
     def list_my_prs(
         self, state: str = "open", max_results: int = 50
@@ -204,6 +202,10 @@ class GitHubClient:
     def get_actions_job_log(self, job_id: int, tail_chars: int = 3_000_000) -> ClientResult[str]:
         """Get the end of a GitHub Actions job's log (e.g. a failed check)."""
         return self._pr_service.get_actions_job_log(job_id, tail_chars)
+
+    def rerun_failed_jobs(self, run_id: int) -> ClientResult[None]:
+        """Re-run the failed jobs of a GitHub Actions workflow run."""
+        return self._pr_service.rerun_failed_jobs(run_id)
 
     def get_merge_queue(self, max_entries: int = 10) -> ClientResult[UIMergeQueue]:
         """Get the merge queue of the repository's default branch (read-only)."""
@@ -399,15 +401,7 @@ class GitHubClient:
         Returns:
             ClientResult[str] with GitHub username
         """
-        try:
-            output = self._gh_network.run_command(["api", "user", "-q", ".login"])
-            username = output.strip()
-            return ClientSuccess(data=username, message="Current user retrieved")
-        except Exception as e:
-            return ClientError(
-                error_message=f"Failed to get current user: {e}",
-                error_code="API_ERROR"
-            )
+        return self._pr_service.get_current_user()
 
     def get_user_display_name(self, login: str) -> ClientResult[str]:
         """

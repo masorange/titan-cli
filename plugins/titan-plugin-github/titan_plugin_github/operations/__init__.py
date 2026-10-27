@@ -52,6 +52,8 @@ from .ci_diagnosis_operations import (
 from .pr_operations import (
     fetch_pr_threads,
     fetch_pr_general_comments,
+    prs_authored_by,
+    prs_awaiting_review_from,
     split_titan_review_body,
     build_quote_reply,
 )
@@ -125,6 +127,8 @@ __all__ = [
     # PR operations
     "fetch_pr_threads",
     "fetch_pr_general_comments",
+    "prs_authored_by",
+    "prs_awaiting_review_from",
     "split_titan_review_body",
     "build_quote_reply",
     "build_pr_selection_description",

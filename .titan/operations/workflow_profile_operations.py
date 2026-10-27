@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .log_operations import (
+from titan_cli.core.logging.analysis import (
     ENGINE_TIMELINE_EVENTS,
     LogEntry,
     StepRun,
@@ -685,7 +685,7 @@ def inventory_runs(paths: Sequence[Any]) -> List[RunRef]:
         List of RunRef — cheap to build, enough to render both selectors and
         to compute a historical baseline
     """
-    from .log_operations import analyze_session, index_sessions, load_session
+    from titan_cli.core.logging.analysis import analyze_session, index_sessions, load_session
 
     refs: List[RunRef] = []
     for session_ref in index_sessions(paths):
@@ -710,7 +710,7 @@ def load_run(ref: RunRef) -> Optional[WorkflowRun]:
     Returns:
         The WorkflowRun, or None if the log no longer yields it
     """
-    from .log_operations import analyze_session, load_session
+    from titan_cli.core.logging.analysis import analyze_session, load_session
 
     runs = analyze_session(load_session(ref.session)).workflows
     if ref.index < len(runs):

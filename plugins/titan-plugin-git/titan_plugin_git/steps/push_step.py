@@ -49,8 +49,10 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
             case ClientSuccess(data=current_branch):
                 branch_to_use = current_branch
             case ClientError(error_message=err):
+                error_msg = f"Failed to get current branch: {err}"
+                ctx.textual.error_text(error_msg)
                 ctx.textual.end_step("error")
-                return Error(f"Failed to get current branch: {err}")
+                return Error(error_msg)
     else:
         branch_to_use = branch
 
@@ -77,8 +79,10 @@ def create_git_push_step(ctx: WorkflowContext) -> WorkflowResult:
                         # If we can't count, proceed with push anyway
                         pass
         case ClientError(error_message=err):
+            error_msg = f"Failed to check remote branch: {err}"
+            ctx.textual.error_text(error_msg)
             ctx.textual.end_step("error")
-            return Error(f"Failed to check remote branch: {err}")
+            return Error(error_msg)
 
     # A workflow that pushes as a last step (a merge, a release) asks first: the
     # user has the result in front of them and may want to look before it leaves.

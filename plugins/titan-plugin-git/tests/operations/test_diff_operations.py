@@ -7,6 +7,7 @@ Tests for pure business logic related to diff parsing and formatting.
 from titan_plugin_git.operations.diff_operations import (
     parse_diff_stat_output,
     expand_rename_path,
+    rename_paths,
     get_max_filename_length,
     colorize_diff_stats,
     colorize_diff_summary,
@@ -210,8 +211,36 @@ class TestExpandRenamePath:
         result = expand_rename_path("pkg/{old => new}/module.py")
         assert result == "pkg/new/module.py"
 
+    def test_rename_between_paths_that_share_nothing(self):
+        # git writes this one without braces; read as a plain path it became the
+        # pathspec `a/old.py => b/new.py`, which no git command accepts.
+        result = expand_rename_path(".titan/operations/log_operations.py => titan_cli/core/logging/analysis.py")
+        assert result == "titan_cli/core/logging/analysis.py"
+
     def test_simple_filename_unchanged(self):
         assert expand_rename_path("file.py") == "file.py"
+
+
+class TestRenamePaths:
+    """Tests for rename_paths: both sides of a rename have to be committed."""
+
+    def test_a_plain_path_is_alone(self):
+        assert rename_paths("titan_cli/core/models.py") == ["titan_cli/core/models.py"]
+
+    def test_a_braced_rename_gives_old_then_new(self):
+        assert rename_paths("titan_cli/core/{models.py => models/__init__.py}") == [
+            "titan_cli/core/models.py",
+            "titan_cli/core/models/__init__.py",
+        ]
+
+    def test_a_braced_rename_with_a_suffix_gives_both_directories(self):
+        assert rename_paths("{old_dir => new_dir}/file.py") == ["old_dir/file.py", "new_dir/file.py"]
+
+    def test_a_whole_rename_gives_both_paths(self):
+        assert rename_paths(".titan/operations/log_operations.py => titan_cli/core/logging/analysis.py") == [
+            ".titan/operations/log_operations.py",
+            "titan_cli/core/logging/analysis.py",
+        ]
 
     def test_path_without_rename_unchanged(self):
         assert expand_rename_path("a/b/c/file.py") == "a/b/c/file.py"

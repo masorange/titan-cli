@@ -213,7 +213,7 @@ def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(mod, tmp_path, mo
     assert "(this line is not in the log: do not trust the cause)" in text
 
     m.state.set("diagnoses", {"2": mod.diagnosis.Diagnosis("error", error="AI: quota exhausted")})
-    mod.draw.diagnosis_of(m, pr2, {}).children[-1].on_press()
+    next(b for b in mod.draw.diagnosis_of(m, pr2, {}).children if isinstance(b, Button) and b.label.startswith("⧉")).on_press()
     assert copied[-1] == ("#2 error", "PR #2 PR 2\nCould not diagnose: AI: quota exhausted\n")
 
 
@@ -252,6 +252,7 @@ def test_review_requests_badge_the_rail_icon_and_none_clears_it(mod, tmp_path, p
         get_repo_full_name=lambda: "o/r",
         list_pending_review_prs=lambda: ClientSuccess(data=to_review[0]),
         list_my_prs=lambda: ClientSuccess(data=[]),
+        list_all_prs=lambda: ClientSuccess(data=[]),
         count_open_prs=lambda: ClientSuccess(data=2),
     )
     host = SimpleNamespace(
@@ -355,9 +356,10 @@ def test_a_section_turned_on_while_running_refreshes_at_once_and_off_ones_do_not
     bus.sections["github"] = options["sections"]
     runs.clear()
     bus.set_section("github", "prs", True)
-    assert len(runs) == 1
-    runs[0]()
-    assert state.get("prs") is not None
+    assert len(runs) == 2  # your PRs and, apart, everyone else's
+    for run in runs:
+        run()
+    assert state.get("prs") is not None and state.get("others") is not None
 
 
 def test_a_failed_queue_read_is_drawn_not_hidden(mod, flatten):
@@ -663,3 +665,197 @@ def test_no_fix_button_without_a_workflow(mod, flatten, pr):
     open_row(mod, m, 2, opts)
 
     assert "⚒ Fix with AI" not in labels(mod.draw.draw(m, 44, opts), flatten)
+
+
+def test_other_prs_load_apart_and_drop_the_ones_already_listed(mod, flatten, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(to_review=[pr(5)], mine=[pr(2)], open_count=7))
+    opts = {"review_workflow": "review-pr"}
+
+    # Your PRs are drawn while the other read is still out.
+    lines = labels(mod.draw.draw(m, 44, opts), flatten)
+    assert "▸ Other PRs · loading…" in lines
+    assert "▸ #2 PR 2" in lines
+
+    m.state.set("others", mod.models.Others(prs=[pr(2), pr(5), pr(8), pr(9)]))
+    lines = labels(mod.draw.draw(m, 44, opts), flatten)
+    assert "▸ Other PRs (2)" in lines and "▸ #8 PR 8" not in lines
+
+    press(mod, m, "▸ Other PRs (2)", opts)
+    lines = labels(mod.draw.draw(m, 44, opts), flatten)
+    assert "▸ #8 PR 8" in lines and "▸ #9 PR 9" in lines
+    assert "…and 3 more on GitHub" in lines  # 7 open, 4 listed
+
+
+def test_a_failed_read_of_the_other_prs_does_not_touch_yours(mod, flatten, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2)], open_count=1))
+    m.state.set("others", mod.models.Others(error="i/o timeout"))
+    opts = {"review_workflow": "review-pr"}
+
+    assert "▸ Other PRs · unavailable" in labels(mod.draw.draw(m, 44, opts), flatten)
+    press(mod, m, "▸ Other PRs · unavailable", opts)
+    lines = labels(mod.draw.draw(m, 44, opts), flatten)
+    assert "Could not read the other PRs: i/o timeout" in lines
+    assert "▸ #2 PR 2" in lines
+
+
+def test_merge_blockers_say_why_and_no_button_shows(mod, pr):
+    blockers = mod.sections.prs.merge.blockers
+    assert blockers(pr(1, review="approved")) == []
+    assert blockers(pr(1, review="approved", checks="none")) == []
+    assert blockers(pr(1, draft=True, conflicts=True, checks="failing")) == [
+        "still a draft", "has conflicts", "not approved", "checks failing"]
+    assert blockers(pr(1, review="changes requested", checks="running")) == ["changes requested", "checks running"]
+
+
+def test_my_pr_that_cannot_merge_says_why(mod, flatten, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, checks="failing")]))
+    open_row(mod, m, 2)
+
+    tree = mod.draw.draw(m, 44, {})
+    assert "Not ready to merge: not approved, checks failing" in labels(tree, flatten)
+    assert not any("merge" in b.label.lower() and "⇉" in b.label for b in buttons(tree))
+
+
+def _mergeable(mod, pr, github, toasts, queue=None):
+    m = _acting(mod, pr, github, toasts)
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, review="approved")]))
+    if queue is not None:
+        m.state.set("queue", queue)
+    open_row(mod, m, 2)
+    return m
+
+
+def test_merge_asks_twice_then_squashes_and_rereads(mod, pr):
+    merged, toasts, reread = [], [], []
+    github = SimpleNamespace(
+        merge_pr=lambda number: merged.append(number) or ClientSuccess(
+            data=SimpleNamespace(merged=True, queued=False, message="merged")),
+    )
+    m = _mergeable(mod, pr, github, toasts)
+    m.state.set("refresh_prs", lambda: reread.append(True))
+
+    press(mod, m, "⇉ Squash & merge")
+    assert merged == []  # the first press only asks
+    press(mod, m, "✗ Cancel")
+    assert merged == [] and mod.draw.actions.merge_pending(m) is None
+
+    press(mod, m, "⇉ Squash & merge")
+    press(mod, m, "✓ Confirm")
+
+    assert merged == [2]
+    assert toasts == [("Merged #2", "information")]
+    assert reread == [True]
+
+
+def test_merge_button_joins_the_queue_when_the_branch_has_one(mod, flatten, pr):
+    toasts = []
+    github = SimpleNamespace(
+        merge_pr=lambda number: ClientSuccess(data=SimpleNamespace(merged=False, queued=True, message="Added to the merge queue")),
+    )
+    queue = mod.models.Queue(configured=True, branch="develop", total=0)
+    m = _mergeable(mod, pr, github, toasts, queue)
+
+    press(mod, m, "⇉ Add to queue")
+    assert "Sure? This will join the merge queue." in labels(mod.draw.draw(m, 44, {}), flatten)
+    press(mod, m, "✓ Confirm")
+
+    assert toasts == [("#2: Added to the merge queue", "information")]
+
+
+def test_a_queue_of_another_branch_does_not_change_the_label(mod, pr):
+    queue = mod.models.Queue(configured=True, branch="master")
+    assert mod.sections.prs.merge.label(pr(2), queue) == "⇉ Squash & merge"
+    assert mod.sections.prs.merge.label(pr(2), None) == "⇉ Squash & merge"
+
+
+def test_a_refused_merge_says_why(mod, pr):
+    toasts = []
+    github = SimpleNamespace(
+        merge_pr=lambda number: ClientSuccess(data=SimpleNamespace(merged=False, queued=False, message="not mergeable")),
+    )
+    m = _mergeable(mod, pr, github, toasts)
+
+    press(mod, m, "⇉ Squash & merge")
+    press(mod, m, "✓ Confirm")
+
+    assert toasts == [("Could not merge #2: not mergeable", "error")]
+    assert mod.draw.actions.running(m, 2) is None
+
+
+def test_a_failed_pr_read_can_be_copied_whole(mod, flatten):
+    copied = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, copy=lambda mod, text, what: copied.append((text, what)))
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(error='GitHub API error: Post "https://api.github.com/graphql": EOF'))
+
+    tree = mod.draw.draw(m, 44, {})
+    next(b for b in buttons(tree) if b.label == "⧉ Copy error").on_press()
+
+    assert copied == [('Could not read PRs: GitHub API error: Post "https://api.github.com/graphql": EOF', "error")]
+
+
+def _my_pr_pane(mod, pr, slack_on, runs):
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None,
+                               run_workflow=lambda mod, name, params: runs.append((name, params)))
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, review="approved")]))
+    m.state.set("slack_on", slack_on)
+    open_row(mod, m, 2)
+    return m
+
+
+NOTIFY = {"notify_workflow": "plugin:slack/post-message", "notify_message": "Merging [#{number} {title}]({url})"}
+
+
+def test_notify_channel_runs_the_slack_workflow_with_the_prs_message(mod, pr):
+    runs = []
+    m = _my_pr_pane(mod, pr, True, runs)
+
+    press(mod, m, "✉ Notify channel", NOTIFY)
+
+    assert runs == [("plugin:slack/post-message",
+                     {"slack_message_markdown": "Merging [#2 PR 2](https://github.com/o/r/pull/2)"})]
+
+
+def test_no_notify_button_without_slack_or_without_a_workflow(mod, flatten, pr):
+    m = _my_pr_pane(mod, pr, False, [])
+    assert "✉ Notify channel" not in labels(mod.draw.draw(m, 44, NOTIFY), flatten)
+
+    m = _my_pr_pane(mod, pr, True, [])
+    assert "✉ Notify channel" not in labels(mod.draw.draw(m, 44, {**NOTIFY, "notify_workflow": ""}), flatten)
+
+
+def test_my_pr_actions_are_one_group_of_one_width(mod, flatten, pr):
+    m = _my_pr_pane(mod, pr, True, [])
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, review="approved", reviewers=reviewers(("ana", "approved")))]))
+
+    lines = flatten(mod.draw.draw(m, 44, NOTIFY))
+
+    group = [line for line in lines if line.strip() in ("⇉ Squash & merge", "✉ Notify channel", "⟳ Re-request review (1)")]
+    assert len(group) == 3 and len({len(line) for line in group}) == 1
+    assert [line.strip() for line in lines].index("Actions") < [line.strip() for line in lines].index("⇉ Squash & merge")
+
+
+def test_a_failed_pr_read_can_be_retried(mod, flatten):
+    reread, ran = [], []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod: None, run=lambda mod, fn: (ran.append(True), fn()))
+    m = bus.api("github")
+    m.state.set("prs", mod.models.Prs(error="i/o timeout"))
+    m.state.set("refresh_prs", lambda: reread.append(True))
+
+    press(mod, m, "⟳ Retry", {})
+
+    assert reread == [True] and ran == [True]
+    assert not m.state.get("retrying:prs")  # free to press again once the read ends
+
+
+def test_no_retry_button_before_the_mod_has_started(mod, flatten):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(error="i/o timeout"))
+    assert "⟳ Retry" not in labels(mod.draw.draw(m, 44, {}), flatten)

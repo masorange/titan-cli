@@ -41,7 +41,7 @@ from titan_cli.ui.tui.screens.model_picker import DEFAULT_OPTION_ID
 from titan_cli.ui.tui.widgets import (
     Button,
     DimText,
-    ErrorText,
+    ErrorCard,
     StyledOption,
     StyledOptionList,
     SuccessText,
@@ -666,11 +666,16 @@ class QuickInstanceModal(ModalScreen[Optional["QuickPickResult"]]):
                 marks += f" {Icons.CHECK}"
             if choice.identifier == self.pending_instance != self.current:
                 marks += " (selected)"
+            description = choice.description
+            if choice.identifier == self.current and self.current_model:
+                # The row would otherwise say the instance's GLOBAL model while the
+                # footer says the one in force here (a task's own pin).
+                description = f"model: {self.current_model}"
             options.append(
                 StyledOption(
                     id=choice.identifier,
                     title=f"{choice.title}{marks}",
-                    description=choice.description,
+                    description=description,
                 )
             )
         return options
@@ -1017,7 +1022,7 @@ class TaskRoutingRow(Container):
             if resolution.candidates:
                 yield WarningText(f"{Icons.WARNING} Needs setup - {resolution.reason}")
             else:
-                yield ErrorText(f"{Icons.ERROR} No AI available - {resolution.reason}")
+                yield ErrorCard(f"No AI available - {resolution.reason}")
 
     def _instance_lines(self, resolution: AIRouteDecision) -> ComposeResult:
         """

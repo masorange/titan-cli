@@ -131,29 +131,31 @@ A `UIPullRequest` object with the following fields:
   (check runs and external commit statuses alike)
 - `failed_checks`: `UIFailedCheck(name, url, job_id)` for each failed check, `url` being the
   Actions job page or the external CI's link, `job_id` the Actions job id to pass to
-  `get_actions_job_log` (`None` for external CI)
+  `get_actions_job_log` (`None` for external CI), `run_id` the Actions run id to pass to
+  `rerun_failed_jobs`
 - `url`: The PR's web page
-- `has_conflicts`: True when GitHub reports the PR as conflicting. Filled by
-  `list_pending_review_prs` and `list_my_prs`; `list_all_prs` does not fetch it.
+- `has_conflicts`: True when GitHub reports the PR as conflicting.
 
-Which fields come back depends on what the call asks GitHub for: a list method fills what its
-own `--json` requests, so `reviewers`, `assignees`, `opened_age`, `updated_age`, `stats` and
-`files_changed` are empty on the lists that do not fetch them.
+The three list methods read the same repository listing and ask GitHub for the same fields, so
+a PR carries the same data whichever one returned it. `stats`, `files_changed`, `opened_age`
+and `updated_age` are not part of a listing and stay empty until `get_pull_request` fills them.
 
 ### List pull requests pending review
 
-Returns PRs that still need your review.
+Returns the open PRs with a review request standing for you.
 
 **Call:**
 
 ```python
-client.list_pending_review_prs(max_results=25, include_team_reviews=True)
+client.list_pending_review_prs(max_results=25)
 ```
 
 **Parameters:**
 
 - `max_results`: Optional. Maximum number of PRs to return.
-- `include_team_reviews`: Optional. Include PRs requested from your teams.
+
+Only requests addressed to you personally: GitHub also lists the teams asked to review, and
+whether you are in one of them is not part of the PR.
 
 ### List your pull requests
 
@@ -169,6 +171,15 @@ client.list_my_prs(state="open", max_results=25)
 
 - `state`: Optional. PR state such as `open`, `closed`, or `merged`.
 - `max_results`: Optional. Maximum number of PRs to return.
+
+### How the filtered lists are built
+
+`list_pending_review_prs` and `list_my_prs` list the repository and pick from the result; they
+never query GitHub's search index. An organization can keep its repositories out of that index,
+and a search that cannot see them answers *nothing* rather than failing, so a search-backed
+list is empty and no error is raised — indistinguishable from having no PRs. Because the
+filtering happens here, both read deeper than they return (at least 200 PRs), so yours are not
+hidden behind other people's in a busy repository.
 
 ### List all pull requests
 
@@ -371,6 +382,24 @@ Queueing goes through GraphQL, so it needs a client with a GraphQL network confi
 regular merge does not. Without one, a pull request whose base branch requires a queue
 comes back with `merged=False` and `queued=False` rather than being merged directly.
 
+### Re-run failed jobs
+
+Re-runs the failed and cancelled jobs of a GitHub Actions workflow run; jobs that passed are
+not run again. GitHub only accepts it once the whole run has finished.
+
+**Call:**
+
+```python
+client.rerun_failed_jobs(run_id=123456789)
+```
+
+**Parameters:**
+
+- `run_id`: Required. Workflow run id (`UIFailedCheck.run_id`).
+
+**Result:** `ClientSuccess` once GitHub has queued the re-run; `ClientError` (`API_ERROR`) with
+GitHub's reason otherwise, e.g. the run is still in progress.
+
 ### Get the merge queue state of a pull request
 
 Returns whether the base branch requires a merge queue and whether the pull request is
@@ -435,7 +464,9 @@ client.get_merge_queue(max_entries=8)
 and `entries`. Each `UIMergeQueueEntry` carries `position`, `pr_number`, `title`,
 `author`, `state`, a readable `state_label` (`"running checks"`, `"ready to merge"`…),
 `eta_seconds`, a compact `eta_label` (`"~12m"`), `is_mine` for the
-authenticated user's own pull requests and the PR's `url`.
+authenticated user's own pull requests, the PR's `url`, `queued_age` (`"12m ago"`) and
+`checks_state` of the queue's merge commit (`"passing"`, `"failing"`, `"running"` or `""`).
+`UIMergeQueue.next_eta_label` is GitHub's estimate for the head of the queue.
 
 ---
 

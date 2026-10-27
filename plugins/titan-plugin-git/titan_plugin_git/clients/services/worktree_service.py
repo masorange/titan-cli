@@ -224,29 +224,37 @@ class WorktreeService:
 
     @log_client_operation()
     def get_commits(
-        self, worktree_path: str, limit: int = 10
+        self, worktree_path: str, limit: int = 10, all_branches: bool = False
     ) -> ClientResult[List[UIGitCommit]]:
         """
-        Get recent commits from a worktree.
+        Get recent commits from a worktree, each with its parents and the refs
+        pointing at it, in topological order.
 
         Args:
             worktree_path: Path to the worktree
             limit: Maximum number of commits to retrieve
+            all_branches: Walk every ref instead of HEAD only, as `git log --all` does
 
         Returns:
             ClientResult[List[UIGitCommit]] with commit history
         """
         try:
-            # Use custom format for easy parsing
-            # Format: hash\nsubject\nauthor\ndate\n--END--
-            format_str = "%H%n%s%n%an <%ae>%n%ad%n--END--"
+            # One field per line, a fixed count, so an empty one (no parents on the
+            # root commit, no refs on most) still lines up:
+            # hash\nparents\nrefs\nsubject\nauthor\ndate\n--END--
+            format_str = "%H%n%P%n%D%n%s%n%an <%ae>%n%ad%n--END--"
             args = [
                 "git", "-C", worktree_path,
                 "log",
                 f"--pretty=format:{format_str}",
                 "--date=short",
+                # Parents before their children, so a graph drawn from this list
+                # never has to reorder it.
+                "--topo-order",
                 "-n", str(limit)
             ]
+            if all_branches:
+                args.append("--all")
 
             output = self.git.run_command(args, cwd=worktree_path)
 
@@ -255,21 +263,25 @@ class WorktreeService:
             lines = output.strip().split('\n')
             i = 0
             while i < len(lines):
-                if i + 3 < len(lines):
+                if i + 5 < len(lines):
                     commit_hash = lines[i].strip()
-                    subject = lines[i + 1].strip()
-                    author = lines[i + 2].strip()
-                    date = lines[i + 3].strip()
+                    parents = lines[i + 1].split()
+                    refs = _parse_refs(lines[i + 2])
+                    subject = lines[i + 3].strip()
+                    author = lines[i + 4].strip()
+                    date = lines[i + 5].strip()
 
                     network_commits.append(NetworkGitCommit(
                         hash=commit_hash,
                         message=subject,  # Just subject for now
                         author=author,
-                        date=date
+                        date=date,
+                        parents=parents,
+                        refs=refs,
                     ))
 
                     # Skip to next commit (after --END--)
-                    i += 5
+                    i += 7
                 else:
                     break
 
@@ -406,3 +418,23 @@ class WorktreeService:
                 error_message=str(e),
                 error_code="WORKTREE_PUSH_ERROR"
             )
+
+
+def _parse_refs(decoration: str) -> List[str]:
+    """
+    The refs `%D` prints for a commit, as plain names.
+
+    Git writes the checked-out branch as "HEAD -> main" and tags as "tag: v1";
+    both are dropped to their name, so a caller shows "main" and "v1".
+    """
+    refs = []
+    for ref in decoration.split(","):
+        ref = ref.strip()
+        if not ref:
+            continue
+        if ref.startswith("HEAD -> "):
+            ref = ref[len("HEAD -> "):]
+        elif ref.startswith("tag: "):
+            ref = ref[len("tag: "):]
+        refs.append(ref)
+    return refs
