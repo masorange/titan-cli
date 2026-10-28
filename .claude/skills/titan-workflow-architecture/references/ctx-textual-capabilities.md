@@ -19,3 +19,4 @@ Rules:
 2. Don't scroll manually; `scroll_to_end()` only before an interactive widget that follows
    content taller than the screen.
 3. Credentials: `ctx.secret_broker.prompt_and_store`, not `ask_password` + manual storage.
+4. Errors: `error_card` (copyable, takes actions such as Retry or Diagnose), not `error_text` or a hand-made red panel. Every error the user sees is an error card.

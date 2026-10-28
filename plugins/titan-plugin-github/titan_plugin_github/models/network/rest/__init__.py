@@ -11,6 +11,7 @@ from .review import NetworkReview
 from .pull_request import NetworkPullRequest, NetworkPRSearchResult, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
 from .issue import NetworkIssue
 from .release import NetworkRelease
+from .workflow_run import NetworkWorkflowRun, NetworkWorkflowJob
 
 __all__ = [
     "NetworkUser",
@@ -22,4 +23,6 @@ __all__ = [
     "NetworkPRCreated",
     "NetworkIssue",
     "NetworkRelease",
+    "NetworkWorkflowRun",
+    "NetworkWorkflowJob",
 ]

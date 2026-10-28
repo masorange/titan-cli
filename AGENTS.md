@@ -74,6 +74,11 @@ plugins/
 - Don't scroll manually; the screen scrolls on step completion. `ctx.textual.scroll_to_end()`
   only for content larger than the screen followed by an interactive widget. Widgets never scroll.
 - Docstrings: no doctest examples — tests go in `tests/`.
+- Errors are error cards, never loose text: an error a step, workflow, mod or screen shows
+  goes in the shared `ErrorCard`, so it can be copied whole and carry the actions that fix it
+  (Retry, Diagnose, Ask AI…). Steps: `ctx.textual.error_card(...)`; mods: `error_card(...)` in
+  a pane (a toast with `severity="error"` already opens one); never a bare red `Text`/`panel`.
+  Details in [textual.md](.claude/docs/textual.md).
 - User-facing strings live in `messages.py` (`titan_cli/messages.py`, and each plugin's own
   `messages.py`), accessed as `msg.<Group>.<NAME>`. Don't hardcode them in steps or widgets.
 

@@ -175,6 +175,8 @@ ctx.textual.error_text(err, actions=[("⟳ Retry", retry)])  # plus buttons of y
 # (the last one in a modal). Toasts (notify) are informational only.
 ctx.textual.warning_text("Warning message")
 
+# RULE: every error the user sees is an error card, so it can be copied whole and offer the
+# action that helps (Retry, Diagnose, Ask AI…). Do not print one as red text or a plain panel.
 # An error worth copying (a ClientError, an engine Error, an exception or a message):
 # bordered panel with a "⧉ Copy error" button; an exception's traceback goes in the copy
 ctx.textual.error_card(result, title="Could not publish")

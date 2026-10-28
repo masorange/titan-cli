@@ -28,6 +28,8 @@ def error_card(
         title and Text(title, bold=True, color=color, wrap=True),
         *[Text(line, color=color, wrap=True) for line in message.splitlines() or [message]],
         *[Text(line, dim=True, wrap=True) for line in details],
+        # A line apart, so the buttons read as something to press and not as more of the message.
+        Text(" "),
         Box(Button(f"⧉ Copy {what}", lambda: copy(shown, what), dim=True), *actions),
         border=color,
     )

@@ -15,7 +15,7 @@ from titan_plugin_git.clients.git_client import GitClient
 from .network import GHNetwork, GraphQLNetwork
 from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService, ContentsService
 from ..models.review_models import ReferencedCommitContext
-from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIReview, UIFileChange, UIPRCreated, UIRelease
+from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIReview, UIFileChange, UIPRCreated, UIRelease, UIWorkflowRun, UIFailedCheck
 
 
 class GitHubClient:
@@ -212,6 +212,20 @@ class GitHubClient:
     def rerun_failed_jobs(self, run_id: int) -> ClientResult[None]:
         """Re-run the failed jobs of a GitHub Actions workflow run."""
         return self._pr_service.rerun_failed_jobs(run_id)
+
+    def list_workflow_runs(
+        self, trigger: Optional[str] = None, limit: int = 10, page: int = 1
+    ) -> ClientResult[List[UIWorkflowRun]]:
+        """List the repository's latest GitHub Actions runs, newest first."""
+        return self._pr_service.list_workflow_runs(trigger, limit, page)
+
+    def get_run_failed_jobs(self, run_id: int) -> ClientResult[List[UIFailedCheck]]:
+        """Get the jobs of a workflow run that did not pass."""
+        return self._pr_service.get_run_failed_jobs(run_id)
+
+    def rerun_workflow(self, run_id: int) -> ClientResult[None]:
+        """Re-run a finished GitHub Actions workflow run, every job of it."""
+        return self._pr_service.rerun_workflow(run_id)
 
     def get_merge_queue(self, max_entries: int = 10) -> ClientResult[UIMergeQueue]:
         """Get the merge queue of the repository's default branch (read-only)."""

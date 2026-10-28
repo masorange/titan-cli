@@ -24,6 +24,10 @@ Check before handing a mod over.
 - [ ] Keys bound with `m.keys.bind` handle a `False` return (key already taken).
 - [ ] Dock / home card / pane may differ in content; none is required.
 
+## Errors
+- [ ] Every error the pane shows is an `error_card` (copyable, with `actions` such as Retry), never a bare red `Text`; a failed read has a Retry that reruns it.
+- [ ] A failure after a button press is a toast with `severity="error"` (the host opens the error card for it), not silence.
+
 ## Quality
 - [ ] Logic in plain functions with tests over fake clients; no Textual mounting tests.
 - [ ] No raw secret in `m.state`, `m.store`, panes or logs.

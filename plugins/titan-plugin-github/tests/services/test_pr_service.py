@@ -811,3 +811,74 @@ def test_count_open_prs_reads_the_total_count(pr_service, mock_graphql_network):
 
 def test_count_open_prs_requires_graphql(no_graphql_pr_service):
     assert no_graphql_pr_service.count_open_prs().error_code == "GRAPHQL_UNAVAILABLE"
+
+
+def runs_response(*runs):
+    return json.dumps({"workflow_runs": list(runs)})
+
+
+def run_json(run_id, event="pull_request", status="completed", conclusion="success", branch="feat/x"):
+    return {
+        "id": run_id, "name": "build-and-tests", "display_title": "feat: x", "event": event, "status": status,
+        "conclusion": conclusion, "head_branch": branch, "html_url": f"https://github.com/o/r/actions/runs/{run_id}",
+        "run_number": 7, "created_at": "2026-10-28T11:00:00Z", "run_started_at": "2026-10-28T11:00:00Z",
+        "updated_at": "2026-10-28T11:02:56Z", "actor": {"login": "finxo"},
+    }
+
+
+def test_list_workflow_runs_asks_for_a_page_of_one_event(pr_service, mock_gh_network):
+    """The merge queue's runs are the event merge_group; the limit is the page size"""
+    mock_gh_network.get_repo_string.return_value = "o/r"
+    mock_gh_network.run_command.return_value = runs_response(run_json(1))
+
+    result = pr_service.list_workflow_runs(trigger="merge_group", limit=10, page=2)
+
+    assert isinstance(result, ClientSuccess)
+    assert mock_gh_network.run_command.call_args.args[0] == [
+        "api", "/repos/o/r/actions/runs?per_page=10&page=2&event=merge_group"]
+
+
+def test_list_workflow_runs_maps_state_duration_and_the_queued_pr(pr_service, mock_gh_network):
+    """A queue run's PR comes from its branch; a running one has no duration yet"""
+    mock_gh_network.get_repo_string.return_value = "o/r"
+    queue_branch = "gh-readonly-queue/develop/pr-3783-07a8ba11b605a2d25092a8242743244e3206d8a7"
+    mock_gh_network.run_command.return_value = runs_response(
+        run_json(1, event="merge_group", conclusion="failure", branch=queue_branch),
+        run_json(2, status="in_progress", conclusion=None),
+    )
+
+    failed, running = pr_service.list_workflow_runs().data
+
+    assert (failed.state, failed.state_label, failed.duration) == ("failure", "failed", "2m 56s")
+    assert failed.is_merge_queue and failed.pr_number == 3783
+    assert (running.state, running.state_label, running.duration) == ("running", "in progress", "")
+    assert not running.is_merge_queue and running.pr_number is None
+
+
+def test_list_workflow_runs_reports_a_failed_call(pr_service, mock_gh_network):
+    from titan_plugin_github.exceptions import GitHubAPIError
+    mock_gh_network.get_repo_string.return_value = "o/r"
+    mock_gh_network.run_command.side_effect = GitHubAPIError("HTTP 403")
+
+    assert pr_service.list_workflow_runs().error_code == "API_ERROR"
+
+
+def test_get_run_failed_jobs_keeps_only_the_jobs_that_did_not_pass(pr_service, mock_gh_network):
+    """Each carries the job id its log is read by and the run id it can be re-run by"""
+    mock_gh_network.get_repo_string.return_value = "o/r"
+    mock_gh_network.run_command.return_value = json.dumps({"jobs": [
+        {"id": 11, "name": "unit", "status": "completed", "conclusion": "failure", "html_url": "u1"},
+        {"id": 12, "name": "lint", "status": "completed", "conclusion": "success", "html_url": "u2"},
+        {"id": 13, "name": "ui", "status": "completed", "conclusion": "cancelled", "html_url": "u3"},
+    ]})
+
+    failed = pr_service.get_run_failed_jobs(9).data
+
+    assert [(c.name, c.job_id, c.run_id) for c in failed] == [("unit", 11, 9), ("ui", 13, 9)]
+
+
+def test_rerun_workflow_posts_to_the_run(pr_service, mock_gh_network):
+    mock_gh_network.get_repo_string.return_value = "o/r"
+
+    assert isinstance(pr_service.rerun_workflow(9), ClientSuccess)
+    assert mock_gh_network.run_command.call_args.args[0] == ["api", "-X", "POST", "/repos/o/r/actions/runs/9/rerun"]

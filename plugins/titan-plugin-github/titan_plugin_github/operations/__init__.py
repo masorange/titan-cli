@@ -46,6 +46,7 @@ from .ci_diagnosis_operations import (
     extract_failure_excerpt,
     build_job_diagnosis_prompt,
     parse_job_diagnosis,
+    format_diagnoses_report,
     format_job_diagnoses,
 )
 
@@ -101,6 +102,7 @@ __all__ = [
     "build_check_fix_prompt",
     "build_job_diagnosis_prompt",
     "parse_job_diagnosis",
+    "format_diagnoses_report",
     "format_job_diagnoses",
     # Comment operations
     "build_ai_review_context",

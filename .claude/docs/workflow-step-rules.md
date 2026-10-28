@@ -145,3 +145,11 @@ match ctx.git.get_worktree_commits(path, limit=10):
 
 If the method you need doesn't exist, add it to the right service (`WorktreeService`,
 `BranchService`, …) or write an operation in `operations/`.
+
+## Errors are error cards
+
+When a step has an error to show, use `ctx.textual.error_card(result_or_message, title=...,
+actions=[...])`, not `error_text` or a red panel typed by hand. The card has a "⧉ Copy error"
+button and takes the actions that help the user act on it (retry, diagnose, ask AI). The same
+holds for mods (`error_card` from `titan_cli.core.mods`) and screens. Returning `Error(...)`
+is still how the step ends; the card is how the user sees it.

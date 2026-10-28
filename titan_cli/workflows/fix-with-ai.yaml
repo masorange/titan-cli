@@ -1,0 +1,17 @@
+name: "Fix with AI"
+description: "Open your AI CLI with an error pasted in, to help you fix it"
+
+params:
+  # What the AI CLI is given: the error, and whatever helps to place it (a log excerpt, a branch).
+  fix_error: ""
+
+steps:
+  - id: fix_with_ai
+    name: "Fix with AI"
+    plugin: core
+    step: ai_code_assistant
+    params:
+      context_key: "fix_error"
+      prompt_template: "Help me fix this error. Find its cause in the code before changing anything.\n\n{context}"
+      ask_confirmation: true
+      fail_on_decline: false

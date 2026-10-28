@@ -19,6 +19,7 @@ from .pr_mapper import (
     from_network_pr_file,
     from_network_pr_created,
 )
+from .run_mapper import from_rest_workflow_run
 from .issue_mapper import from_rest_issue
 from .comment_mapper import from_graphql_review_comment, from_graphql_issue_comment
 from .thread_mapper import from_graphql_review_thread
@@ -38,4 +39,5 @@ __all__ = [
     "from_graphql_review_thread",
     "from_network_review",
     "from_network_release",
+    "from_rest_workflow_run",
 ]
