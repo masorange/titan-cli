@@ -1,6 +1,6 @@
 ---
 name: titan-workflow-architecture
-description: Choose the correct Titan architecture for new workflow code. Use when deciding between command steps, project steps, operations, clients, services, plugin registration, or project versus plugin layout, or when the user asks how much architecture is justified.
+description: Choose the correct Titan architecture for new workflow code, after discovering what already exists. Use when deciding between command steps, project steps, operations, clients, services, plugin registration, or project versus plugin layout, or when asking what workflows, steps or ctx.textual capabilities can be reused.
 disable-model-invocation: false
 user-invocable: false
 ---
@@ -23,6 +23,12 @@ Decide which target you are designing for first:
    Workflow and supporting code inside a plugin package.
 
 ## Decision Rules
+
+### 0. Discover before creating
+
+Inspect what already exists (project `.titan/`, the plugin package, built-in plugin
+workflows and steps, `ctx.textual`) before writing anything: see
+`references/discover-before-creating.md` and `references/ctx-textual-capabilities.md`.
 
 ### 1. Prefer orchestration first
 
@@ -97,6 +103,8 @@ For plugins:
 5. `references/layer-boundaries.md`
 6. `references/project-vs-plugin-architecture.md`
 7. `references/step-contracts.md`
+8. `references/discover-before-creating.md`
+9. `references/ctx-textual-capabilities.md`
 
 ## Assets
 

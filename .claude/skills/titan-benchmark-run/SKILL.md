@@ -1,6 +1,6 @@
 ---
 name: titan-benchmark-run
-description: Judge a change to an AI workflow in titan-cli (Review PR, Respond to PR Comments) by measuring it against the harness reference sets instead of eyeballing one run. Use when a review/respond run has just finished and needs scoring, when the user asks whether a prompt or pipeline change helped, or before launching a variant to compare. Covers provenance checks (which model and which code really ran), the one-variable two-runs rule, and scoring.
+description: Judge a change to Review PR or Respond to PR Comments against the harness benchmarks - provenance checks (real model and code), one variable and two runs, scoring. Use when a run needs scoring or when asking whether a change helped.
 disable-model-invocation: false
 ---
 

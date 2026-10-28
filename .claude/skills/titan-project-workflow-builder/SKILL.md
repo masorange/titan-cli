@@ -43,7 +43,7 @@ Keep questions minimal. If the repo already makes the answer clear, do not ask.
 
 ### 2. Discover before creating
 
-Use `titan-capability-discovery` behavior before writing code.
+Follow `titan-workflow-architecture` → `references/discover-before-creating.md` before writing code.
 
 Check:
 

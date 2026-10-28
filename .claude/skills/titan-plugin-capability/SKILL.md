@@ -1,6 +1,6 @@
 ---
 name: titan-plugin-capability
-description: Add or change a public client function in an official Titan plugin (git, github, jira, slack, docker) end to end - network call, Network model, mapper, UI model, service returning ClientResult, client facade, operation, tests and docs/plugins. Use when a step or mod needs data or an action the plugin client does not expose yet, or when changing the signature or behaviour of an existing client function. For the workflow/step part use titan-official-plugin-workflow-builder.
+description: Add or change a public client function of an official Titan plugin end to end - network, models, mapper, service with ClientResult, client, operation, tests, docs/plugins. Use when a step or mod needs something the plugin client does not expose.
 disable-model-invocation: false
 ---
 
