@@ -37,6 +37,19 @@ class Queue:
 
 
 @dataclass(frozen=True)
+class Search:
+    """A search of the repo's PRs with GitHub's own syntax, and what it found.
+
+    `status` is "running" while GitHub is asked, then "done" or "error".
+    """
+
+    query: str
+    status: str = "running"
+    prs: List[UIPullRequest] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class Threads:
     """How many review conversations of a PR are still open, once GitHub has been asked."""
 

@@ -109,6 +109,12 @@ class GitHubClient:
         """List all PRs in the repository."""
         return self._pr_service.list_all_prs(state, max_results)
 
+    def search_prs(
+        self, query: str, state: str = "open", max_results: int = 30
+    ) -> ClientResult[List[UIPullRequest]]:
+        """Search the repository's PRs with GitHub's search syntax (author:, label:, review:...)."""
+        return self._pr_service.search_prs(query, state, max_results)
+
     def count_open_prs(self) -> ClientResult[int]:
         """Count the repository's open PRs, without listing them."""
         return self._pr_service.count_open_prs()

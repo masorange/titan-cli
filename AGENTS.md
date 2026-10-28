@@ -29,6 +29,25 @@ plugins/
 └── titan-plugin-{firebase,poeditor}/ # Exist but NOT registered
 ```
 
+## Skills — invoke the one that matches, before writing code
+
+Do not wait to be asked: when the task is one of these, load the skill first and follow it to
+its last step (docs, tests and the architecture review included). A task can need two.
+
+| Task | Skill |
+|---|---|
+| New or changed public client function of an official plugin (network → model → mapper → service → client) | `titan-plugin-capability` |
+| Anything in a mod: pane, section, button, timer, `mod.toml`/`mod.py` | `titan-mod-builder` |
+| Workflow or step in an official plugin | `titan-official-plugin-workflow-builder` |
+| Workflow or step under `.titan/` | `titan-project-workflow-builder` |
+| Workflow in a community plugin | `titan-public-plugin-workflow-builder` |
+| Deciding where workflow code lives, or what `ctx.textual` already offers | `titan-workflow-architecture` |
+| Judging a change to Review PR / Respond to PR Comments | `titan-benchmark-run` |
+
+A mod that needs data the plugin client lacks is **both** `titan-plugin-capability` (the client
+function, with its docs) and `titan-mod-builder` (the mod). After either, run the
+`titan-architecture-reviewer` agent on the diff.
+
 ## Guides — read the one that matches the task
 
 | Task | Guide |

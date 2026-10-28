@@ -403,8 +403,9 @@ def test_comment_opens_a_field_and_accept_posts_it_as_a_general_comment(mod, fla
     press(mod, m, "✎ Comment")
     assert "Comment on #5" in flatten(mod.draw.draw(m, 44, {"review_workflow": "review-pr"}))
 
+    # The pane also has the search box: the comment field is the one that asks for a comment.
     field = next(e for e in elements(mod.draw.draw(m, 44, {"review_workflow": "review-pr"}))
-                 if isinstance(e, Input))
+                 if isinstance(e, Input) and e.placeholder == "Write a comment…")
     field.on_change("looks good to me")
     press(mod, m, "Accept")
 
@@ -621,11 +622,11 @@ def test_fix_with_ai_hands_the_diagnosis_to_the_workflow(mod, tmp_path, monkeypa
 
     open_row(mod, m, 2, opts)
     # Before any diagnosis the button is already there: the workflow reads the logs itself.
-    press(mod, m, "⚒ Fix with AI", opts)
+    press(mod, m, "✦ Fix with AI", opts)
     assert runs == [("fix-pr-checks", {"fix_pr_number": 2, "check_diagnosis": ""})]
 
     mod.diagnosis.diagnose(m, 2, opts)
-    press(mod, m, "⚒ Fix with AI", opts)
+    press(mod, m, "✦ Fix with AI", opts)
 
     name, params = runs[-1]
     assert name == "fix-pr-checks" and params["fix_pr_number"] == 2
@@ -639,7 +640,7 @@ def test_no_fix_button_without_a_workflow(mod, flatten, pr):
 
     open_row(mod, m, 2, opts)
 
-    assert "⚒ Fix with AI" not in labels(mod.draw.draw(m, 44, opts), flatten)
+    assert "✦ Fix with AI" not in labels(mod.draw.draw(m, 44, opts), flatten)
 
 
 def test_other_prs_load_apart_and_drop_the_ones_already_listed(mod, flatten, pr):

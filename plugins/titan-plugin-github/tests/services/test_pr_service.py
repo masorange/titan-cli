@@ -882,3 +882,35 @@ def test_rerun_workflow_posts_to_the_run(pr_service, mock_gh_network):
 
     assert isinstance(pr_service.rerun_workflow(9), ClientSuccess)
     assert mock_gh_network.run_command.call_args.args[0] == ["api", "-X", "POST", "/repos/o/r/actions/runs/9/rerun"]
+
+
+def test_search_prs_passes_the_query_to_gh_and_maps_the_prs(pr_service, mock_gh_network, sample_pr_json):
+    """GitHub's own search syntax goes through --search untouched"""
+    mock_gh_network.get_repo_arg.return_value = ["--repo", "o/r"]
+    mock_gh_network.run_command.return_value = json.dumps([sample_pr_json])
+
+    result = pr_service.search_prs("  author:ana label:bug ", max_results=5)
+
+    args = mock_gh_network.run_command.call_args.args[0]
+    assert isinstance(result, ClientSuccess) and len(result.data) == 1
+    assert args[args.index("--search") + 1] == "author:ana label:bug"
+    assert args[args.index("--limit") + 1] == "5" and args[args.index("--state") + 1] == "open"
+
+
+def test_search_prs_without_a_query_is_the_plain_listing(pr_service, mock_gh_network, sample_pr_json):
+    mock_gh_network.get_repo_arg.return_value = []
+    mock_gh_network.run_command.return_value = json.dumps([sample_pr_json])
+
+    pr_service.search_prs("   ")
+
+    assert "--search" not in mock_gh_network.run_command.call_args.args[0]
+
+
+def test_search_prs_reports_a_failed_call(pr_service, mock_gh_network):
+    from titan_plugin_github.exceptions import GitHubAPIError
+    mock_gh_network.get_repo_arg.return_value = []
+    mock_gh_network.run_command.side_effect = GitHubAPIError("HTTP 403: API rate limit exceeded")
+
+    result = pr_service.search_prs("label:bug")
+
+    assert isinstance(result, ClientError) and "rate limit" in result.error_message

@@ -247,6 +247,40 @@ class PRService:
         """
         return max(max_results, PR_SCAN_LIMIT)
 
+    @log_client_operation()
+    def search_prs(self, query: str, state: str = "open", max_results: int = 30) -> ClientResult[List[UIPullRequest]]:
+        """
+        Search the repository's PRs with GitHub's own search syntax.
+
+        `query` is what GitHub's PR search box takes: free text and qualifiers such as
+        `author:ana`, `label:bug`, `review:approved`, `status:failure`, `draft:true`,
+        `base:develop`. Search has its own, lower rate limit than the rest of the API.
+
+        Args:
+            query: The search text; an empty one lists the repository's PRs as `list_all_prs` does
+            state: PR state (open, closed, merged, all)
+            max_results: Maximum number of results
+
+        Returns:
+            ClientResult[List[UIPullRequest]]
+        """
+        if not query.strip():
+            return self.list_all_prs(state, max_results)
+        try:
+            args = [
+                "pr", "list",
+                "--state", state,
+                "--limit", str(max_results),
+                "--search", query.strip(),
+                "--json", PR_LIST_FIELDS,
+            ] + self.gh.get_repo_arg()
+            prs = [from_rest_pr(NetworkPullRequest.from_json(data)) for data in json.loads(self.gh.run_command(args))]
+            return ClientSuccess(data=prs, message=f"Found {len(prs)} PRs matching the search")
+        except json.JSONDecodeError as e:
+            return ClientError(error_message=f"Failed to parse PR search: {e}", error_code="JSON_PARSE_ERROR")
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
     def _list_repo_prs(self, state: str, limit: int) -> ClientResult[List[UIPullRequest]]:
         """
         The repository's PRs, newest first, as the UI models every listing returns.

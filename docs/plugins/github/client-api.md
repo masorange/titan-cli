@@ -212,6 +212,28 @@ client.list_all_prs(state="open", max_results=50)
 - `state`: Optional. PR state such as `open`, `closed`, or `merged`.
 - `max_results`: Optional. Maximum number of PRs to return.
 
+### Search pull requests
+
+Searches the repository's PRs with GitHub's own search syntax, the same text its PR search box takes.
+
+**Call:**
+
+```python
+client.search_prs("author:ana label:bug review:approved", state="open", max_results=30)
+```
+
+**Parameters:**
+
+- `query`: Required. Free text and qualifiers: `author:`, `label:`, `review:`, `status:`, `draft:`,
+  `base:`, `head:`… An empty query is the plain repository listing (`list_all_prs`).
+- `state`: Optional. `open` (default), `closed`, `merged` or `all`.
+- `max_results`: Optional. Maximum number of PRs (default `30`).
+
+**Result:** `ClientSuccess` with a list of `UIPullRequest`, as every other listing returns them.
+`ClientError` (`API_ERROR`) with GitHub's reason otherwise, such as a rate limit. Unlike the
+listings above it uses GitHub's search API, which has a limit of its own (30 requests a minute),
+so call it for a search the person asked for and not on a timer.
+
 ### Count open pull requests
 
 Returns how many pull requests are open in the repository, in one GraphQL call,

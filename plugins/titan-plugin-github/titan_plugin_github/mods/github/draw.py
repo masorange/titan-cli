@@ -7,8 +7,8 @@ from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest, UI
 from titan_plugin_github.operations import format_diagnoses_report
 
 from .diagnosis import Diagnosis, diagnosis_text, run_key, start_diagnosis, start_run_diagnosis
-from .models import Composer, Others, Prs, Queue, Runs
-from .sections.prs import actions, conflicts, merge, threads
+from .models import Composer, Others, Prs, Queue, Runs, Search
+from .sections.prs import actions, conflicts, merge, search, threads
 from .sections.runs import actions as run_actions, runs as runs_reader
 
 QUEUE_CHECKS = {"passing": ("✓ checks", "success"), "failing": ("✗ checks failing", "error")}
@@ -108,7 +108,7 @@ def diagnosis_of(m, pr: UIPullRequest, options, width: int = 40) -> Box:
                 # Saying why it broke is half the job; this hands the logs (and the
                 # diagnosis, when there is one) to an interactive session on the branch.
                 (options or {}).get("checks_workflow") and Option(
-                    "⚒ Fix with AI",
+                    "✦ Fix with AI",
                     lambda: m.workflows.run(options["checks_workflow"], {
                         "fix_pr_number": pr.number,
                         "check_diagnosis": diagnosis_text(pr, d) if done else "",
@@ -342,6 +342,35 @@ def open_pr_row(m, pr: UIPullRequest, is_mine: bool, was_open: bool) -> None:
     toggle_row(m, pr.number)
     if is_mine and not was_open:
         threads.start(m, pr.number)
+
+
+def search_box(m) -> Box:
+    """GitHub's search box for the PR list: type the query, Enter searches, ✕ goes back to the groups."""
+    found: Optional[Search] = search.current(m)
+    return Box(
+        Input(
+            search.typed(m),
+            placeholder="Search PRs: is:pr author:… label:… review:…",
+            on_change=lambda text: search.write(m, text),
+            on_submit=lambda text: search.start(m, text),
+        ),
+        found is not None and Button("✕ Clear search", lambda: search.clear(m), dim=True),
+    )
+
+
+def search_results(m, found: Search, queued: dict, options, queue, width: int = 40) -> Box:
+    """What a search found, as the same rows the groups use; a search never reaches the other lists."""
+    if found.status == "running":
+        return Text(f"… searching “{found.query}”", dim=True)
+    if found.status == "error":
+        return error_card(f"Search failed: {found.error}", copy=m.ui.copy, what="error",
+                          actions=[Button("⟳ Retry", lambda: search.start(m, found.query))])
+    mine = {p.number for p in (m.state.get("prs").mine if m.state.get("prs") else [])}
+    return Box(
+        Text(f"{len(found.prs)} result{'s' if len(found.prs) != 1 else ''} for “{found.query}”", dim=True),
+        not found.prs and Text("No PR matches. Filters: " + search.EXAMPLES, dim=True, wrap=True),
+        [pr_row(p, p.number in mine, queued, m, options, queue, width) for p in found.prs],
+    )
 
 
 def pr_row(pr: UIPullRequest, is_mine: bool, queued: dict, m=None, options=None, queue: Optional[Queue] = None,
@@ -581,15 +610,18 @@ def draw(m, width: int, options=None, shown=None):
         if prs.error:
             parts.append(section(title, tone, error_box(m, f"Could not read PRs: {prs.error}", retry="prs")))
         else:
+            found = search.current(m)
             parts.append(section(title, tone, Box(
+                search_box(m),
+                found is not None and search_results(m, found, queued, options, queue, width),
                 # Empty groups start closed; each one keeps what the person last chose.
-                fold(m, "review_open", f"Needs your review ({len(prs.to_review)})", bool(prs.to_review),
+                found is None and fold(m, "review_open", f"Needs your review ({len(prs.to_review)})", bool(prs.to_review),
                      not prs.to_review and Text("Nothing pending", dim=True),
                      [pr_row(p, False, queued, m, options, width=width) for p in prs.to_review]),
-                fold(m, "mine_open", f"Your PRs ({len(prs.mine)})", bool(prs.mine),
+                found is None and fold(m, "mine_open", f"Your PRs ({len(prs.mine)})", bool(prs.mine),
                      not prs.mine and Text("No open PRs", dim=True),
                      [pr_row(p, True, queued, m, options, queue, width) for p in prs.mine]),
-                others_fold(m, prs, m.state.get("others"), queued, options, width),
+                found is None and others_fold(m, prs, m.state.get("others"), queued, options, width),
                 gap=1,
             )))
     if queue is not None and (queue.configured or queue.error):

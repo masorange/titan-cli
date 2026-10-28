@@ -77,3 +77,27 @@ def test_a_failed_threads_read_blocks_nothing(mod):
     mod.sections.prs.threads.read(m, 7)
 
     assert mod.sections.prs.threads.of(m, 7).status == "error" and mod.sections.prs.threads.unresolved(m, 7) == 0
+
+
+def test_a_threads_read_that_raises_is_an_error_and_never_stays_running(mod):
+    from types import SimpleNamespace
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("github")
+    m.client = lambda name: SimpleNamespace(get_pr_review_threads=lambda n, include_resolved: 1 / 0)
+
+    mod.sections.prs.threads.read(m, 7)
+
+    assert mod.sections.prs.threads.of(m, 7).status == "error"
+
+
+def test_only_the_open_rows_of_my_prs_are_read_again(mod, pr):
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("github")
+    started = []
+    m.run = lambda fn: started.append(True)
+
+    mod.sections.prs.threads.reread_open(m, [pr(1), pr(2)], lambda number: number == 2)
+
+    assert list((m.state.get("threads") or {}).keys()) == ["2"] and started == [True]
