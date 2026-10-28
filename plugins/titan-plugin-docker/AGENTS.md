@@ -1,64 +1,27 @@
 # AGENTS.md - Titan Docker Plugin
 
-Documentation for AI coding agents working on the `titan-plugin-docker`.
+Rules specific to `titan-plugin-docker`. The repo-wide rules and guides are in the root
+[`AGENTS.md`](../../AGENTS.md); user-facing docs in [`docs/plugins/docker/`](../../docs/plugins/docker/).
 
----
+## What it is
 
-## Plugin Overview
+Docker Compose lifecycle (`up` / `down` / `status`), image build and push with
+`docker buildx` per configured `build_targets`, and cleanup (containers, prune, disk usage).
 
-**Titan Docker Plugin** provides Docker Compose lifecycle management and image
-build/push workflows for Titan CLI, following the same 5-layer architecture as
-`titan-plugin-git` (Steps → Operations → Client → Services → Network).
+## Layout
 
-Scope:
+5-layer: `steps/ → operations/ → clients/docker_client.py → clients/services/ →
+clients/network/docker_network.py`, with `models/{network,view,mappers}`. Workflows:
+`docker-up`, `docker-down`, `docker-status`, `docker-build-push`, `docker-clean-containers`,
+`docker-prune`.
 
-- Compose lifecycle: `up` / `down` / `status`, operating on an arbitrary list
-  of service names, an "all services" default, or a project-configured named
-  `service_groups` entry (open dictionary, no reserved names).
-- Image builds: `docker buildx build` (single or multi-platform) with
-  optional push, per `build_targets` entry configured in
-  `.titan/config.toml`.
+## Plugin-specific rules
 
-The plugin is intentionally generic: it has no notion of any specific
-project's services or images. `service_groups` and `build_targets` are pure
-project configuration (`DockerPluginConfig` in
-`titan_cli/core/plugins/models.py`).
-
----
-
-## Project Structure
-
-```text
-titan_plugin_docker/
-├── __init__.py
-├── plugin.py
-├── exceptions.py
-├── clients/
-│   ├── docker_client.py
-│   ├── network/
-│   │   └── docker_network.py
-│   └── services/
-│       ├── compose_service.py
-│       └── build_service.py
-├── models/
-│   ├── network/
-│   ├── view/
-│   └── mappers/
-├── operations/
-│   ├── compose_operations.py
-│   └── build_operations.py
-├── steps/
-└── workflows/
-```
-
----
-
-## Working Rules
-
-- No `messages.py` / message-constant class — write user-facing strings
-  directly at their call site.
-- No doctest examples in docstrings — tests live under `tests/`.
-- Steps never call `subprocess`/`DockerNetwork` directly; they go through
-  `ctx.docker` (the `DockerClient` facade) and the `operations/` layer.
-- Don't hardcode project-specific service or image names anywhere in this
-  package — those always come from `DockerPluginConfig`.
+- Generic by design: no project's service or image names anywhere in this package. They
+  always come from `DockerPluginConfig` (`service_groups`, `build_targets`) in
+  `titan_cli/core/plugins/models.py`. `service_groups` is an open dictionary with no
+  reserved names.
+- No `messages.py`: user-facing strings are written at their call site.
+- Steps never call `subprocess` or `DockerNetwork`; they go through `ctx.docker` and
+  `operations/`.
+- Tests: `tests/{clients,models,operations}`, `test_plugin.py`.

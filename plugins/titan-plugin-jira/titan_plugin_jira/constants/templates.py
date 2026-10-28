@@ -58,7 +58,7 @@ IMPORTANT:
 JIRA_PLAN_PROMPT_TEMPLATE = """You are being launched from Titan CLI to help plan work for a JIRA issue.
 
 Start as you normally would: load and follow this project's own documentation and any
-skills/onboarding material it points to (e.g. CLAUDE.md, README, harness docs) before
+skills/onboarding material it points to (e.g. AGENTS.md, CLAUDE.md, README, harness docs) before
 looking at the issue below.
 
 Here is the full context of the JIRA issue, including all comments:

@@ -92,7 +92,7 @@ Configure during first setup or later via the TUI settings.
 ## 📚 Documentation
 
 - **Contributing**: See [DEVELOPMENT.md](DEVELOPMENT.md)
-- **AI Agent Guide**: See [CLAUDE.md](CLAUDE.md)
+- **AI Agent Guide**: See [AGENTS.md](AGENTS.md)
 - **Release History**: See [GitHub Releases](https://github.com/masorange/titan-cli/releases)
 
 ## 🤝 Contributing

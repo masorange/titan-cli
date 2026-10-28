@@ -18,4 +18,10 @@ Rules:
 1. Function name must match the workflow `step:` value.
 2. Steps orchestrate UI and workflow flow.
 3. Steps should not own complex business logic.
-4. Use metadata to pass values to later steps.
+4. Use metadata to pass values to later steps; don't write `ctx.data` before returning.
+5. Credentials only through `ctx.secret_broker`; never a raw secret in metadata.
+6. AI calls: `@declare_ai_usage(...)` + `ctx.ai_router`, `AI_DISABLED` → `Skip`.
+7. Don't scroll manually; the screen scrolls on step completion.
+8. No doctest examples in docstrings.
+
+Full rules and code: `titan-workflow-architecture` skill, `references/step-contracts.md`.

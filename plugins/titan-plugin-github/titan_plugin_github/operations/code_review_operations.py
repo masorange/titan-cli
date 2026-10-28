@@ -2,15 +2,12 @@
 """
 Operations for AI-powered PR code review.
 
-Pure business logic functions for loading project instruction files,
-selecting review targets, and inspecting diff content. All functions are
+Pure business logic functions for selecting review targets, and inspecting diff content. All functions are
 UI-agnostic.
 """
 
 import json
 import re
-from enum import StrEnum
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from titan_cli.core.logging import get_logger
@@ -18,32 +15,6 @@ from ..managers.diff_context_manager import DiffContextManager
 from ..models.view import UIFileChange
 
 logger = get_logger(__name__)
-
-
-class ProjectInstructionFile(StrEnum):
-    CLAUDE = "CLAUDE.md"   # Claude Code (Anthropic)
-    GEMINI = "GEMINI.md"   # Gemini CLI (Google)
-    CODEX  = "AGENTS.md"   # Codex (OpenAI)
-
-
-def load_project_instructions() -> Optional[str]:
-    """
-    Load the project's AI instructions file if it exists.
-
-    Checks for known instruction files used by Claude Code, Gemini CLI,
-    and OpenAI Codex, in that order.
-
-    Returns:
-        Content of the first found instructions file, or None
-    """
-    for candidate in ProjectInstructionFile:
-        path = Path(candidate)
-        if path.exists() and path.is_file():
-            try:
-                return path.read_text(encoding="utf-8")
-            except OSError:
-                continue
-    return None
 
 
 def extract_diff_for_file(full_diff: str, file_path: str) -> Optional[str]:

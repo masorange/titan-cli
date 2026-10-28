@@ -54,6 +54,15 @@ For official plugins:
 3. clients expose the public API
 4. services remain internal
 5. docs must be kept in sync when public plugin capability changes
+6. services return `ClientResult[UIModel]`; `Network*` models mirror the API, `UI*` models
+   are pre-formatted, mappers are pure (`.claude/docs/plugin-architecture.md`)
+7. steps never call low-level client methods (`run_in_worktree`, `run_command`)
+8. the plugin gets credentials in `initialize(config, broker)` and builds its client with
+   `broker.create_client(...)`; AI steps use `declare_ai_usage` + `ctx.ai_router`
+   (`titan-workflow-architecture` → `references/step-contracts.md`)
+
+If the change needs a new public client function (not just a workflow over existing
+ones), use the `titan-plugin-capability` skill for that part.
 
 ### 4. Register steps correctly
 
@@ -63,7 +72,10 @@ Whenever a new step is added, update plugin registration accordingly.
 
 ### 5. Update plugin docs when public capability changes
 
-If the change adds or changes a public plugin capability, update the relevant plugin docs page.
+If the change adds or changes a public plugin capability, update `docs/plugins/<plugin>/`
+(`overview.md`, `workflow-steps.md`, `client-api.md`, `built-in-workflows.md` — whichever
+the change touches), then regenerate the step reference with the `sync-plugin-docs`
+workflow and check it with `validate-plugin-docs` (`.titan/workflows/`).
 
 ## References
 

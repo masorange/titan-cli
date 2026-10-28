@@ -540,7 +540,7 @@ This PR modifies localization/translation files. When analyzing:
 2. **Change prioritization** — focus on what matters most:
    - **Primary**: source code changes (`.py`, `.ts`, `.kt`, `.swift`, etc.) — these describe WHAT was built or fixed
    - **Secondary**: config files, YAML, tests — include only if meaningfully distinct from code changes
-   - **Ignore for title/summary**: `.md` files, `docs/`, `CLAUDE.md`, changelogs — documentation is supplementary
+   - **Ignore for title/summary**: `.md` files, `docs/`, `AGENTS.md`, `CLAUDE.md`, changelogs — documentation is supplementary
    - If the branch adds a feature AND updates docs, the **title and summary must describe the feature**, not the documentation
 
 3. **Project Context**: If <project_context> is provided above, incorporate information into appropriate sections:

@@ -67,7 +67,16 @@ For reusable domains, prefer a project layout that resembles a plugin while stay
 
 See `references/plugin-like-project-architecture.md`.
 
-### 6. Distinguish project discovery from plugin registration
+### 6. Apply the step contracts
+
+Whatever the layout, steps follow the same contracts for results, secrets and AI calls:
+outputs via `metadata`, clients returning `ClientResult`, credentials only through
+`ctx.secret_broker` (a client never takes a token from config or `ctx.data`), and AI calls
+declared with `declare_ai_usage` and routed through `ctx.ai_router`.
+
+See `references/step-contracts.md`. The assets already follow it.
+
+### 7. Distinguish project discovery from plugin registration
 
 For projects:
 
@@ -87,6 +96,7 @@ For plugins:
 4. `references/plugin-like-project-architecture.md`
 5. `references/layer-boundaries.md`
 6. `references/project-vs-plugin-architecture.md`
+7. `references/step-contracts.md`
 
 ## Assets
 
