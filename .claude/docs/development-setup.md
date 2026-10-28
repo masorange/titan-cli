@@ -420,7 +420,7 @@ titan-dev  # Now uses the feature branch
 
 ## 📚 Related Documentation
 
-- [CLAUDE.md](../../CLAUDE.md) - AI development guide
+- [AGENTS.md](../../AGENTS.md) - AI development guide
 - [DEVELOPMENT.md](../../DEVELOPMENT.md) - Architecture overview
 - [Plugin Architecture](plugin-architecture.md) - Plugin development
 - [Textual Guide](textual.md) - TUI development

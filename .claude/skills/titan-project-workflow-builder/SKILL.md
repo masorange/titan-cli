@@ -43,7 +43,7 @@ Keep questions minimal. If the repo already makes the answer clear, do not ask.
 
 ### 2. Discover before creating
 
-Use `titan-capability-discovery` behavior before writing code.
+Follow `titan-workflow-architecture` → `references/discover-before-creating.md` before writing code.
 
 Check:
 
@@ -98,6 +98,8 @@ Always verify:
 3. cleanup guarantees
 4. parameter flow via `ctx.get()` and metadata
 5. whether new code is justified
+6. step contracts: secrets via `ctx.secret_broker`, AI via `declare_ai_usage` + `ctx.ai_router`
+   (`titan-workflow-architecture` → `references/step-contracts.md`)
 
 ## Output expectations
 

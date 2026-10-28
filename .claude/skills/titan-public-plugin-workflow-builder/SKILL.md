@@ -66,7 +66,9 @@ Example:
 
 ### 5. Think like a public plugin author
 
-Prefer changes that stay maintainable for external users and future releases.
+Prefer changes that stay maintainable for external users and future releases. Respect the
+host contract (optional `titan-cli` dependency, public APIs only, broker-only secrets,
+routed AI) in `references/public-plugin-stability-rules.md`.
 
 ## References
 

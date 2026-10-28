@@ -590,6 +590,6 @@ When refactoring an existing step:
 
 - See examples in existing plugins: `plugins/titan-plugin-{name}/titan_plugin_{name}/operations/` (e.g. `plugins/titan-plugin-github/titan_plugin_github/operations/`)
 - Check test examples: `plugins/titan-plugin-{github,git,jira}/tests/operations/`
-- Review CLAUDE.md for architecture overview
+- Review AGENTS.md for architecture overview
 
 **Remember: When in doubt, extract to operations!**

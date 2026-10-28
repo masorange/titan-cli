@@ -87,8 +87,6 @@ from .issue_operations import (
 )
 
 from .code_review_operations import (
-    ProjectInstructionFile,
-    load_project_instructions,
     select_files_for_review,
     extract_diff_for_file,
     extract_hunk_for_line,
@@ -156,8 +154,6 @@ __all__ = [
     "parse_assignees_and_labels",
 
     # Code review operations
-    "ProjectInstructionFile",
-    "load_project_instructions",
     "select_files_for_review",
     "extract_diff_for_file",
     "extract_hunk_for_line",

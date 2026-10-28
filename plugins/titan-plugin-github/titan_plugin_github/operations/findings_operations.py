@@ -10,6 +10,13 @@ from .ai_response_parsing_operations import extract_json_payload
 from .review_material_operations import material_source_path
 
 
+PROJECT_INSTRUCTIONS_FILE = "AGENTS.md"
+"""The repository's own conventions, read by the session from the checkout.
+
+The session runs with `--setting-sources user`, so the CLI does not load a PR's
+instruction files on its own: the prompt has to point at them.
+"""
+
 DEFAULT_FILES_PER_SUBAGENT = 25
 """How many changed files one subagent is given before another is worth starting."""
 
@@ -125,6 +132,9 @@ def build_free_review_prompt(
         "`.titan-review/` is not part of the PR; do not review it.\n\n"
         "Review it as a senior engineer would review this PR, using anything in the "
         f"repository you need.{subagent_hint} Do not run tests or builds: CI runs them.\n\n"
+        f"How this repository does things is written in its `{PROJECT_INSTRUCTIONS_FILE}` "
+        "files: the one at the root and any in the directories the PR touches. Read them "
+        "before reviewing; they are the conventions a violation is measured against.\n\n"
         "Report only problems a reviewer would raise on the PR: defects, regressions, risks "
         "and violations of how this repository does things, each one you have verified in "
         "the code. Severity: `blocking` must not merge, `important` should be fixed, `nit` "

@@ -1,6 +1,6 @@
 ---
 name: titan-workflow-architecture
-description: Choose the correct Titan architecture for new workflow code. Use when deciding between command steps, project steps, operations, clients, services, plugin registration, or project versus plugin layout, or when the user asks how much architecture is justified.
+description: Choose the correct Titan architecture for new workflow code, after discovering what already exists. Use when deciding between command steps, project steps, operations, clients, services, plugin registration, or project versus plugin layout, or when asking what workflows, steps or ctx.textual capabilities can be reused.
 disable-model-invocation: false
 user-invocable: false
 ---
@@ -23,6 +23,12 @@ Decide which target you are designing for first:
    Workflow and supporting code inside a plugin package.
 
 ## Decision Rules
+
+### 0. Discover before creating
+
+Inspect what already exists (project `.titan/`, the plugin package, built-in plugin
+workflows and steps, `ctx.textual`) before writing anything: see
+`references/discover-before-creating.md` and `references/ctx-textual-capabilities.md`.
 
 ### 1. Prefer orchestration first
 
@@ -67,7 +73,16 @@ For reusable domains, prefer a project layout that resembles a plugin while stay
 
 See `references/plugin-like-project-architecture.md`.
 
-### 6. Distinguish project discovery from plugin registration
+### 6. Apply the step contracts
+
+Whatever the layout, steps follow the same contracts for results, secrets and AI calls:
+outputs via `metadata`, clients returning `ClientResult`, credentials only through
+`ctx.secret_broker` (a client never takes a token from config or `ctx.data`), and AI calls
+declared with `declare_ai_usage` and routed through `ctx.ai_router`.
+
+See `references/step-contracts.md`. The assets already follow it.
+
+### 7. Distinguish project discovery from plugin registration
 
 For projects:
 
@@ -87,6 +102,9 @@ For plugins:
 4. `references/plugin-like-project-architecture.md`
 5. `references/layer-boundaries.md`
 6. `references/project-vs-plugin-architecture.md`
+7. `references/step-contracts.md`
+8. `references/discover-before-creating.md`
+9. `references/ctx-textual-capabilities.md`
 
 ## Assets
 

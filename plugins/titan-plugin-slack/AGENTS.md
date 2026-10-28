@@ -1,48 +1,26 @@
 # AGENTS.md - Titan Slack Plugin
 
-Documentation for AI coding agents working on the `titan-plugin-slack`.
+Rules specific to `titan-plugin-slack`. The repo-wide rules and guides are in the root
+[`AGENTS.md`](../../AGENTS.md); user-facing docs in [`docs/plugins/slack/`](../../docs/plugins/slack/).
 
----
+## What it is
 
-## Plugin Overview
+Personal Slack integration with a user token: post messages and files to people and
+channels, resolve targets, and summarise conversations with AI.
 
-**Titan Slack Plugin** provides Slack integration for Titan CLI.
+## Layout
 
-Current first-phase scope:
+Simplified, without the `models/` package: `steps/ → operations/ → clients/slack_client.py
+→ clients/services/` over the Slack SDK (`clients/sdk.py`). Domain models in `models.py`,
+formatting in `formatting.py`, OAuth in `oauth.py`, config screen in `screens/`.
+Workflows: `post-message`, `post-file`, `summarize-slack-target`.
 
-- Official Titan plugin package and discovery entry point
-- Personal user-token Slack client baseline
-- Keyring-first secret policy
-- BYO Slack App + PKCE connection flow
-- No workflow steps yet
-- No built-in workflows yet
+## Plugin-specific rules
 
----
-
-## Project Structure
-
-```text
-titan_plugin_slack/
-├── __init__.py
-├── plugin.py
-├── clients/
-│   └── slack_client.py
-├── screens/
-│   └── slack_config_screen.py
-├── models.py
-├── exceptions.py
-├── oauth.py
-├── steps/
-└── workflows/
-```
-
----
-
-## Working Rules
-
-- Keep first-phase scope tight.
-- Do not add workflow steps in this phase.
-- Do not add built-in workflows in this phase.
-- Prefer small, testable public surfaces.
-- Keep raw Slack API entities clearly separated from domain return models.
-- Keep the configuration UX aligned with BYO Slack App + PKCE.
+- The connection is BYO Slack App + PKCE (`oauth.py`); keep the configuration UX aligned
+  with it.
+- The user token lives in the keyring and reaches the SDK only through
+  `broker.create_client(...)`, including on token refresh (`plugin.py`).
+- Keep raw Slack API payloads separate from the models returned to steps.
+- Config: `SlackPluginConfig` in `titan_cli/core/plugins/models.py`.
+- Tests: `tests/` (`clients/`, `services/`, `operations/`, `ui/` plus per-step files).

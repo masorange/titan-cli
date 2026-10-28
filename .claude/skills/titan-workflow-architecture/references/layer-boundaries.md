@@ -6,9 +6,12 @@ In project workflow code:
 2. Operations hold business logic.
 3. Clients expose reusable domain APIs.
 4. Services sit below clients only when integration complexity justifies them.
+5. Clients and services return `ClientResult[T]`; steps pattern-match it.
 
 Do not:
 
 1. put complex business logic in a step
 2. create services without a real client-level API need
 3. mimic all 5 plugin layers for trivial project automation
+4. let a client receive a raw token from config, `ctx.data` or the environment — build it
+   with `ctx.secret_broker.create_client(...)` (see `step-contracts.md`)

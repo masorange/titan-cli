@@ -319,3 +319,9 @@ def test_none_of_the_fan_out_wording_reaches_a_cli_without_subagents():
 
     assert "subagent" not in prompt.lower()
     assert "sonnet" not in prompt
+
+
+def test_free_review_prompt_points_at_agents_md():
+    prompt = build_free_review_prompt(1, "t", "h", "b", "/wt")
+    assert "`AGENTS.md`" in prompt
+    assert "CLAUDE.md" not in prompt
