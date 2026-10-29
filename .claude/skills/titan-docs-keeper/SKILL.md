@@ -13,14 +13,19 @@ decides the home and finds violations. The map is in
 
 ## Modes
 
+Load this skill **before** the first edit to `AGENTS.md`, `.claude/` or `docs/`, not after:
+the Stop hook only reviews what is already written.
+
 **Place** - "where does this go?" / you are about to write docs:
 1. Ask of the text, in order: Is it loaded by every task and a one-line rule? -> root
    `AGENTS.md`. Specific to one plugin? -> that plugin's `AGENTS.md`. A deep pattern, rule
    rationale or reference an agent reads only for some tasks? -> `.claude/docs/`. An ordered
    procedure to follow? -> a skill. A read-only check? -> an agent. Meant for users or
    public contributors? -> `docs/`. Session state? -> `harness/`. (Full table: doc-map.)
-2. Check the home does not already cover it (`grep -rn` the key term across all layers).
-   Extend there; never restate elsewhere - link.
+2. **Duplicate test, reported before writing.** `grep -rn` three distinctive terms of the
+   fact across `AGENTS.md`, `plugins/*/AGENTS.md`, `.claude/`, `docs/` and say which files
+   already state it. One: extend it there. Several: fix that first. None: it has no home yet,
+   pick one (doc-map). Elsewhere you only link ([what counts as a copy](references/when-to-write.md)).
 3. If it is a **rule** that belongs in a guide but must never be missed, add a one-line
    version to root `AGENTS.md` Non-Negotiable Rules **and** link to the guide section. Root
    holds the rule, the guide holds the why and the examples.
@@ -29,8 +34,10 @@ decides the home and finds violations. The map is in
 1. Follow [references/when-to-write.md](references/when-to-write.md). Truth check is
    mandatory (fix or delete what the task made false); adding anything must pass its
    write-test and size-test. **"docs: no change" is the normal result.**
-2. If any doc file was edited, run the checker (below) and fix errors.
-3. Report one line: `docs: no change` / `docs: fixed ...` / `docs: added ... (<test>)`.
+2. **Duplicate check:** did the task add a statement another file already makes? Same grep
+   as Place step 2; delete or turn into a link whichever is not the home.
+3. If any doc file was edited, run the checker (below) and fix errors.
+4. Report one line: `docs: no change` / `docs: fixed ...` / `docs: added ... (<test>)`.
 
 **Audit** - "review the docs" / after any edit to the layers above:
 1. Run `python3 -I .claude/skills/titan-docs-keeper/scripts/check_docs.py` (mechanical:

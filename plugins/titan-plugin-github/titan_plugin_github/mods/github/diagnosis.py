@@ -2,12 +2,12 @@
 
 Cutting the log, the prompt, reading the answer and the report are the github
 plugin's (`ci_diagnosis_operations`); this file runs them over the PR's failed
-checks with the mod's AI routing and keeps the result in `m.state`.
+checks with the mod's AI routing (`ask_ai` keeps the outcome in `m.state`, the jobs as its `value`).
 """
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from titan_cli.core.mods import AIResult, ask_ai
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIFailedCheck, UIJobDiagnosis, UIPullRequest
 from titan_plugin_github.operations import (
@@ -18,14 +18,6 @@ from titan_plugin_github.operations import (
 )
 
 from .models import Prs
-
-
-@dataclass(frozen=True)
-class Diagnosis:
-    status: str  # "running", "done" or "error"
-    model: Optional[str] = None
-    jobs: Tuple[UIJobDiagnosis, ...] = ()
-    error: Optional[str] = None
 
 
 def diagnose_job(m, github, check: UIFailedCheck) -> Tuple[UIJobDiagnosis, Optional[str]]:
@@ -45,73 +37,49 @@ def diagnose_job(m, github, check: UIFailedCheck) -> Tuple[UIJobDiagnosis, Optio
     return parse_job_diagnosis(check.name, answer.text, excerpt), answer.model
 
 
-def _claim(m, key: str, work) -> None:
-    """Start `work` on a background thread unless the diagnosis under `key` is already running.
+def pr_key(number: int) -> str:
+    """Where a PR's diagnosis lives in state."""
+    return f"pr:{number}"
 
-    The button's own "running" flag is from the last repaint, so two quick presses both
-    saw it false. Claiming in state here closes that window.
-    """
-    claimed = []
 
-    def claim(all_):
-        all_ = all_ or {}
-        current = all_.get(key)
-        if current is not None and current.status == "running":
-            return all_
-        claimed.append(True)
-        return {**all_, key: Diagnosis("running", model=m.state.get("ai_label"))}
-
-    m.state.update("diagnoses", claim, default={})
-    if claimed:
-        m.run(work)
+def run_key(run_id: int) -> str:
+    """Where a workflow run's diagnosis lives in state, apart from the PRs'."""
+    return f"run:{run_id}"
 
 
 def start_diagnosis(m, number: int, options) -> None:
     """Start the diagnosis of a PR's failed checks unless one is already running."""
-    _claim(m, str(number), lambda: diagnose(m, number, options))
-
-
-def run_key(run_id: int) -> str:
-    """Where a workflow run's diagnosis lives in state, apart from the PRs' (keyed by number)."""
-    return f"run:{run_id}"
+    ask_ai(m, pr_key(number), lambda m: diagnose(m, number, options))
 
 
 def start_run_diagnosis(m, run_id: int, options) -> None:
     """Start the diagnosis of a workflow run's failed jobs unless one is already running."""
-    _claim(m, run_key(run_id), lambda: diagnose_run(m, run_id, options))
+    ask_ai(m, run_key(run_id), lambda m: diagnose_run(m, run_id, options))
 
 
-def _diagnose(m, key: str, get_checks) -> None:
-    """Read the log of each failed check and explain it; `get_checks` runs inside the try."""
-
-    def put(d: Diagnosis) -> None:
-        m.state.update("diagnoses", lambda all_: {**(all_ or {}), key: d}, default={})
-
-    put(Diagnosis("running", model=m.state.get("ai_label")))
+def _diagnose(m, get_checks) -> AIResult:
+    """Read the log of each failed check and explain it; `get_checks` runs inside `ask_ai`'s try."""
     github = m.client("github")
-    try:
-        if github is None:
-            raise RuntimeError("github plugin not available")
-        checks = get_checks(github)
-        with ThreadPoolExecutor(max_workers=len(checks) or 1) as pool:
-            results = list(pool.map(lambda c: diagnose_job(m, github, c), checks))
-        answered = next((model for _, model in results if model), None)
-        put(Diagnosis("done", model=answered, jobs=tuple(job for job, _ in results)))
-    except Exception as e:
-        put(Diagnosis("error", error=str(e)))
+    if github is None:
+        raise RuntimeError("github plugin not available")
+    checks = get_checks(github)
+    with ThreadPoolExecutor(max_workers=len(checks) or 1) as pool:
+        results = list(pool.map(lambda c: diagnose_job(m, github, c), checks))
+    answered = next((model for _, model in results if model), None)
+    return AIResult("done", model=answered, value=tuple(job for job, _ in results))
 
 
-def diagnose(m, number: int, options) -> None:
-    """Explain the failed checks of one of my PRs; runs on a background thread."""
+def diagnose(m, number: int, options) -> AIResult:
+    """Explain the failed checks of one of my PRs; runs on `ask_ai`'s background thread."""
     prs: Optional[Prs] = m.state.get("prs")
     pr = next((p for p in (prs.mine if prs else []) if p.number == number), None)
     if pr is None:
-        return
-    _diagnose(m, str(number), lambda github: pr.failed_checks[: options["diagnosis_jobs"]])
+        raise RuntimeError(f"PR #{number} is not one of yours any more")
+    return _diagnose(m, lambda github: pr.failed_checks[: options["diagnosis_jobs"]])
 
 
-def diagnose_run(m, run_id: int, options) -> None:
-    """Explain the failed jobs of one workflow run; runs on a background thread."""
+def diagnose_run(m, run_id: int, options) -> AIResult:
+    """Explain the failed jobs of one workflow run; runs on `ask_ai`'s background thread."""
 
     def failed_jobs(github):
         match github.get_run_failed_jobs(run_id):
@@ -120,16 +88,12 @@ def diagnose_run(m, run_id: int, options) -> None:
             case ClientError(error_message=err):
                 raise RuntimeError(err)
 
-    _diagnose(m, run_key(run_id), failed_jobs)
+    return _diagnose(m, failed_jobs)
 
 
-def diagnosis_text(pr: UIPullRequest, d: Diagnosis) -> str:
+def diagnosis_text(pr: UIPullRequest, d: AIResult) -> str:
     """The diagnosis as plain text, to paste into a PR comment, a chat or an AI session."""
     if d.status == "error":
         return f"PR #{pr.number} {pr.title}\nCould not diagnose: {d.error}\n"
-    return format_job_diagnoses(pr.number, pr.title, d.jobs, d.model)
+    return format_job_diagnoses(pr.number, pr.title, d.value, d.model)
 
-
-def refresh_ai_label(m) -> None:
-    """Who answers a diagnosis now; resolving may probe, so it runs off the UI thread."""
-    m.state.set("ai_label", m.ai.describe())

@@ -30,6 +30,9 @@ changing Titan itself needs. Building a mod: the `titan-mod-builder` skill.
 - No raw secret through `m` (see [security.md](security.md)).
 - Elements stay plain values; Titan draws them with its own widgets. Never hand a mod a Textual
   widget.
+- AI goes through `m.ai` only (the user's routing, see [ai-agents.md](ai-agents.md)): a mod never
+  names a CLI, a connection or a model. `complete` runs under `mods.<name>`; the help button
+  (`ai_assist_button`) under `mods.<name>.assist`, declared as `ai_assist_task` in `mod.toml`.
 - No UI-mounting tests: test mod logic as pure functions, verify slots live in `titan-dev`.
 
 ## Shipping a mod with an official plugin

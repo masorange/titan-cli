@@ -6,7 +6,7 @@ Check before handing a mod over.
 - [ ] `name` matches the folder (letters, digits, `_`, `-`); not `dirs`.
 - [ ] Every event hooked in `mod.py` is listed in `events`; otherwise `register` fails and nothing loads.
 - [ ] Each option has `type` and `default`; `choice` has `values`; `min`/`max` only on `int`/`float`; the name is not `sections`.
-- [ ] `icon` is one character or emoji; `ai_task` set when `m.ai` is used.
+- [ ] `icon` is one character or emoji; `ai_task` set when `m.ai.complete` is used, `ai_assist_task` when a help button is.
 
 ## Hooks
 - [ ] Every hook returns `next(e)` (or an answer); `next` is called at most once.
@@ -28,7 +28,8 @@ Check before handing a mod over.
 - [ ] Every error the pane shows is an `error_card` (copyable, with `actions` such as Retry), never a bare red `Text`; a failed read has a Retry that reruns it.
 - [ ] A failure after a button press is a toast with `severity="error"` (the host opens the error card for it), not silence.
 
-- [ ] A button that only needs to open the AI CLI with a text uses `fix_with_ai_button` / `m.ai.assist`, not a new workflow; a workflow is for work beyond that (checkout, commit, push).
+- [ ] A button that only needs to open the AI CLI with a text uses `ai_assist_button` / `m.ai.assist`, not a new workflow; a workflow is for work beyond that (checkout, commit, push).
+- [ ] Every AI call goes through `m.ai` (the user's routing): no CLI, connection or model named in the mod.
 
 ## Quality
 - [ ] Logic in plain functions with tests over fake clients; no Textual mounting tests.

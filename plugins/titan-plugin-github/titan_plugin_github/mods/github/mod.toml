@@ -8,6 +8,7 @@ events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
 # Its AI diagnosis runs under the routing task "mods.github", listed with this label.
 ai_task = "PR check diagnosis"
+ai_assist_task = "Fix with AI"
 
 [sections.prs]
 title = "Pull requests"

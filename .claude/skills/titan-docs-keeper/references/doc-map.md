@@ -40,6 +40,7 @@ state invariants; on-demand files hold depth; nothing is stated twice.
 | Secrets | `.claude/docs/security.md` | root: 4 invariants only |
 | Mod system internals | `.claude/docs/mods.md` | mod authoring in `docs/concepts/writing-mods.md` |
 | Workflow YAML | `.claude/docs/workflows.md` (agents), `docs/concepts/workflows.md` (users) | each states its audience; no overlap in prose |
+| AI routing (every AI call goes through `AIExecutor` under a task) | `.claude/docs/ai-agents.md` | root: one-line rule + link; step and mod guides: a link |
 | Dev setup | `.claude/docs/development-setup.md` and `docs/contributing/development-setup.md` | pick one canonical; the other links |
 
 ## Coherence invariants (what the audit enforces)
@@ -49,7 +50,7 @@ state invariants; on-demand files hold depth; nothing is stated twice.
 - Every relative link and backticked repo path resolves.
 - Root and plugin `AGENTS.md` are within budget; plugin ones link to the root.
 - An always-loaded file contains no content a single task needs.
-- A rule appears in full in exactly one place.
+- A rule appears in full in exactly one place (the checker warns on long shared passages).
 - Skills and agents reference guides instead of copying them; when they must condense
   (agents), the guide is declared authoritative.
 - No harness IDs, no dated freshness claims, no deprecation narrative.

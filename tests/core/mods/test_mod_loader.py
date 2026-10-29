@@ -161,6 +161,7 @@ def test_loaded_mods_keep_their_manifest_and_declared_ai_task(tmp_path):
 
     assert bus.manifests["ai_mod"].ai_task == "My diagnosis"
     assert bus.manifests["plain"].ai_task is None
+    assert bus.manifests["plain"].ai_assist_task is None
 
 
 def test_dev_folder_is_one_mod_and_overrides_every_other_source(tmp_path):

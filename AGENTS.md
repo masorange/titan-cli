@@ -65,7 +65,7 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
 | Step conventions (outputs, AI, secrets, no low-level calls) | [workflow-step-rules.md](.claude/docs/workflow-step-rules.md) |
 | Workflow YAML, `extends`/hooks, Success/Skip/Error/Exit | [workflows.md](.claude/docs/workflows.md) |
 | Secrets | [security.md](.claude/docs/security.md) |
-| AI agents | [ai-agents.md](.claude/docs/ai-agents.md) |
+| AI calls (routing) and AI agents | [ai-agents.md](.claude/docs/ai-agents.md) |
 | Mods (the `m` API, events, slots, shipping one with a plugin) | [mods.md](.claude/docs/mods.md) |
 | Community plugin installer & dependency rules | [community-plugins.md](.claude/docs/community-plugins.md) |
 | Logging | [logging.md](.claude/docs/logging.md) |
@@ -92,6 +92,10 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
 - Never put a raw secret in `ctx.data` or result metadata (`Success`/`Skip`/`Exit` raise
   `SecretLeakError`). Wrap derived material in `SensitiveValue`, `reveal()` it late.
 - Never pass a credential on argv or via the inherited environment.
+
+**AI calls:** every AI call, from a step, a mod or an agent, goes through `AIExecutor` under a
+declared task. Code never picks remote vs CLI or a model: the user does, per task, in AI
+Configuration. Details in [ai-agents.md](.claude/docs/ai-agents.md).
 
 **Steps:**
 - Publish outputs via `Success(metadata={...})`, not by mutating `ctx.data` at return.

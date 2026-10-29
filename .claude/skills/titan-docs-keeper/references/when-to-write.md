@@ -24,6 +24,18 @@ passes, and write the least that satisfies it.
    [doc-map.md](doc-map.md) force it. If the target is over budget, make room (tighten or
    split) in the same change.
 
+## What counts as a copy
+
+A fact has one **home**: the file that states it and says why. Anywhere else it may appear
+only as a **link** (`see X`, a table row that names X and nothing more). A *copy* is any
+sentence, list or table that lets a reader follow the rule without opening the home, even
+reworded or reordered. A reader arrives at the home through the routing tables, so "this guide's
+reader needs it too" is not a reason to restate it; "there is no route from here to the home" is,
+and the fix is the link or the table row.
+
+Found the same fact in several files: the home keeps it whole, the others lose it down to one
+link line or nothing. Never merge by keeping the longest and the shortest.
+
 ## Never write
 
 - What the code or its names already say; signatures copied from source.

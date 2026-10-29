@@ -1,7 +1,7 @@
 """Reading workflow runs and drawing them: the same list for the repo and for the merge queue."""
 from types import SimpleNamespace
 
-from titan_cli.core.mods import AIAnswer, ModBus
+from titan_cli.core.mods import AIAnswer, AIResult, ModBus
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIFailedCheck, UIWorkflowRun
 
@@ -122,17 +122,16 @@ def test_diagnosing_a_run_reads_its_failed_jobs_and_keeps_the_result_under_the_r
 
     mod.diagnosis.start_run_diagnosis(m, 9, {"diagnosis_jobs": 3})
 
-    d = m.state.get("diagnoses")[mod.diagnosis.run_key(9)]
-    assert d.status == "done" and d.jobs[0].cause == "bar fails" and logs == [11]
+    d = m.state.get("ai:" + mod.diagnosis.run_key(9))
+    assert d.status == "done" and d.value[0].cause == "bar fails" and logs == [11]
 
-    m.state.set("diagnoses", {mod.diagnosis.run_key(run(9).id): d})
     card = flatten(mod.draw.run_diagnosis_of(m, run(9)))
     assert "✗ unit" in card and "bar fails" in card and "⧉ Copy diagnosis" in card
 
 
 def test_a_failed_diagnosis_is_the_shared_error_card_with_a_copy_button(mod, flatten):
     m = ModBus().api("github")
-    m.state.set("diagnoses", {mod.diagnosis.run_key(1): mod.diagnosis.Diagnosis("error", error="AI is off")})
+    m.state.set("ai:" + mod.diagnosis.run_key(1), AIResult("error", error="AI is off"))
 
     lines = flatten(mod.draw.run_diagnosis_of(m, run(1)))
 
@@ -141,7 +140,7 @@ def test_a_failed_diagnosis_is_the_shared_error_card_with_a_copy_button(mod, fla
 
 def test_the_run_actions_no_longer_carry_a_copy_button(mod, flatten):
     m = ModBus().api("github")
-    m.state.set("diagnoses", {mod.diagnosis.run_key(1): mod.diagnosis.Diagnosis("done")})
+    m.state.set("ai:" + mod.diagnosis.run_key(1), AIResult("done", value=()))
     mod.draw.toggle_row(m, "run:1")
 
     text = "\n".join(flatten(mod.draw.run_row(m, run(1), {})))

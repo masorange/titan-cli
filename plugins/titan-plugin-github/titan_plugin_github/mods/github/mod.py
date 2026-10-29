@@ -9,7 +9,8 @@ from the github plugin client on background timers; drawing reads only
 """
 from pathlib import Path
 
-from .diagnosis import refresh_ai_label
+from titan_cli.core.mods import refresh_ai_chip
+
 from . import draw
 from .sections.prs.prs import new_review_requests, read_others, read_prs
 from .sections.prs import threads
@@ -78,7 +79,7 @@ def register(on, options):
         m.clock.every(options["runs_refresh_seconds"], lambda: shown["runs"] and refresh_runs(m))
         # Its own timer too: the queue's runs are a second read, and only while the queue is shown.
         m.clock.every(options["runs_refresh_seconds"], lambda: shown["queue"] and refresh_queue_runs(m))
-        m.run(lambda: refresh_ai_label(m))
+        m.run(lambda: refresh_ai_chip(m))
         if options.get("refresh_key"):
             m.keys.bind(options["refresh_key"], "Refresh status", lambda: m.run(lambda: refresh_all(m)))
         return next(e)

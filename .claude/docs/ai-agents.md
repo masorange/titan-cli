@@ -1,6 +1,23 @@
-# AI Agents
+# AI Calls And Agents
 
-Read this when you add or change an AI agent (`PRAgent`, `IssueGeneratorAgent`, `JiraAgent`) or a step that calls AI.
+Read this when you add or change anything that calls AI: an AI agent (`PRAgent`,
+`IssueGeneratorAgent`, `JiraAgent`), a step, or a mod.
+
+## Every AI call is routed
+
+Whoever calls AI declares a **task** and lets `AIExecutor` (`titan_cli/ai/router/`) resolve it:
+remote connection or CLI, which instance and which model come from what the user set in AI
+Configuration (per task, or for the session with F2/F3). Code never names a provider, a CLI or
+a model of its own.
+
+| Caller | How it asks |
+|---|---|
+| Step | `declare_ai_usage` + `ctx.ai_router` ([workflow-step-rules.md](workflow-step-rules.md)) |
+| Agent | the `AIGenerator` seam below |
+| Mod | `m.ai.complete` under `mods.<name>`; the help button under `mods.<name>.assist` ([writing-mods.md](../../docs/concepts/writing-mods.md)) |
+
+A task's `executes` lists what its code can drive: a one-shot `complete` runs remote or headless
+CLI only, so a task that may open an interactive CLI is a separate one.
 
 An **agent** wraps AI generation with domain logic: it builds prompts, makes one or more
 calls, and turns the answers into something the rest of Titan can use. `PRAgent` writes a

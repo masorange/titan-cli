@@ -100,6 +100,10 @@ class ModManifest:
     # The label of the routing task `mods.<name>` its `m.ai` calls run under, when it
     # uses AI: the AI screen lists the task with it, so it can be pinned there too.
     ai_task: Optional[str] = None
+    # The label of the task `mods.<name>.assist`, which decides what a help button
+    # (`ai_assist_button`) opens; separate from `ai_task` because it can be an
+    # interactive CLI, which a one-shot `m.ai.complete` could never run.
+    ai_assist_task: Optional[str] = None
     # What the side panel's rail shows for the mod's pane: one character or emoji.
     icon: Optional[str] = None
 
@@ -153,6 +157,7 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         options=options,
         sections=sections,
         ai_task=mod.get("ai_task") or None,
+        ai_assist_task=mod.get("ai_assist_task") or None,
         icon=mod.get("icon") or None,
     )
 

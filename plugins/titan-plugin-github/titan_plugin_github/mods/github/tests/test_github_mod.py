@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from titan_cli.core.mods import AIAnswer, Button, Input, ModBus
+from titan_cli.core.mods import AIAnswer, AIResult, refresh_ai_chip, Button, Input, ModBus
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIMergeQueueEntry
 
@@ -135,13 +135,13 @@ def test_diagnose_reads_each_failed_job_and_asks_the_routed_model(mod, tmp_path,
     m = bus.api("github")
     m.state.set("prs", mod.models.Prs(mine=[pr(2, checks="failing", failed=4)]))
 
-    mod.diagnosis.diagnose(m, 2, {"diagnosis_jobs": 3})
+    mod.diagnosis.start_diagnosis(m, 2, {"diagnosis_jobs": 3})
 
-    d = m.state.get("diagnoses")["2"]
-    assert d.status == "done"
+    d = m.state.get("ai:pr:2")
+    assert d.status == "done" and len(d.value) == 3
     assert sorted(logs) == [0, 1, 2]  # three jobs at most, by the job id in each check's URL
     assert {model for _, model in host.prompts} == {None}  # the mod never forces a model: AI routing decides
-    mod.diagnosis.refresh_ai_label(m)
+    refresh_ai_chip(m)
     open_row(mod, m, 2, {"diagnosis_jobs": 3})
     lines = flatten(mod.draw.draw(m, 44, {"diagnosis_jobs": 3}))
     assert "✦ Diagnose again (last: m1)" in lines
@@ -157,9 +157,9 @@ def test_diagnosis_failure_is_shown_not_raised(mod, tmp_path, monkeypatch, pr):
     m = bus.api("github")
     m.state.set("prs", mod.models.Prs(mine=[pr(2, checks="failing", failed=1)]))
 
-    mod.diagnosis.diagnose(m, 2, {"diagnosis_jobs": 3})
+    mod.diagnosis.start_diagnosis(m, 2, {"diagnosis_jobs": 3})
 
-    assert m.state.get("diagnoses")["2"].error == "AI: AI is turned off for this task."
+    assert m.state.get("ai:pr:2").error == "AI: AI is turned off for this task."
 
 
 def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(mod, tmp_path, monkeypatch, flatten, pr):
@@ -178,7 +178,7 @@ def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(mod, tmp_path, mo
     m.state.set("prs", mod.models.Prs(mine=[pr2]))
 
     assert not any("⧉" in line for line in flatten(mod.draw.diagnosis_of(m, pr2, {})))  # nothing to copy yet
-    mod.diagnosis.diagnose(m, 2, {"diagnosis_jobs": 3})
+    mod.diagnosis.start_diagnosis(m, 2, {"diagnosis_jobs": 3})
     copy = next(b for b in mod.draw.diagnosis_of(m, pr2, {}).children if isinstance(b, Button) and b.label.startswith("⧉"))
     copy.on_press()
 
@@ -187,7 +187,7 @@ def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(mod, tmp_path, mo
     assert text.splitlines()[:6] == ["PR #2 PR 2", "Diagnosed by m1", "", "✗ job0", "FooTest.bar fails", "at FooTest.kt:42"]
     assert "(this line is not in the log: do not trust the cause)" in text
 
-    m.state.set("diagnoses", {"2": mod.diagnosis.Diagnosis("error", error="AI: quota exhausted")})
+    m.state.set("ai:pr:2", AIResult("error", error="AI: quota exhausted"))
     next(b for b in mod.draw.diagnosis_of(m, pr2, {}).children if isinstance(b, Button) and b.label.startswith("⧉")).on_press()
     assert copied[-1] == ("#2 error", "PR #2 PR 2\nCould not diagnose: AI: quota exhausted\n")
 
@@ -358,7 +358,7 @@ def test_a_second_diagnosis_press_before_the_repaint_starts_nothing(mod, pr):
     mod.diagnosis.start_diagnosis(m, 2, {"diagnosis_jobs": 3})
 
     assert len(runs) == 1
-    assert m.state.get("diagnoses")["2"].status == "running"
+    assert m.state.get("ai:pr:2").status == "running"
 
 
 def _acting(mod, pr, github, toasts):
@@ -625,7 +625,7 @@ def test_fix_with_ai_hands_the_diagnosis_to_the_workflow(mod, tmp_path, monkeypa
     press(mod, m, "✦ Fix with AI", opts)
     assert runs == [("fix-pr-checks", {"fix_pr_number": 2, "check_diagnosis": ""})]
 
-    mod.diagnosis.diagnose(m, 2, opts)
+    mod.diagnosis.start_diagnosis(m, 2, opts)
     press(mod, m, "✦ Fix with AI", opts)
 
     name, params = runs[-1]
