@@ -1,0 +1,27 @@
+name: "Read Firebase Remote Config"
+description: "Read a Firebase project's Remote Config template, its conditions and one parameter"
+steps:
+  - id: firebase_auth_check
+    name: "Verify Google credentials"
+    plugin: firebase
+    step: firebase_auth_check
+
+  - id: firebase_select_target
+    name: "Select Firebase project"
+    plugin: firebase
+    step: firebase_select_target
+
+  - id: firebase_remoteconfig_get
+    name: "Read Remote Config"
+    plugin: firebase
+    step: firebase_remoteconfig_get
+
+  - id: firebase_remoteconfig_conditions
+    name: "Show conditions"
+    plugin: firebase
+    step: firebase_remoteconfig_conditions
+
+  - id: firebase_remoteconfig_select_key
+    name: "Inspect a parameter"
+    plugin: firebase
+    step: firebase_remoteconfig_select_key

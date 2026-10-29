@@ -1,0 +1,41 @@
+name: "Create Firebase Remote Config Key"
+description: "Create one Remote Config key in selected Firebase projects where it is missing"
+params:
+  project_ids: ""
+  project_set: ""
+  project_groups: ""
+  environment: ""
+  project_filter: ""
+  condition_group: ""
+  key: ""
+  value_type: ""
+  default_value: ""
+  conditional_values: ""
+  description: ""
+  target_project_ids: ""
+  dry_run: false
+steps:
+  - id: firebase_auth_check
+    name: "Verify Google credentials"
+    plugin: firebase
+    step: firebase_auth_check
+
+  - id: firebase_select_targets
+    name: "Resolve target projects"
+    plugin: firebase
+    step: firebase_select_targets
+
+  - id: firebase_remoteconfig_fanout_list_keys
+    name: "Audit existing keys"
+    plugin: firebase
+    step: firebase_remoteconfig_fanout_list_keys
+
+  - id: firebase_remoteconfig_create_key_plan
+    name: "Validate new key per project"
+    plugin: firebase
+    step: firebase_remoteconfig_create_key_plan
+
+  - id: firebase_remoteconfig_create_key_publish
+    name: "Publish per project"
+    plugin: firebase
+    step: firebase_remoteconfig_create_key_publish
