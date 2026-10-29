@@ -37,6 +37,7 @@ from .view import (
     UIPullRequest,
     UIIssue,
     UIRelease,
+    UIWorkflowRun,
     UIReviewSuggestion,
 )
 
@@ -77,6 +78,7 @@ __all__ = [
     "UIPullRequest",
     "UIIssue",
     "UIRelease",
+    "UIWorkflowRun",
     "UIReviewSuggestion",
     "PRState",
     "PRMergeableState",

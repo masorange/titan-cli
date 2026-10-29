@@ -12,7 +12,9 @@ from pathlib import Path
 from .diagnosis import refresh_ai_label
 from . import draw
 from .sections.prs.prs import new_review_requests, read_others, read_prs
+from .sections.prs import threads
 from .sections.queue.queue import left_queue, read_queue
+from .sections.runs.runs import limit_of, read_runs
 
 PANE = "github"
 TITLE = "GitHub"
@@ -21,7 +23,7 @@ TITLE = "GitHub"
 def register(on, options):
     where = {}
     shown = options.setdefault("sections", {})
-    for name in ("prs", "queue"):
+    for name in ("prs", "queue", "runs"):
         shown.setdefault(name, True)
 
     def refresh_prs(m):
@@ -30,6 +32,9 @@ def register(on, options):
         m.state.set("prs", after)
         # Asked here, off the UI thread: finding out may take a round-trip.
         m.state.set("slack_on", m.client("slack") is not None)
+        if after.error is None:
+            rows = m.state.get("rows_open") or {}
+            threads.reread_open(m, after.mine, lambda number: bool(rows.get(str(number))))
         waiting = len(after.to_review) if after.error is None else 0
         m.ui.badge(PANE, str(waiting) if waiting else None, severity="warning")
         arrived = new_review_requests(before, after)
@@ -47,6 +52,13 @@ def register(on, options):
         if left:
             m.ui.toast("Left the merge queue: " + ", ".join(f"#{n}" for n in left))
 
+    def refresh_runs(m):
+        m.state.set("runs", read_runs(m.client("github"), None, limit_of(m, "runs")))
+
+    def refresh_queue_runs(m):
+        # The merge queue's own runs, apart from the repo's: GitHub tells them by their event.
+        m.state.set("queue_runs", read_runs(m.client("github"), "merge_group", limit_of(m, "queue_runs")))
+
     @on("app.start")
     def start(m, e, next):
         where["root"] = Path(e.project_root)
@@ -56,11 +68,16 @@ def register(on, options):
         # What an error card's Retry runs again.
         m.state.set("refresh_others", lambda: refresh_others(m))
         m.state.set("refresh_queue", lambda: refresh_queue(m))
+        m.state.set("refresh_runs", lambda: refresh_runs(m))
+        m.state.set("refresh_queue_runs", lambda: refresh_queue_runs(m))
         m.ui.open(PANE, TITLE)
         m.clock.every(options["prs_refresh_seconds"], lambda: shown["prs"] and refresh_prs(m))
         # Its own timer, so the slow read of everyone else's PRs runs beside yours, not before them.
         m.clock.every(options["prs_refresh_seconds"], lambda: shown["prs"] and refresh_others(m))
         m.clock.every(options["queue_refresh_seconds"], lambda: shown["queue"] and refresh_queue(m))
+        m.clock.every(options["runs_refresh_seconds"], lambda: shown["runs"] and refresh_runs(m))
+        # Its own timer too: the queue's runs are a second read, and only while the queue is shown.
+        m.clock.every(options["runs_refresh_seconds"], lambda: shown["queue"] and refresh_queue_runs(m))
         m.run(lambda: refresh_ai_label(m))
         if options.get("refresh_key"):
             m.keys.bind(options["refresh_key"], "Refresh status", lambda: m.run(lambda: refresh_all(m)))
@@ -72,13 +89,18 @@ def register(on, options):
             refresh_prs(m)
         if shown["queue"]:
             refresh_queue(m)
+            m.run(lambda: refresh_queue_runs(m))
+        if shown["runs"]:
+            refresh_runs(m)
 
     @on("section.change")
     def section_changed(m, e, next):
         # A section just turned on has nothing to show until its first read.
         if e.enabled and "root" in where:
-            refresh = {"prs": refresh_prs, "queue": refresh_queue}[e.section]
+            refresh = {"prs": refresh_prs, "queue": refresh_queue, "runs": refresh_runs}[e.section]
             m.run(lambda: refresh(m))
+            if e.section == "queue":
+                m.run(lambda: refresh_queue_runs(m))
             if e.section == "prs":
                 m.run(lambda: refresh_others(m))
         return next(e)

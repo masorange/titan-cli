@@ -76,3 +76,4 @@ routed AI) in `references/public-plugin-stability-rules.md`.
 2. `references/public-plugin-step-registration.md`
 3. `references/public-plugin-stability-rules.md`
 4. `references/project-vs-plugin-workflow.md`
+5. `.claude/docs/workflow-step-rules.md` (step conventions, including: errors are error cards)

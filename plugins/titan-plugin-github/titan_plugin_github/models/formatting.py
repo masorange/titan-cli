@@ -37,6 +37,18 @@ def format_date(iso_date: str) -> str:
         return iso_date
 
 
+def format_duration(seconds: Optional[float]) -> str:
+    """A span as "45s", "2m 56s" or "1h 05m"; "" when unknown or negative."""
+    if seconds is None or seconds < 0:
+        return ""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m {seconds % 60:02d}s"
+    return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
+
+
 def format_relative(iso_date: Optional[str], now: Optional[datetime] = None) -> str:
     """
     How long ago a timestamp was, as a glanceable label: "3m ago", "2h ago", "5d ago".

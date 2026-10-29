@@ -83,3 +83,4 @@ workflow and check it with `validate-plugin-docs` (`.titan/workflows/`).
 2. `references/official-plugin-step-registration.md`
 3. `references/official-plugin-doc-rules.md`
 4. `references/official-plugin-decision-flow.md`
+5. `.claude/docs/workflow-step-rules.md` (step conventions, including: errors are error cards)

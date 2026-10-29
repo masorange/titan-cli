@@ -122,11 +122,9 @@ def parse_job_diagnosis(job_name: str, answer: str, excerpt: str) -> UIJobDiagno
     )
 
 
-def format_job_diagnoses(
-    pr_number: int, pr_title: str, diagnoses: Sequence[UIJobDiagnosis], model: Optional[str] = None
-) -> str:
-    """The diagnoses of a PR's failed jobs as plain text, for a PR comment, a chat or an AI session."""
-    lines: List[str] = [f"PR #{pr_number} {pr_title}", f"Diagnosed by {model or 'AI routing'}", ""]
+def format_diagnoses_report(heading: str, diagnoses: Sequence[UIJobDiagnosis], model: Optional[str] = None) -> str:
+    """The diagnoses of failed jobs as plain text under `heading`, for a comment, a chat or an AI session."""
+    lines: List[str] = [heading, f"Diagnosed by {model or 'AI routing'}", ""]
     for d in diagnoses:
         lines.append(f"✗ {d.job_name}")
         lines.append(d.cause)
@@ -138,3 +136,11 @@ def format_job_diagnoses(
                 lines.append("(this line is not in the log: do not trust the cause)")
         lines.append("")
     return "\n".join(lines)
+
+
+def format_job_diagnoses(
+    pr_number: int, pr_title: str, diagnoses: Sequence[UIJobDiagnosis], model: Optional[str] = None
+) -> str:
+    """The diagnoses of a PR's failed jobs as plain text, for a PR comment, a chat or an AI session."""
+    return format_diagnoses_report(f"PR #{pr_number} {pr_title}", diagnoses, model)
+

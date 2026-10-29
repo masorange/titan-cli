@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from titan_cli.core.mods import AIAnswer, Button, Input, Link, ModBus
+from titan_cli.core.mods import AIAnswer, Button, Input, ModBus
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIMergeQueueEntry
 
@@ -32,9 +32,12 @@ def test_draw_shows_every_section(mod, flatten, pr):
     actions = ("Review", "✓ Approve", "✗ Request changes", "✎ Comment")
     assert [label for label in pressed if label in actions] == list(actions)
     assert len({len(line) for line in lines if line.strip() in actions}) == 1
-    assert "↗ Open on GitHub" in lines
-    links = [e for e in elements(mod.draw.draw(m, 44, opts)) if isinstance(e, Link)]
-    assert links[0].url == "https://github.com/o/r/pull/5"
+    # The way to GitHub is one more action of the card, after the others.
+    assert pressed.index("↗ Open on GitHub") == pressed.index("✎ Comment") + 1
+    opened = []
+    mod.draw.webbrowser.open = opened.append
+    press(mod, m, "↗ Open on GitHub", opts)
+    assert opened == ["https://github.com/o/r/pull/5"]
     assert "⇄ Pull requests o/r · 3 open  ⚠ 1 to review" in lines
     assert "▾ Needs your review (1)" in lines
     assert "@ana · ● awaiting review  ✓ checks" in lines
@@ -119,17 +122,7 @@ class DiagnosisHost:
         self.prompts.append((prompt, model))
         return self.answer
 
-    pinned = None
-    configured = []
-
-    def ai_pinned(self, mod): return self.pinned
-    def ai_describe(self, mod): return {None: "MasOrange LLM · qwen3-coder", "cli:claude": "Claude CLI · opus"}[self.pinned]
-
-    def ai_configure(self, mod, title, on_done):
-        # Stands in for the person going through Titan's pickers and choosing Claude / opus.
-        self.configured.append((mod, title))
-        self.pinned = "cli:claude"
-        on_done()
+    def ai_describe(self, mod): return "MasOrange LLM · qwen3-coder"
 
 
 def test_diagnose_reads_each_failed_job_and_asks_the_routed_model(mod, tmp_path, monkeypatch, flatten, pr):
@@ -154,8 +147,6 @@ def test_diagnose_reads_each_failed_job_and_asks_the_routed_model(mod, tmp_path,
     assert "✦ Diagnose again (last: m1)" in lines
     assert "FooTest.bar fails" in lines
     assert "…and 1 more failed checks" in lines
-    assert "  ⟳ MasOrange LLM · qwen3-coder" in lines
-    assert "    Titan's AI default · Enter/click to change" in lines
 
 
 def test_diagnosis_failure_is_shown_not_raised(mod, tmp_path, monkeypatch, pr):
@@ -169,22 +160,6 @@ def test_diagnosis_failure_is_shown_not_raised(mod, tmp_path, monkeypatch, pr):
     mod.diagnosis.diagnose(m, 2, {"diagnosis_jobs": 3})
 
     assert m.state.get("diagnoses")["2"].error == "AI: AI is turned off for this task."
-
-
-def test_ai_picker_opens_titans_task_picker_and_shows_the_result(mod, flatten):
-    host = DiagnosisHost(None, AIAnswer())
-    bus = ModBus()
-    bus.host = host
-    m = bus.api("github")
-    mod.diagnosis.refresh_ai_label(m)
-
-    before = flatten(mod.draw.model_picker(m, {}))
-    mod.draw.model_picker(m, {}).children[1].on_press()
-    after = flatten(mod.draw.model_picker(m, {}))
-
-    assert host.configured == [("github", "PR check diagnosis")]
-    assert before[1:] == ["  ⟳ MasOrange LLM · qwen3-coder", "    Titan's AI default · Enter/click to change"]
-    assert after[1:] == ["  ⟳ Claude CLI · opus", "    pinned for this panel · Enter/click to change"]
 
 
 def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(mod, tmp_path, monkeypatch, flatten, pr):
@@ -229,7 +204,7 @@ def test_refresh_key_is_bound_at_start_and_refreshes_every_section(mod, tmp_path
     )
     bus = ModBus()
     bus.host = host
-    options = {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "f5", "queue_shown": 8}
+    options = {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "runs_refresh_seconds": 30, "refresh_key": "f5", "queue_shown": 8}
     mod.register(bus.on_for("github"), options)
 
     bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
@@ -263,7 +238,7 @@ def test_review_requests_badge_the_rail_icon_and_none_clears_it(mod, tmp_path, p
     )
     bus = ModBus()
     bus.host = host
-    mod.register(bus.on_for("github"), {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "", "queue_shown": 8})
+    mod.register(bus.on_for("github"), {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "runs_refresh_seconds": 30, "refresh_key": "", "queue_shown": 8})
     bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
 
     refresh_prs = timers[0]
@@ -284,7 +259,7 @@ def test_a_finished_or_aborted_workflow_refreshes_everything_off_its_thread(mod,
     )
     bus = ModBus()
     bus.host = host
-    mod.register(bus.on_for("github"), {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "", "queue_shown": 8})
+    mod.register(bus.on_for("github"), {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "runs_refresh_seconds": 30, "refresh_key": "", "queue_shown": 8})
     bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
     state = bus.api("github").state
     runs.clear()
@@ -343,7 +318,7 @@ def test_a_section_turned_on_while_running_refreshes_at_once_and_off_ones_do_not
     )
     bus = ModBus()
     bus.host = host
-    options = {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "refresh_key": "", "queue_shown": 8,
+    options = {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "runs_refresh_seconds": 30, "refresh_key": "", "queue_shown": 8,
                "sections": {"prs": False, "queue": True}}
     mod.register(bus.on_for("github"), options)
     bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
@@ -428,8 +403,9 @@ def test_comment_opens_a_field_and_accept_posts_it_as_a_general_comment(mod, fla
     press(mod, m, "✎ Comment")
     assert "Comment on #5" in flatten(mod.draw.draw(m, 44, {"review_workflow": "review-pr"}))
 
+    # The pane also has the search box: the comment field is the one that asks for a comment.
     field = next(e for e in elements(mod.draw.draw(m, 44, {"review_workflow": "review-pr"}))
-                 if isinstance(e, Input))
+                 if isinstance(e, Input) and e.placeholder == "Write a comment…")
     field.on_change("looks good to me")
     press(mod, m, "Accept")
 
@@ -507,9 +483,9 @@ def test_my_pr_shows_who_is_reviewing_it_under_its_own_fold(mod, flatten, pr):
     open_row(mod, m, 2, opts)
     lines = labels(mod.draw.draw(m, 44, opts), flatten)
 
-    # Two lines, four facts: what it lands on and its age, what it changes and its last touch.
-    assert "feat/2 → develop 5d ago" in lines
-    assert "+10 −2 · 3 files ↻ 2h ago" in lines
+    # Two lines, four facts: what it lands on and its last touch, what it changes and its age.
+    assert "feat/2 → develop ↻ 2h ago" in lines
+    assert "+10 −2 · 3 files 5d ago" in lines
     assert "bug, App" in lines
     # The tally is in the fold's own title, so it shows without opening it.
     assert "▸ Reviewers ✗1 ✓1 ○1" in lines
@@ -646,11 +622,11 @@ def test_fix_with_ai_hands_the_diagnosis_to_the_workflow(mod, tmp_path, monkeypa
 
     open_row(mod, m, 2, opts)
     # Before any diagnosis the button is already there: the workflow reads the logs itself.
-    press(mod, m, "⚒ Fix with AI", opts)
+    press(mod, m, "✦ Fix with AI", opts)
     assert runs == [("fix-pr-checks", {"fix_pr_number": 2, "check_diagnosis": ""})]
 
     mod.diagnosis.diagnose(m, 2, opts)
-    press(mod, m, "⚒ Fix with AI", opts)
+    press(mod, m, "✦ Fix with AI", opts)
 
     name, params = runs[-1]
     assert name == "fix-pr-checks" and params["fix_pr_number"] == 2
@@ -664,7 +640,7 @@ def test_no_fix_button_without_a_workflow(mod, flatten, pr):
 
     open_row(mod, m, 2, opts)
 
-    assert "⚒ Fix with AI" not in labels(mod.draw.draw(m, 44, opts), flatten)
+    assert "✦ Fix with AI" not in labels(mod.draw.draw(m, 44, opts), flatten)
 
 
 def test_other_prs_load_apart_and_drop_the_ones_already_listed(mod, flatten, pr):
@@ -800,7 +776,8 @@ def test_a_failed_pr_read_can_be_copied_whole(mod, flatten):
 
 def _my_pr_pane(mod, pr, slack_on, runs):
     bus = ModBus()
-    bus.host = SimpleNamespace(repaint=lambda mod: None,
+    # Opening a row reads its conversations in the background: no client here, so that read fails quietly.
+    bus.host = SimpleNamespace(repaint=lambda mod: None, run=lambda mod, fn: fn(), client=lambda name: None,
                                run_workflow=lambda mod, name, params: runs.append((name, params)))
     m = bus.api("github")
     m.state.set("prs", mod.models.Prs(mine=[pr(2, review="approved")]))
@@ -828,6 +805,13 @@ def test_no_notify_button_without_slack_or_without_a_workflow(mod, flatten, pr):
 
     m = _my_pr_pane(mod, pr, True, [])
     assert "✉ Notify channel" not in labels(mod.draw.draw(m, 44, {**NOTIFY, "notify_workflow": ""}), flatten)
+
+
+def test_no_notify_button_while_the_pr_cannot_be_merged(mod, flatten, pr):
+    m = _my_pr_pane(mod, pr, True, [])
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, review="review required")]))
+
+    assert "✉ Notify channel" not in labels(mod.draw.draw(m, 44, NOTIFY), flatten)
 
 
 def test_my_pr_actions_are_one_group_of_one_width(mod, flatten, pr):
@@ -859,3 +843,28 @@ def test_no_retry_button_before_the_mod_has_started(mod, flatten):
     m = ModBus().api("github")
     m.state.set("prs", mod.models.Prs(error="i/o timeout"))
     assert "⟳ Retry" not in labels(mod.draw.draw(m, 44, {}), flatten)
+
+
+def test_a_pr_with_open_conversations_says_so_and_offers_no_merge(mod, flatten, pr):
+    m = ModBus().api("github")
+    m.state.set("prs", mod.models.Prs(mine=[pr(2, review="ready for review")]))
+    m.state.set("threads", {"2": mod.models.Threads("done", unresolved=2)})
+    open_row(mod, m, 2, {})
+
+    lines = labels(mod.draw.draw(m, 44, {}), flatten)
+
+    assert "Not ready to merge: 2 unresolved conversations" in lines
+    assert not any("Squash" in line or "queue" in line.lower() and "Add" in line for line in lines)
+
+
+def test_opening_one_of_my_rows_asks_github_for_its_conversations(mod, pr):
+    m = ModBus().api("github")
+    asked = []
+    m.run = lambda fn: None
+    m.state.set("prs", mod.models.Prs(mine=[pr(2)], to_review=[pr(5)]))
+
+    mod.draw.open_pr_row(m, pr(2), True, False)
+    mod.draw.open_pr_row(m, pr(5), False, False)
+
+    assert (m.state.get("threads") or {}).keys() == {"2"}
+    assert asked == []

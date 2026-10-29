@@ -32,3 +32,72 @@ def test_read_others_is_its_own_read(mod, pr):
 
     github.list_all_prs = lambda: ClientError(error_message="i/o timeout")
     assert mod.sections.prs.prs.read_others(github).error == "i/o timeout"
+
+
+def test_a_review_decision_github_leaves_empty_does_not_block_the_merge(mod, pr):
+    blockers = mod.sections.prs.merge.blockers
+
+    assert blockers(pr(1, review="ready for review")) == []
+    assert blockers(pr(1, review="review required")) == ["not approved"]
+
+
+def test_unresolved_conversations_block_the_merge_and_are_counted(mod, pr):
+    blockers = mod.sections.prs.merge.blockers
+
+    assert blockers(pr(1, review="approved"), unresolved=1) == ["1 unresolved conversation"]
+    assert blockers(pr(1, review="ready for review"), unresolved=3) == ["3 unresolved conversations"]
+
+
+def test_threads_are_read_into_state_and_unknown_counts_as_none(mod):
+    from types import SimpleNamespace
+    from titan_cli.core.mods import ModBus
+    from titan_cli.core.result import ClientSuccess
+
+    m = ModBus().api("github")
+    threads = mod.sections.prs.threads
+    assert threads.unresolved(m, 7) == 0
+
+    asked = []
+    github = SimpleNamespace(get_pr_review_threads=lambda n, include_resolved: asked.append((n, include_resolved)) or ClientSuccess(data=[1, 2]))
+    m.client = lambda name: github
+
+    threads.read(m, 7)
+
+    assert asked == [(7, False)] and threads.unresolved(m, 7) == 2
+
+
+def test_a_failed_threads_read_blocks_nothing(mod):
+    from types import SimpleNamespace
+    from titan_cli.core.mods import ModBus
+    from titan_cli.core.result import ClientError
+
+    m = ModBus().api("github")
+    m.client = lambda name: SimpleNamespace(get_pr_review_threads=lambda n, include_resolved: ClientError(error_message="boom"))
+
+    mod.sections.prs.threads.read(m, 7)
+
+    assert mod.sections.prs.threads.of(m, 7).status == "error" and mod.sections.prs.threads.unresolved(m, 7) == 0
+
+
+def test_a_threads_read_that_raises_is_an_error_and_never_stays_running(mod):
+    from types import SimpleNamespace
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("github")
+    m.client = lambda name: SimpleNamespace(get_pr_review_threads=lambda n, include_resolved: 1 / 0)
+
+    mod.sections.prs.threads.read(m, 7)
+
+    assert mod.sections.prs.threads.of(m, 7).status == "error"
+
+
+def test_only_the_open_rows_of_my_prs_are_read_again(mod, pr):
+    from titan_cli.core.mods import ModBus
+
+    m = ModBus().api("github")
+    started = []
+    m.run = lambda fn: started.append(True)
+
+    mod.sections.prs.threads.reread_open(m, [pr(1), pr(2)], lambda number: number == 2)
+
+    assert list((m.state.get("threads") or {}).keys()) == ["2"] and started == [True]

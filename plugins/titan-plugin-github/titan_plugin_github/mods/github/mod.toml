@@ -2,7 +2,7 @@
 name = "github"
 version = "0.1.0"
 icon = "🔀"
-description = "Side panel with review requests (review, approve, request changes or comment on them), your PRs (with a merge button), the other open PRs, the merge queue and CI check diagnosis"
+description = "Side panel with review requests (review, approve, request changes or comment on them), your PRs (with a merge button), the other open PRs, the merge queue, the repo's latest workflow runs and CI failure diagnosis"
 requires_plugins = ["github"]
 events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
@@ -17,16 +17,26 @@ description = "Review requests with their review, approve, request-changes and c
 title = "Merge queue"
 description = "Your place in the repo's merge queue."
 
+[sections.runs]
+title = "Workflow runs"
+description = "The repo's latest GitHub Actions runs, whoever started them, with a diagnosis of why a failed one failed and buttons to re-run its failed jobs or all of them. The merge queue section lists its own runs under it."
+
 [options.prs_refresh_seconds]
 type = "int"
 title = "PRs refresh (s)"
-default = 120
+default = 30
 min = 1
 
 [options.queue_refresh_seconds]
 type = "int"
 title = "Merge queue refresh (s)"
 default = 60
+min = 1
+
+[options.runs_refresh_seconds]
+type = "int"
+title = "Workflow runs refresh (s)"
+default = 30
 min = 1
 
 [options.refresh_key]

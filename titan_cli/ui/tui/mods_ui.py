@@ -471,6 +471,61 @@ class TitanModHost:
             lambda: pick_task_provider(self._app, config, self._task_routing(mod, title), provider_saved)
         )
 
+    def ai_assist(self, mod: str, prompt: str, cwd: Optional[str]) -> Optional[str]:
+        """Open the interactive AI CLI the person set for the assistant, suspending Titan while it runs.
+
+        Resolved under the same task the `ai_code_assistant` step uses, so it is the CLI and model
+        chosen once in AI Configuration, never one asked for here. Runs on the app thread.
+        """
+        from titan_cli.ai.router import AIProviderType, AIRouteDecision, AIRoutePolicy, AITask
+        from titan_cli.external_cli.configs import CLI_REGISTRY
+        from titan_cli.core.utils import find_project_root
+        from titan_cli.external_cli.launcher import launcher_for
+
+        refusal: list = []
+
+        def launch() -> None:
+            executor = self._ai_executor()
+            if executor is None:
+                refusal.append("AI is not configured")
+                return
+            policy = AIRoutePolicy(
+                task=AITask.GENERIC_ASSISTANT,
+                executes=[AIProviderType.CLI_INTERACTIVE],
+                preferred=[AIProviderType.CLI_INTERACTIVE],
+            )
+            try:
+                decision = executor.resolve(policy=policy)
+            except Exception as e:
+                logger.warning("mod_ai_assist_resolve_failed", mod=mod, exc_info=True)
+                refusal.append(f"AI routing could not resolve: {e}")
+                return
+            if not isinstance(decision, AIRouteDecision):
+                refusal.append(f"{decision.reason}. Pick an assistant CLI in AI Configuration.")
+                return
+            if decision.provider == AIProviderType.OFF:
+                refusal.append("AI is turned off for the assistant")
+                return
+            if decision.provider != AIProviderType.CLI_INTERACTIVE or not decision.cli:
+                refusal.append("the assistant needs an interactive CLI: pick one in AI Configuration")
+                return
+            name = CLI_REGISTRY.get(decision.cli, {}).get("display_name", decision.cli)
+            logger.info("mod_ai_assist", mod=mod, cli=decision.cli)
+            with self._app.suspend():
+                launcher_for(decision.cli).launch(
+                    prompt=prompt,
+                    cwd=cwd or str(find_project_root()),
+                    model=self._app.model_for_cli(decision.cli),
+                )
+            self._app.notify(f"Back in Titan from {name}", severity="information")
+
+        if not self._on_app_thread(launch):
+            return "Titan is closing"
+        if refusal:
+            self.toast(mod, refusal[0], "warning")
+            return refusal[0]
+        return None
+
     def ai_describe(self, mod: str) -> str:
         from titan_cli.ai.router import AIRouteNeedsInput
 

@@ -12,7 +12,7 @@
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - `poetry` (dependency management)
 - `pipx` (optional, for production version)
 
@@ -64,5 +64,5 @@ titan
 The TUI is built with Textual (`titan_cli/ui/tui/`: `screens/`, `widgets/`,
 `textual_components.py`). Steps draw through the `ctx.textual` API, never Textual directly.
 
-See [Textual guide](.claude/docs/textual.md) for widgets, the step API and scrolling rules, and
+See the [Textual guide](.claude/docs/textual.md) for step structure and scrolling rules (it links the API and widget references), and
 [AGENTS.md](AGENTS.md) for the rest of the guides.

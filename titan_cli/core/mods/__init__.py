@@ -2,6 +2,7 @@
 
 from .bus import AIAnswer, DockSlot, HomeCardSlot, ModAPI, ModBus, ModHost
 from .error_card import error_card
+from .fix_with_ai import fix_with_ai_button
 from .elements import Box, Button, Input, Link, Text
 from .choice_card import Option, choice_card
 from .events import AppStart, SectionChange, StepCall, UIRender, WorkflowRun, outcome
@@ -16,6 +17,7 @@ __all__ = [
     "SectionChange",
     "Box",
     "error_card",
+    "fix_with_ai_button",
     "Option",
     "choice_card",
     "Button",

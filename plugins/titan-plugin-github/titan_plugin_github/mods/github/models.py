@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest
+from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest, UIWorkflowRun
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,40 @@ class Queue:
     total: int = 0
     entries: List[UIMergeQueueEntry] = field(default_factory=list)
     next_eta: str = ""
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Search:
+    """A search of the repo's PRs with GitHub's own syntax, and what it found.
+
+    `status` is "running" while GitHub is asked, then "done" or "error".
+    """
+
+    query: str
+    status: str = "running"
+    prs: List[UIPullRequest] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Threads:
+    """How many review conversations of a PR are still open, once GitHub has been asked."""
+
+    status: str  # "running", "done" or "error"
+    unresolved: int = 0
+    error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Runs:
+    """The latest workflow runs of the repo, newest first, as many as the pane has been asked for.
+
+    `limit` is what the next read asks GitHub for: "show more" raises it.
+    """
+
+    runs: List[UIWorkflowRun] = field(default_factory=list)
+    limit: int = 10
     error: Optional[str] = None
 
 

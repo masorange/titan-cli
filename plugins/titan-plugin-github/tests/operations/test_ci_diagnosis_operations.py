@@ -88,3 +88,16 @@ class TestBuildCheckFixPrompt:
 
     def test_no_failing_check_reported(self):
         assert "- (none reported)" in build_check_fix_prompt(42, "t", "b", [])
+
+
+def test_diagnoses_report_takes_any_heading_and_flags_a_quote_missing_from_the_log():
+    from titan_plugin_github.models.view import UIJobDiagnosis
+    from titan_plugin_github.operations import format_diagnoses_report
+
+    d = UIJobDiagnosis("unit", "bar fails", "FooTest.kt:42", "FooTest > bar FAILED", False)
+
+    text = format_diagnoses_report("Run #7 build (PR #3783)", [d], "m1")
+
+    assert text.startswith("Run #7 build (PR #3783)\nDiagnosed by m1\n")
+    assert "✗ unit" in text and "at FooTest.kt:42" in text
+    assert "(this line is not in the log: do not trust the cause)" in text

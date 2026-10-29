@@ -6,7 +6,7 @@ This guide is for contributors who want to work on Titan CLI itself.
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - [Poetry](https://python-poetry.org/) for dependency management
 - Git
 

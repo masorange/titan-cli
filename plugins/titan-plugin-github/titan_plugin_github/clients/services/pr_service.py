@@ -14,15 +14,16 @@ from titan_cli.core.logging import log_client_operation
 from titan_cli.core.logging.config import get_logger
 
 from ..network import GHNetwork, GraphQLNetwork, graphql_queries
-from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated
+from ...models.network.rest import NetworkPullRequest, NetworkPRMergeResult, NetworkPRFile, NetworkPRCreated, NetworkWorkflowRun, NetworkWorkflowJob
 from ...models.network.graphql import GraphQLMergeQueue, GraphQLPullRequestMergeQueueState
 from ...models.review_models import ReferencedCommitContext
-from ...models.view import UIPullRequest, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIFileChange, UIPRCreated
+from ...models.view import UIPullRequest, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIFileChange, UIPRCreated, UIWorkflowRun, UIFailedCheck
 from ...models.mappers import (
     from_rest_pr,
     from_network_pr_merge_result,
     from_graphql_merge_queue,
     from_graphql_merge_queue_state,
+    from_rest_workflow_run,
     from_network_pr_file,
     from_network_pr_created,
 )
@@ -245,6 +246,40 @@ class PRService:
         not a different call.
         """
         return max(max_results, PR_SCAN_LIMIT)
+
+    @log_client_operation()
+    def search_prs(self, query: str, state: str = "open", max_results: int = 30) -> ClientResult[List[UIPullRequest]]:
+        """
+        Search the repository's PRs with GitHub's own search syntax.
+
+        `query` is what GitHub's PR search box takes: free text and qualifiers such as
+        `author:ana`, `label:bug`, `review:approved`, `status:failure`, `draft:true`,
+        `base:develop`. Search has its own, lower rate limit than the rest of the API.
+
+        Args:
+            query: The search text; an empty one lists the repository's PRs as `list_all_prs` does
+            state: PR state (open, closed, merged, all)
+            max_results: Maximum number of results
+
+        Returns:
+            ClientResult[List[UIPullRequest]]
+        """
+        if not query.strip():
+            return self.list_all_prs(state, max_results)
+        try:
+            args = [
+                "pr", "list",
+                "--state", state,
+                "--limit", str(max_results),
+                "--search", query.strip(),
+                "--json", PR_LIST_FIELDS,
+            ] + self.gh.get_repo_arg()
+            prs = [from_rest_pr(NetworkPullRequest.from_json(data)) for data in json.loads(self.gh.run_command(args))]
+            return ClientSuccess(data=prs, message=f"Found {len(prs)} PRs matching the search")
+        except json.JSONDecodeError as e:
+            return ClientError(error_message=f"Failed to parse PR search: {e}", error_code="JSON_PARSE_ERROR")
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
 
     def _list_repo_prs(self, state: str, limit: int) -> ClientResult[List[UIPullRequest]]:
         """
@@ -900,6 +935,89 @@ class PRService:
             repo = self.gh.get_repo_string()
             self.gh.run_command(["api", "-X", "POST", f"/repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs"])
             return ClientSuccess(data=None, message=f"Failed jobs of run {run_id} queued to re-run")
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+
+    @log_client_operation()
+    def list_workflow_runs(
+        self, trigger: Optional[str] = None, limit: int = 10, page: int = 1
+    ) -> ClientResult[List[UIWorkflowRun]]:
+        """
+        List the repository's latest GitHub Actions runs, newest first, whoever started them.
+
+        Args:
+            trigger: Only runs started by this event, e.g. "merge_group" for the merge queue's
+            limit: Runs per page (GitHub allows up to 100)
+            page: 1-based page, to read further back
+
+        Returns:
+            ClientResult[List[UIWorkflowRun]]
+        """
+        try:
+            repo = self.gh.get_repo_string()
+            path = f"/repos/{repo}/actions/runs?per_page={max(1, min(limit, 100))}&page={max(1, page)}"
+            if trigger:
+                path += f"&event={trigger}"
+            data = json.loads(self.gh.run_command(["api", path]))
+            runs = [from_rest_workflow_run(NetworkWorkflowRun.from_json(r)) for r in data.get("workflow_runs") or []]
+            return ClientSuccess(data=runs, message=f"{len(runs)} workflow runs retrieved")
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+        except (ValueError, KeyError, TypeError) as e:
+            return ClientError(
+                error_message=f"Unexpected workflow runs response: {e}",
+                error_code="INVALID_RESPONSE",
+                log_level="warning",
+            )
+
+    @log_client_operation()
+    def get_run_failed_jobs(self, run_id: int) -> ClientResult[List[UIFailedCheck]]:
+        """
+        Get the jobs of a workflow run that did not pass, to read their logs.
+
+        Args:
+            run_id: The run id
+
+        Returns:
+            ClientResult[List[UIFailedCheck]], each with the `job_id` its log is read by
+            and the run's id as `run_id`
+        """
+        try:
+            repo = self.gh.get_repo_string()
+            data = json.loads(self.gh.run_command(["api", f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"]))
+            jobs = [NetworkWorkflowJob.from_json(j) for j in data.get("jobs") or []]
+            failed = [
+                UIFailedCheck(name=j.name, url=j.html_url, job_id=j.id, run_id=run_id)
+                for j in jobs
+                if (j.conclusion or "").lower() in ("failure", "timed_out", "cancelled", "startup_failure", "action_required")
+            ]
+            return ClientSuccess(data=failed, message=f"{len(failed)} failed jobs of run {run_id}")
+        except GitHubAPIError as e:
+            return ClientError(error_message=str(e), error_code="API_ERROR")
+        except (ValueError, KeyError, TypeError) as e:
+            return ClientError(
+                error_message=f"Unexpected jobs response: {e}",
+                error_code="INVALID_RESPONSE",
+                log_level="warning",
+            )
+
+    @log_client_operation()
+    def rerun_workflow(self, run_id: int) -> ClientResult[None]:
+        """
+        Re-run a finished GitHub Actions workflow run, every job of it.
+
+        GitHub only accepts this once the whole run has finished.
+
+        Args:
+            run_id: The run id
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            repo = self.gh.get_repo_string()
+            self.gh.run_command(["api", "-X", "POST", f"/repos/{repo}/actions/runs/{run_id}/rerun"])
+            return ClientSuccess(data=None, message=f"Run {run_id} queued to re-run")
         except GitHubAPIError as e:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 

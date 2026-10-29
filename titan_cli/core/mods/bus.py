@@ -72,6 +72,8 @@ class ModHost(Protocol):
 
     def ai_describe(self, mod: str) -> str: ...
 
+    def ai_assist(self, mod: str, prompt: str, cwd: Optional[str]) -> Optional[str]: ...
+
     def bind_key(self, mod: str, key: str, description: str, fn: Callable[[], None]) -> Optional[str]: ...
 
     def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]: ...
@@ -165,6 +167,9 @@ class _HeadlessHost:
 
     def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None:
         logger.debug("mod_ai_configure_ignored", mod=mod)
+
+    def ai_assist(self, mod: str, prompt: str, cwd: Optional[str]) -> Optional[str]:
+        return "no AI CLI in headless mode"
 
     def ai_describe(self, mod: str) -> str:
         return "AI not available"
@@ -330,6 +335,21 @@ class _ModAI:
         thread: refresh what the pane shows from there. Call it from a button.
         """
         self._bus.host.ai_configure(self._mod, title, on_done)
+
+    def assist(self, prompt: str, cwd: Optional[str] = None) -> bool:
+        """
+        Open the user's interactive AI CLI (the one set in AI Configuration for the
+        assistant, not this mod's own task) with `prompt` already typed, in `cwd` or the
+        project, and give the terminal back to Titan when it exits. Use it for "help me
+        fix this": an error, a failing check. Call it from a button or a key, on the UI
+        thread: it suspends Titan while the CLI runs. The return says whether it opened;
+        when not, a toast says why (no CLI installed, AI turned off).
+        """
+        refusal = self._bus.host.ai_assist(self._mod, prompt, cwd)
+        if refusal is not None:
+            logger.warning("mod_ai_assist_refused", mod=self._mod, reason=refusal)
+            return False
+        return True
 
     def describe(self) -> str:
         """Who would answer right now, e.g. "MasOrange LLM · qwen3-coder". May probe: call off the UI thread."""

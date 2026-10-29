@@ -140,6 +140,25 @@ class UIFailedCheck:
 
 
 @dataclass
+class UIWorkflowRun:
+    """A GitHub Actions workflow run, as the pane lists it."""
+    id: int
+    title: str  # What GitHub shows as the run's name: the PR title, "Merge group checks requested"...
+    workflow: str  # The workflow's name
+    event: str  # "pull_request", "push", "merge_group"...
+    state: str  # "running", "success", "failure", "cancelled" or "other"
+    state_label: str  # "in progress", "failed", "passed"...
+    branch: str  # Branch as GitHub names it
+    url: str = ""
+    pr_number: Optional[int] = None  # The PR a merge-queue run is for, read from its branch
+    is_merge_queue: bool = False  # Run for a merge queue entry (event merge_group)
+    age: str = ""  # "4m ago"
+    duration: str = ""  # "2m 56s", or "" while it runs
+    actor: str = ""
+    number: int = 0  # The run's own number within its workflow
+
+
+@dataclass
 class UIJobDiagnosis:
     """Why one failed CI job failed, as an AI read it from the job's log."""
     job_name: str
@@ -385,5 +404,6 @@ __all__ = [
     "UIFileChange",
     "UIPRCreated",
     "UIRelease",
+    "UIWorkflowRun",
     "UIReviewSuggestion",
 ]

@@ -1,5 +1,7 @@
 # Secrets & Security
 
+Read this when code touches a credential: tokens, API keys, passwords, secret files or environment passed to subprocesses.
+
 Titan's rule for secrets has one sentence: **no Titan API ever returns a secret
 string**. Not to steps, not to plugins, not to screens. Everything below exists
 to make that sentence structurally true, not a convention.

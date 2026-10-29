@@ -418,3 +418,9 @@ def test_pane_snapshot_is_a_copy_the_mods_cannot_change_under_the_reader():
 
     assert list(panes) == ["git"] and badges == {}
     assert list(host.panes) == ["git", "other"]
+
+
+def test_ai_assist_in_the_headless_host_refuses_instead_of_opening_anything():
+    from titan_cli.core.mods import ModBus
+
+    assert ModBus().api("dev").ai.assist("fix this") is False

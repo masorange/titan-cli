@@ -212,6 +212,28 @@ client.list_all_prs(state="open", max_results=50)
 - `state`: Optional. PR state such as `open`, `closed`, or `merged`.
 - `max_results`: Optional. Maximum number of PRs to return.
 
+### Search pull requests
+
+Searches the repository's PRs with GitHub's own search syntax, the same text its PR search box takes.
+
+**Call:**
+
+```python
+client.search_prs("author:ana label:bug review:approved", state="open", max_results=30)
+```
+
+**Parameters:**
+
+- `query`: Required. Free text and qualifiers: `author:`, `label:`, `review:`, `status:`, `draft:`,
+  `base:`, `head:`… An empty query is the plain repository listing (`list_all_prs`).
+- `state`: Optional. `open` (default), `closed`, `merged` or `all`.
+- `max_results`: Optional. Maximum number of PRs (default `30`).
+
+**Result:** `ClientSuccess` with a list of `UIPullRequest`, as every other listing returns them.
+`ClientError` (`API_ERROR`) with GitHub's reason otherwise, such as a rate limit. Unlike the
+listings above it uses GitHub's search API, which has a limit of its own (30 requests a minute),
+so call it for a search the person asked for and not on a timer.
+
 ### Count open pull requests
 
 Returns how many pull requests are open in the repository, in one GraphQL call,
@@ -415,6 +437,68 @@ client.rerun_failed_jobs(run_id=123456789)
 
 **Result:** `ClientSuccess` once GitHub has queued the re-run; `ClientError` (`API_ERROR`) with
 GitHub's reason otherwise, e.g. the run is still in progress.
+
+### List workflow runs
+
+Lists the repository's latest GitHub Actions runs, newest first, whoever started them.
+
+**Call:**
+
+```python
+client.list_workflow_runs(trigger="merge_group", limit=10, page=1)
+```
+
+**Parameters:**
+
+- `trigger`: Optional. Only runs started by this event (`"pull_request"`, `"push"`,
+  `"merge_group"`…). `"merge_group"` gives the merge queue's own runs. Default: every event.
+- `limit`: Optional. Runs per page, 1 to 100 (default `10`).
+- `page`: Optional. 1-based page, to read further back (default `1`).
+
+**Result:** `ClientSuccess` with a list of `UIWorkflowRun`: `id`, `number`, `title`
+(what GitHub shows: the PR title, "Merge group checks requested"…), `workflow`, `event`,
+`state` (`"running"`, `"success"`, `"failure"`, `"cancelled"` or `"other"`) and a readable
+`state_label`, `branch`, `url`, `age` (`"4m ago"`), `duration` (`"2m 56s"`, empty while it
+runs) and `actor`. A merge queue run (`is_merge_queue`) also has `pr_number`, read from its
+branch `gh-readonly-queue/<base>/pr-<number>-<sha>`. `ClientError` (`API_ERROR`) otherwise.
+
+### Get the failed jobs of a workflow run
+
+Returns the jobs of a run that failed, timed out or were cancelled, so their logs can be
+read (see *Get the log of a GitHub Actions job*).
+
+**Call:**
+
+```python
+client.get_run_failed_jobs(run_id=123456789)
+```
+
+**Parameters:**
+
+- `run_id`: Required. Workflow run id (`UIWorkflowRun.id`).
+
+**Result:** `ClientSuccess` with a list of `UIFailedCheck`, each with the `job_id` its log is
+read by and the run's id as `run_id`; empty when every job passed. `ClientError`
+(`API_ERROR`) otherwise.
+
+### Re-run a workflow run
+
+Re-runs every job of a finished GitHub Actions workflow run, the ones that passed too. To
+re-run only what failed use *Re-run failed jobs*. GitHub only accepts it once the whole run
+has finished.
+
+**Call:**
+
+```python
+client.rerun_workflow(run_id=123456789)
+```
+
+**Parameters:**
+
+- `run_id`: Required. Workflow run id (`UIWorkflowRun.id`).
+
+**Result:** `ClientSuccess` once GitHub has queued the re-run; `ClientError` (`API_ERROR`)
+with GitHub's reason otherwise, e.g. the run is still in progress.
 
 ### Get the merge queue state of a pull request
 

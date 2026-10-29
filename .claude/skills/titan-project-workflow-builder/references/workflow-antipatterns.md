@@ -8,3 +8,4 @@ Avoid these mistakes:
 4. Putting parsing, filtering, or orchestration logic directly inside a complex step.
 5. Creating a client for a one-off local action.
 6. Hiding parameter flow instead of making it explicit via workflow params and metadata.
+7. Showing an error as loose red text or a hand-made panel. Use `ctx.textual.error_card(...)`: the user can copy it and you can attach actions (Retry, Diagnose).
