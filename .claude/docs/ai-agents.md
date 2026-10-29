@@ -1,5 +1,7 @@
 # AI Agents
 
+Read this when you add or change an AI agent (`PRAgent`, `IssueGeneratorAgent`, `JiraAgent`) or a step that calls AI.
+
 An **agent** wraps AI generation with domain logic: it builds prompts, makes one or more
 calls, and turns the answers into something the rest of Titan can use. `PRAgent` writes a
 PR description, `IssueGeneratorAgent` writes an issue, `JiraAgent` analyses a ticket.

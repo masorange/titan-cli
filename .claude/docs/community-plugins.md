@@ -1,5 +1,7 @@
 # Community Plugins
 
+Read this when you change the community plugin installer, its dependency rules, or how plugins are discovered and pinned.
+
 ## Overview
 
 Titan supports community plugins in addition to the official plugins bundled with the CLI.

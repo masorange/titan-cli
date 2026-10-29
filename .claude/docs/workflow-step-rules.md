@@ -1,5 +1,7 @@
 # Workflow Step Rules
 
+Read this before writing or reviewing any workflow step: outputs, AI calls, secrets, and the calls a step must not make.
+
 Rules for authoring workflow steps in Titan CLI.
 
 ## Step Data Outputs

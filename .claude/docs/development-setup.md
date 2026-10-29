@@ -1,6 +1,6 @@
 # Development Setup Guide
 
-> **Audience:** Contributors and developers working on Titan CLI codebase
+Read this when you set up the dev environment, run `titan-dev`, debug, or release. First-time prerequisites and clone steps: [docs/contributing/development-setup.md](../../docs/contributing/development-setup.md), the canonical short version; this guide adds the `titan-dev` workflow, debugging, releasing and troubleshooting.
 
 > **For end users:** See [README.md](../../README.md) for installation instructions
 
@@ -242,9 +242,9 @@ poetry run pytest plugins/titan-plugin-git/tests/
 **Test with different Python versions:**
 ```bash
 # Use pyenv to switch Python versions
-pyenv install 3.10.0
-pyenv local 3.10.0
-poetry env use 3.10.0
+pyenv install 3.11.0
+pyenv local 3.11.0
+poetry env use 3.11.0
 poetry install
 ```
 
@@ -422,10 +422,7 @@ titan-dev  # Now uses the feature branch
 
 - [AGENTS.md](../../AGENTS.md) - AI development guide
 - [DEVELOPMENT.md](../../DEVELOPMENT.md) - Architecture overview
-- [Plugin Architecture](plugin-architecture.md) - Plugin development
-- [Textual Guide](textual.md) - TUI development
+- [Plugin Architecture](plugin-architecture.md) - Plugin development (conventions and testing linked from it)
+- [Textual Guide](textual.md) - TUI development (step structure; API, widgets and examples linked from it)
 - [Logging Guide](logging.md) - Logging architecture
 
----
-
-**Last updated:** 2026-08-04

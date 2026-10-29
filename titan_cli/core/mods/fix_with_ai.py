@@ -1,18 +1,15 @@
 """The "✦ Fix with AI" button for a mod's error card: opens the user's AI CLI with the error pasted in."""
-
-from .elements import Button
-
-# The workflow Titan ships that does it; a project can extend it under another name and `run` resolves that.
-FIX_WORKFLOW = "fix-with-ai"
+from titan_cli.core.mods.elements import Button
 
 
-def fix_with_ai_button(m, error: str, context: str = "", label: str = "✦ Fix with AI") -> Button:
+def fix_with_ai_button(m, error: str, context: str = "", label: str = "✦ Fix with AI", cwd: str = None) -> Button:
     """
-    A button for `error_card(actions=[...])` that hands `error` to an interactive AI CLI.
+    A button for `error_card(actions=[...])` that hands `error` to the interactive AI CLI.
 
-    The `fix-with-ai` workflow opens it, after asking, in the project; which CLI is the one set in
-    AI Configuration. `context` is whatever helps place the error (a log excerpt, the branch) and
-    goes after it. The error is never shortened, so pass what the CLI should read.
+    Pressing it opens that CLI (the one set in AI Configuration) with the error typed in,
+    through `m.ai.assist`; there is no workflow in between. `context` is whatever helps
+    place the error (a log excerpt, the branch) and goes after it. The error is never
+    shortened, so pass what the CLI should read.
     """
     text = error if not context else f"{error}\n\n{context}"
-    return Button(label, lambda: m.workflows.run(FIX_WORKFLOW, {"fix_error": text}))
+    return Button(label, lambda: m.ai.assist(f"Help me fix this error. Find its cause in the code before changing anything.\n\n{text}", cwd))

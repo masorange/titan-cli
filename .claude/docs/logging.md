@@ -1,10 +1,10 @@
 # Logging Architecture
 
-> Structured logging with structlog for Titan CLI
+Read this when you add logging to code, read a log to diagnose a run, or change log configuration. Per-component rules are in the Per-Component Rules section; what never to log is in the Security section.
 
 ---
 
-## 🎯 Overview
+## Overview
 
 Titan CLI uses [structlog](https://www.structlog.org/) for structured logging with:
 
@@ -16,7 +16,7 @@ Titan CLI uses [structlog](https://www.structlog.org/) for structured logging wi
 
 ---
 
-## 📁 Log File Locations
+## Log File Locations
 
 ### End Users (Production)
 
@@ -54,7 +54,7 @@ Same location, but logs are also displayed on console with colors.
 
 ---
 
-## 🎨 Logging Modes
+## Logging Modes
 
 ### Development Mode (titan-dev)
 
@@ -94,7 +94,7 @@ commit_failed error="No changes to commit"
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### Basic Usage
 
@@ -149,19 +149,19 @@ TITAN_ENV=development titan-dev
 
 ---
 
-## 📝 Logging Best Practices
+## Logging Best Practices
 
 ### Event Naming
 
 Use `snake_case` for event names:
 
 ```python
-# ✅ GOOD
+# GOOD
 logger.info("workflow_started")
 logger.info("pr_created")
 logger.error("api_request_failed")
 
-# ❌ BAD
+# BAD
 logger.info("Workflow Started")  # Title case
 logger.info("pr-created")        # Kebab case
 logger.info("PRCreated")         # Camel case
@@ -172,7 +172,7 @@ logger.info("PRCreated")         # Camel case
 Always include relevant context:
 
 ```python
-# ✅ GOOD
+# GOOD
 logger.info("commit_created",
     sha="abc123",
     message="feat: Add feature",
@@ -185,7 +185,7 @@ logger.error("api_error",
     error=str(e)
 )
 
-# ❌ BAD
+# BAD
 logger.info("Commit created")  # No context
 logger.error(f"API error: {e}")  # String formatting loses structure
 ```
@@ -260,7 +260,7 @@ except Exception as e:
 
 ---
 
-## 📐 Per-Component Rules
+## Per-Component Rules
 
 Each architectural layer has specific rules about what to log and what to protect.
 
@@ -281,18 +281,18 @@ Each architectural layer has specific rules about what to log and what to protec
 - Response content at any network layer
 
 ```python
-# ✅ git_network.py
+# git_network.py
 subcommand = args[1] if len(args) > 1 else "unknown"
 start = time.time()
-# ... run command ...
+# run command ...
 self._logger.debug("git_command_ok", subcommand=subcommand, duration=round(time.time() - start, 3))
 self._logger.debug("git_command_failed", subcommand=subcommand, exit_code=e.returncode, duration=...)
 
-# ✅ jira_network.py
+# jira_network.py
 self._logger.debug("jira_request_ok", method=method.upper(), endpoint=endpoint, status_code=response.status_code, duration=...)
 self._logger.debug("jira_request_failed", method=method.upper(), endpoint=endpoint, status_code=e.response.status_code, duration=...)
 
-# ✅ graphql_network.py
+# graphql_network.py
 op_type = "mutation" if operation.lstrip().startswith("mutation") else "query"
 self._logger.debug("graphql_ok", op_type=op_type, duration=...)
 ```
@@ -327,7 +327,7 @@ with best_effort_operation():
 ```
 
 ```python
-# ✅ GOOD
+# GOOD
 @log_client_operation()
 def get_branches(self) -> ClientResult[List[UIGitBranch]]:
     ...
@@ -336,7 +336,7 @@ def get_branches(self) -> ClientResult[List[UIGitBranch]]:
 def get_pull_request(self, number: int) -> ClientResult[UIPullRequest]:
     ...
 
-# ❌ BAD - manual logging inside a decorated service method
+# BAD - manual logging inside a decorated service method
 @log_client_operation()
 def get_branches(self):
     self._logger.debug("fetching branches")  # redundant, decorator handles it
@@ -374,7 +374,7 @@ Generation through a local CLI (`titan_cli/ai/headless_generator.py`) adds:
 - `response.content` — contains AI-generated text
 
 ```python
-# ✅ GOOD — just label the operation
+# GOOD — just label the operation
 request = AgentRequest(
     context=prompt,
     max_tokens=500,
@@ -383,7 +383,7 @@ request = AgentRequest(
 )
 response = self.generate(request)
 
-# ❌ BAD — manual logging around AI calls
+# BAD — manual logging around AI calls
 self._logger.debug("calling AI for commit message")
 response = self.generate(request)
 self._logger.debug("AI responded", tokens=response.tokens_used)  # already logged by base
@@ -409,17 +409,17 @@ self._logger.debug("AI responded", tokens=response.tokens_used)  # already logge
 Only add logs in steps for significant business decisions that aren't captured by services:
 
 ```python
-# ✅ OK — business decision worth logging
+# OK — business decision worth logging
 if analysis.needs_commit:
     self._logger.info("commit_required", staged_files=len(status.staged_files))
 
-# ❌ BAD — duplicates what executor already logs
+# BAD — duplicates what executor already logs
 self._logger.info("starting pr creation step")
 ```
 
 ---
 
-## 🔒 Security: What to Never Log
+## Security: What to Never Log
 
 Regardless of component or log level:
 
@@ -434,113 +434,7 @@ Regardless of component or log level:
 
 ---
 
-## 🔧 Examples by Component
-
-### In CLI Commands (cli.py)
-
-```python
-from titan_cli.core.logging import get_logger
-
-logger = get_logger("titan.cli")
-
-@app.command()
-def my_command():
-    logger.info("command_started", command="my_command")
-    try:
-        # ... command logic
-        logger.info("command_completed", duration=elapsed)
-    except Exception as e:
-        logger.exception("command_failed", command="my_command")
-        raise
-```
-
-### In Workflow Steps
-
-```python
-from titan_cli.core.logging import get_logger
-
-logger = get_logger("titan.workflows.create_pr")
-
-def create_pr_step(ctx: WorkflowContext) -> WorkflowResult:
-    logger.info("step_started", step="create_pr")
-
-    # Log operations
-    logger.debug("fetching_branches")
-    branches = ctx.git.list_branches()
-    logger.debug("branches_fetched", count=len(branches))
-
-    # Log user actions
-    branch = ctx.textual.ask_selection("Select branch", branches)
-    logger.info("user_selected_branch", branch=branch)
-
-    # Log errors
-    try:
-        pr = ctx.github.create_pr(branch)
-        logger.info("pr_created", number=pr.number, url=pr.url)
-        return Success()
-    except Exception as e:
-        logger.exception("pr_creation_failed", branch=branch)
-        return Error(f"Failed: {e}")
-```
-
-### In Plugin Services
-
-```python
-from titan_cli.core.logging import get_logger
-
-logger = get_logger("titan.plugins.jira")
-
-class JiraService:
-    def search_issues(self, jql: str) -> ClientResult[List[UIJiraIssue]]:
-        logger.debug("search_started", jql=jql)
-
-        try:
-            response = self._api.search(jql)
-            logger.info("search_completed",
-                jql=jql,
-                result_count=len(response.issues)
-            )
-            # ... process and return
-        except JiraAPIError as e:
-            logger.error("search_failed",
-                jql=jql,
-                error=str(e),
-                status_code=e.status_code
-            )
-            return ClientError(error_message=str(e))
-```
-
-### In Error Handling
-
-```python
-from titan_cli.core.logging import get_logger
-
-logger = get_logger("titan.github")
-
-def fetch_pr(pr_number: int):
-    logger.debug("fetching_pr", number=pr_number)
-
-    try:
-        pr = api.get_pull_request(pr_number)
-        logger.info("pr_fetched", number=pr_number, state=pr.state)
-        return pr
-    except NotFoundError:
-        logger.warning("pr_not_found", number=pr_number)
-        return None
-    except RateLimitError as e:
-        logger.error("rate_limit_exceeded",
-            reset_at=e.reset_at,
-            remaining=e.remaining
-        )
-        raise
-    except Exception as e:
-        logger.exception("unexpected_error", number=pr_number)
-        raise
-```
-
----
-
-## 🐛 Debugging Tips
+## Debugging Tips
 
 ### Enable Debug Mode
 
@@ -604,7 +498,7 @@ grep '^{' ~/.local/state/titan/logs/titan.log \
 
 ---
 
-## 🧹 Log Maintenance
+## Log Maintenance
 
 ### Automatic Rotation
 
@@ -640,7 +534,7 @@ rm ~/.local/state/titan/logs/*.log*
 
 ---
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Logs not being created
 
@@ -677,16 +571,3 @@ This is **expected**. Production mode only shows ERRORs on console.
 titan --verbose  # Show INFO logs
 titan --debug    # Show DEBUG logs
 ```
-
----
-
-## 📚 Resources
-
-- [Structlog Documentation](https://www.structlog.org/)
-- [Structlog Best Practices](https://www.structlog.org/en/stable/logging-best-practices.html)
-- [Python Logging HOWTO](https://docs.python.org/3/howto/logging.html)
-- [Better Stack Logging Guide](https://betterstack.com/community/guides/logging/structlog/)
-
----
-
-**Last updated:** 2026-08-04

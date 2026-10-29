@@ -1,7 +1,7 @@
 # ctx.textual Capabilities
 
 Source of truth: `titan_cli/ui/tui/textual_components.py` (grep `    def ` for the current
-list) and `.claude/docs/textual.md`. Snapshot of what exists:
+list) and `.claude/docs/textual-api.md`. Snapshot of what exists:
 
 | Need | Methods |
 |---|---|

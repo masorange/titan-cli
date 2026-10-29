@@ -172,7 +172,7 @@ The merge itself is `plugin:git/merge-branch`, run as a **nested** workflow rath
 
 Fixes the failing checks of one of your own pull requests: it reads the failed jobs' logs, checks out the PR's branch, opens an interactive AI session with those logs as its prompt, then offers to commit and push what the session changed, and puts you back on the branch you started from.
 
-The pane's AI diagnosis says *why* a check failed; this is the other half, and the **⚒ Fix with AI** button there starts it with that diagnosis already in hand.
+The pane's AI diagnosis says *why* a check failed; this is the other half, and the **✦ Fix with AI** button there starts it with that diagnosis already in hand.
 
 **Source workflow:** `plugins/titan-plugin-github/titan_plugin_github/workflows/fix-pr-checks.yaml`
 

@@ -43,6 +43,7 @@ its last step (docs, tests and the architecture review included). A task can nee
 | Workflow in a community plugin | `titan-public-plugin-workflow-builder` |
 | Deciding where workflow code lives, or what `ctx.textual` already offers | `titan-workflow-architecture` |
 | Judging a change to Review PR / Respond to PR Comments | `titan-benchmark-run` |
+| Adding or editing `AGENTS.md`, `.claude/docs/`, skills or agents; deciding where a doc goes; auditing docs | `titan-docs-keeper` |
 
 A mod that needs data the plugin client lacks is **both** `titan-plugin-capability` (the client
 function, with its docs) and `titan-mod-builder` (the mod). After either, run the
@@ -52,9 +53,15 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
 
 | Task | Guide |
 |---|---|
-| Plugin code (layers, models, mappers, services, ClientResult) | [plugin-architecture.md](.claude/docs/plugin-architecture.md) |
+| Plugin code: what each layer owns, data flow | [plugin-architecture.md](.claude/docs/plugin-architecture.md) |
+| Plugin naming, models, mappers, `ClientResult`, do/don't rules | [plugin-conventions.md](.claude/docs/plugin-conventions.md) |
+| Plugin tests and the new-capability checklist | [plugin-testing.md](.claude/docs/plugin-testing.md) |
 | Business logic in `operations/` | [operations.md](.claude/docs/operations.md) |
-| Writing a step (`ctx.textual` API, widgets, scroll rules) | [textual.md](.claude/docs/textual.md) |
+| Writing a step: structure, pitfalls, scroll rules | [textual.md](.claude/docs/textual.md) |
+| `ctx.textual` methods | [textual-api.md](.claude/docs/textual-api.md) |
+| Textual widgets and their parameters | [textual-widgets.md](.claude/docs/textual-widgets.md) |
+| Worked step examples to copy | [textual-examples.md](.claude/docs/textual-examples.md) |
+| Adding a widget or `ctx.textual` method (changing Titan itself) | [textual-extending.md](.claude/docs/textual-extending.md) |
 | Step conventions (outputs, AI, secrets, no low-level calls) | [workflow-step-rules.md](.claude/docs/workflow-step-rules.md) |
 | Workflow YAML, `extends`/hooks, Success/Skip/Error/Exit | [workflows.md](.claude/docs/workflows.md) |
 | Secrets | [security.md](.claude/docs/security.md) |
@@ -97,7 +104,7 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
   goes in the shared `ErrorCard`, so it can be copied whole and carry the actions that fix it
   (Retry, Diagnose, Ask AI…). Steps: `ctx.textual.error_card(...)`; mods: `error_card(...)` in
   a pane (a toast with `severity="error"` already opens one); never a bare red `Text`/`panel`.
-  Details in [textual.md](.claude/docs/textual.md).
+  Details in [textual-api.md](.claude/docs/textual-api.md).
 - User-facing strings live in `messages.py` (`titan_cli/messages.py`, and each plugin's own
   `messages.py`), accessed as `msg.<Group>.<NAME>`. Don't hardcode them in steps or widgets.
 

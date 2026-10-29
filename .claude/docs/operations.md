@@ -1,8 +1,8 @@
 # Operations Pattern Guide
 
-**Complete guide for implementing the Operations Pattern in Titan CLI plugins**
+Read this when you put business logic in a plugin's `operations/` or review code that does.
 
-Last updated: 2026-08-04
+**Complete guide for implementing the Operations Pattern in Titan CLI plugins**
 
 ---
 
@@ -356,7 +356,7 @@ business logic.
    ```
    Do NOT add `Examples:` / doctest blocks - the project doesn't run doctests
    and verbose mocks make docstrings unreadable. Real examples live in `/tests`
-   (see "Docstrings - NO Examples" in [plugin-architecture.md](plugin-architecture.md)).
+   (see "Docstrings - NO Examples" in [plugin-conventions.md](plugin-conventions.md)).
 
 2. **Make operations pure functions** (no side effects)
    ```python

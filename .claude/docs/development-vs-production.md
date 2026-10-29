@@ -1,6 +1,6 @@
 # Development vs Production: Understanding `titan` vs `titan-dev`
 
-> Quick reference for contributors
+Read this when you wonder which build is running (`titan` from PyPI vs `titan-dev` from this checkout) or why a change does not show up.
 
 ---
 
@@ -256,6 +256,3 @@ When you see `titan-dev` in documentation, it means:
 - ✅ You need to have run `make dev-install`
 - ❌ This command doesn't exist for end users
 
----
-
-**Last updated:** 2026-08-04
