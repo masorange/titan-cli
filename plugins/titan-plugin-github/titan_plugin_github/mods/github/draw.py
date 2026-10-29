@@ -234,7 +234,8 @@ def conflicts_fold(m, pr: UIPullRequest, options) -> Box:
                toggle, dim=True),
         is_open and Box(
             (found is None or found.status == "running") and Text("… asking git", dim=True),
-            found is not None and found.status == "error" and Text(f"Could not tell: {found.error}", color="error", wrap=True),
+            found is not None and found.status == "error" and error_card(
+                f"Could not tell: {found.error}", copy=m.ui.copy, what=f"#{pr.number} conflicts error"),
             found is not None and found.status == "done" and not found.files
             and Text(f"Nothing clashes with {pr.base_ref} any more", color="success"),
             counted and [Text(path, color="error", dim=True) for path in found.files],

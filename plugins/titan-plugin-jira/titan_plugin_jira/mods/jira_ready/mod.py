@@ -32,6 +32,7 @@ from titan_cli.core.mods import (
     ai_ask_button,
     ai_chip,
     choice_card,
+    error_card,
     refresh_ai_chip,
 )
 from titan_cli.core.result import ClientError, ClientSuccess
@@ -129,6 +130,7 @@ class CardActions:
     take: Callable[[UIJiraIssue], None]
     toggle_comments: Callable[[str], None]
     summary: Callable[[UIJiraIssue], Box]
+    copy: Callable[[str, str], None]
     toggle_move: Callable[[str], None]
     move: Callable[[UIJiraIssue, str], None]
     toggle_fix: Callable[[UIJiraIssue], None]
@@ -302,14 +304,14 @@ def description(issue: UIJiraIssue, unfolded: bool, fold) -> Optional[Box]:
     return Box(toggle, Box(*(Text(line or " ", wrap=True) for line in lines), border="subtle"))
 
 
-def parent_section(parent_key: Optional[str], parent: Optional[Parent]) -> Optional[Box]:
+def parent_section(parent_key: Optional[str], parent: Optional[Parent], copy) -> Optional[Box]:
     """A line naming the issue's parent, when it has one: its key, summary, status and a link."""
     if not parent_key:
         return None
     if parent is None or parent.status == "loading":
         return Box(Text(f"⬆ {parent_key} · loading…", dim=True))
     if parent.status == "error":
-        return Box(Text(f"⬆ {parent_key} · {parent.error}", color="error", wrap=True))
+        return error_card(parent.error or "unknown error", copy=copy, title=f"⬆ {parent_key}", what="error")
     p = parent.issue
     return Box(
         Text(Text(f"⬆ {p.key} ", dim=True), Text(p.summary, wrap=True), Text(f" · {p.status_icon} {p.status}", dim=True)),
@@ -317,12 +319,12 @@ def parent_section(parent_key: Optional[str], parent: Optional[Parent]) -> Optio
     )
 
 
-def comments_section(key: str, comments: Optional[Comments], is_open: bool, toggle) -> Optional[Box]:
+def comments_section(key: str, comments: Optional[Comments], is_open: bool, toggle, copy) -> Optional[Box]:
     """A fold with the issue's comments, oldest first; nothing at all when it has none."""
     if comments is None or comments.status == "loading":
         return Box(Text("Comments…", dim=True))
     if comments.status == "error":
-        return Box(Text(f"Comments: {comments.error}", color="error", wrap=True))
+        return error_card(comments.error or "unknown error", copy=copy, title="Comments", what="error")
     if not comments.items:
         return None
     toggle_button = Button(f"{'▾' if is_open else '▸'} Comments ({len(comments.items)})", lambda: toggle(key), dim=not is_open)
@@ -400,7 +402,7 @@ def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open
     if transitions is None or transitions.status == "loading":
         return Box(Text("Loading statuses…", dim=True), border="subtle")
     if transitions.status == "error":
-        return Box(Text(f"Statuses: {transitions.error}", color="error", wrap=True), border="subtle")
+        return error_card(transitions.error or "unknown error", copy=act.copy, title="Statuses", what="error")
     options = move_options(issue, transitions.items)
     if not options:
         return Box(Text("Jira offers no other status from here", dim=True), border="subtle")
@@ -429,7 +431,7 @@ def fix_version_section(issue: UIJiraIssue, versions: Optional[Versions], is_ope
     if versions is None or versions.status == "loading":
         return Box(Text("Loading versions…", dim=True), border="subtle")
     if versions.status == "error":
-        return Box(Text(f"Versions: {versions.error}", color="error", wrap=True), border="subtle")
+        return error_card(versions.error or "unknown error", copy=act.copy, title="Versions", what="error")
     if not versions.items:
         return Box(Text("This project has no versions", dim=True), border="subtle")
     busy = fixing == issue.key
@@ -486,9 +488,9 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
                 Text("🏷 ", ", ".join(issue.fix_versions)) if issue.fix_versions else Text("🏷 No fix version", dim=True),
                 issue.priority and Text(f"Priority: {issue.priority}", dim=True),
             ),
-            parent_section(issue.parent_key, parent),
+            parent_section(issue.parent_key, parent, act.copy),
             description(issue, unfolded, act.fold),
-            comments_section(issue.key, comments, comments_open, act.toggle_comments),
+            comments_section(issue.key, comments, comments_open, act.toggle_comments, act.copy),
             act.summary(issue),
             move_section(issue, transitions, move_open, moving, act, width),
             fix_version_section(issue, versions, fix_open, fixing, act, fix_released),
@@ -643,7 +645,7 @@ def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projec
         results_section = section(Text("🎫 Issues", bold=True, color="info"), "info", Text("Loading…", dim=True))
     elif ready.error:
         title = Text(Text("🎫 Issues", bold=True, color="error"), Text(f" {ready.project or 'All projects'}", dim=True))
-        results_section = section(title, "error", Text(ready.error, color="error", wrap=True))
+        results_section = section(title, "error", error_card(ready.error, copy=m.ui.copy, what="error"))
     else:
         count = " · loading…" if m.state.get("loading") else f" · {len(ready.issues)}{'+' if ready.more else ''}"
         title = Text(Text("🎫 Issues", bold=True, color="info"), Text(f" {ready.project or 'All projects'}{count}", dim=True))
@@ -978,7 +980,7 @@ def register(on, options):
             m.run(work)
 
         act = CardActions(select, fold, plan, take, toggle_comments,
-                          lambda issue: summary_section(m, issue, summary_work(issue)), toggle_move, move, toggle_fix, set_fix, toggle_released)
+                          lambda issue: summary_section(m, issue, summary_work(issue)), m.ui.copy, toggle_move, move, toggle_fix, set_fix, toggle_released)
         return draw(m, options, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
                    toggle_project_browse, change_project_filter, show_more_projects, change_search, submit_search,
                    clear_search, open_control, show_more, act, e.width)
