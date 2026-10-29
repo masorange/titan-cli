@@ -144,3 +144,27 @@ def test_the_help_task_offers_only_the_interactive_cli_and_the_complete_task_nev
 
     assert assist.task == "mods.github.assist" and assist.executes == [AIProviderType.CLI_INTERACTIVE]
     assert AIProviderType.CLI_INTERACTIVE not in complete.executes
+
+
+def test_every_mod_ai_request_is_logged_without_its_prompt(monkeypatch):
+    from titan_cli.ai.router import AIExecutionError, AIExecutionSuccess, AIProviderType, AIRouteDecision
+
+    decision = AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="opencode", model="gpt-oss")
+    results = [AIExecutionSuccess(decision=decision, data="a name"),
+               AIExecutionError(error_message="model not found", error_code="EXECUTION_FAILED", decision=decision)]
+    bus = ModBus()
+    host = TitanModHost(AssistApp(), bus)
+    monkeypatch.setattr(host, "_ai_executor", lambda: SimpleNamespace(generate_text=lambda *a, **k: results.pop(0)))
+    logged = []
+    monkeypatch.setattr(
+        "titan_cli.ui.tui.mods_ui.logger",
+        SimpleNamespace(info=lambda e, **kw: logged.append((e, kw)), warning=lambda e, **kw: logged.append((e, kw))),
+    )
+
+    assert host.ai("git", "a secret prompt", None, 60, None, 30).text == "a name"
+    assert host.ai("git", "a secret prompt", None, 60, None, 30).error == "model not found"
+
+    (ok, ok_fields), (bad, bad_fields) = logged
+    assert (ok, ok_fields["task"], ok_fields["cli"], ok_fields["model"]) == ("mod_ai_answered", "mods.git", "opencode", "gpt-oss")
+    assert (bad, bad_fields["error_code"], bad_fields["error"]) == ("mod_ai_refused_or_failed", "EXECUTION_FAILED", "model not found")
+    assert "secret" not in str(logged)

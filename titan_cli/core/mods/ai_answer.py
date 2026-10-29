@@ -64,6 +64,9 @@ def ask_ai(m, key: str, work: Work) -> bool:
             outcome = work(m)
             if isinstance(outcome, AIAnswer):
                 outcome = AIResult("done", outcome.text, outcome.model) if outcome.ok else AIResult("error", error=outcome.error)
+            if outcome.status == "error":
+                # `work` returned the failure instead of raising it; log it the same way.
+                m.log.warning("mod_ask_ai_failed", key=key, error=(outcome.error or "")[:500])
         except Exception as e:
             m.log.warning("mod_ask_ai_failed", key=key, exc_info=True)
             outcome = AIResult("error", error=str(e))

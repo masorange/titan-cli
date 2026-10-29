@@ -158,13 +158,14 @@ class PluginConfigWizardScreen(BaseScreen):
 
     def on_mount(self) -> None:
         """Load plugin schema and build steps."""
-        # Get plugin instance directly from registry's internal dict
-        logger.debug("plugin_config_wizard_mounted", plugin=self.plugin_name, available_plugins=list(self.config.registry._plugins.keys()))
+        # The registry loads lazily (only enabled plugins), so a plugin being
+        # configured for the first time is not loaded yet: import it now.
+        logger.debug("plugin_config_wizard_mounted", plugin=self.plugin_name)
 
-        plugin = self.config.registry._plugins.get(self.plugin_name)
+        plugin = self.config.registry.load_plugin(self.plugin_name)
 
         if not plugin:
-            available = list(self.config.registry._plugins.keys())
+            available = self.config.registry.list_discovered()
             logger.error("plugin_not_found", plugin=self.plugin_name, available=available)
             self.app.notify(f"Plugin '{self.plugin_name}' not found", severity="error")
             self.dismiss(result=False)

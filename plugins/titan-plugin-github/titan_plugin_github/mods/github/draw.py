@@ -93,14 +93,11 @@ def diagnosis_of(m, pr: UIPullRequest, options, width: int = 40) -> Box:
     run_ids = sorted({c.run_id for c in pr.failed_checks if c.run_id})
     return Box(
         Button(label, press, dim=not running),
-        d is not None and d.status == "error" and Text(f"Could not diagnose: {d.error}", color="error"),
+        d is not None and d.status == "error" and error_card(
+            f"Could not diagnose: {d.error}", copy=m.ui.copy, copy_text=diagnosis_text(pr, d), what=f"#{pr.number} error"),
         done and diagnosed_jobs(d, urls),
         done and len(pr.failed_checks) > len(d.value) and Text(f"…and {len(pr.failed_checks) - len(d.value)} more failed checks", dim=True),
-        d is not None and not running and Button(
-            "⧉ Copy " + ("error" if d.status == "error" else "diagnosis"),
-            lambda: m.ui.copy(diagnosis_text(pr, d), f"#{pr.number} " + ("error" if d.status == "error" else "diagnosis")),
-            dim=True,
-        ),
+        done and Button("⧉ Copy diagnosis", lambda: m.ui.copy(diagnosis_text(pr, d), f"#{pr.number} diagnosis"), dim=True),
         not running and choice_card(
             [
                 # A cancelled runner or a flaky test needs no fix, only another go.

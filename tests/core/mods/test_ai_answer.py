@@ -71,6 +71,18 @@ def test_asking_runs_the_work_off_the_ui_thread_and_keeps_the_answer_under_the_k
     assert ai_result(m, "summary:A-1") == AIResult("done", "It asks for X", "qwen")
 
 
+def test_a_failed_answer_returned_by_work_is_logged_like_a_raised_one(monkeypatch):
+    m, host = api()
+    logged = []
+    monkeypatch.setattr(m.log, "warning", lambda event, **kw: logged.append((event, kw)), raising=False)
+
+    ask_ai(m, "k", lambda m: AIAnswer(error="model not found"))
+    host.finish()
+
+    assert ai_result(m, "k") == AIResult("error", error="model not found")
+    assert logged == [("mod_ask_ai_failed", {"key": "k", "error": "model not found"})]
+
+
 def test_a_second_ask_under_the_same_key_while_running_starts_nothing():
     m, host = api()
     calls = []

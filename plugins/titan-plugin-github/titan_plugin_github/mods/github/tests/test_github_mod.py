@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from titan_cli.core.mods import AIAnswer, AIResult, refresh_ai_chip, Button, Input, ModBus
+from titan_cli.core.mods import AIAnswer, AIResult, refresh_ai_chip, Box, Button, Input, ModBus
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIMergeQueueEntry
 
@@ -188,7 +188,8 @@ def test_copy_puts_the_diagnosis_or_the_error_on_the_clipboard(mod, tmp_path, mo
     assert "(this line is not in the log: do not trust the cause)" in text
 
     m.state.set("ai:pr:2", AIResult("error", error="AI: quota exhausted"))
-    next(b for b in mod.draw.diagnosis_of(m, pr2, {}).children if isinstance(b, Button) and b.label.startswith("⧉")).on_press()
+    card = next(c for c in mod.draw.diagnosis_of(m, pr2, {}).children if isinstance(c, Box) and "⧉ Copy #2 error" in flatten(c))
+    next(b for b in card.children[-1].children if isinstance(b, Button)).on_press()
     assert copied[-1] == ("#2 error", "PR #2 PR 2\nCould not diagnose: AI: quota exhausted\n")
 
 

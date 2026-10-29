@@ -152,9 +152,15 @@ class OpenCodeHeadlessAdapter:
                 start_new_session=True,
             )
             text, usage = self._parse_json_output(result.stdout)
+            stderr = result.stderr.strip()
+            if result.returncode != 0 and not stderr:
+                # With `--format json` opencode reports a failed run as an "error" event on
+                # stdout and leaves stderr empty, so without this the caller only learns
+                # "exited with code 1" and never why (a model the gateway rejects, say).
+                stderr = self._error_from_events(result.stdout)
             return HeadlessResponse(
                 stdout=text,
-                stderr=result.stderr.strip(),
+                stderr=stderr,
                 exit_code=result.returncode,
                 usage=usage,
             )
@@ -170,6 +176,25 @@ class OpenCodeHeadlessAdapter:
                 stderr="opencode command not found",
                 exit_code=127,
             )
+
+    def _error_from_events(self, jsonl_output: str) -> str:
+        """The message of the last `error` event of a run's JSONL, or "" when it has none."""
+        message = ""
+        for line in (jsonl_output or "").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "error":
+                continue
+            error = event.get("error")
+            data = error.get("data") if isinstance(error, dict) else None
+            found = (data.get("message") if isinstance(data, dict) else None) or (
+                error.get("name") if isinstance(error, dict) else None
+            )
+            if found:
+                message = str(found).strip()
+        return message
 
     def _sanitize(self, text: str) -> str:
         """Strip ANSI escape codes and trailing whitespace."""

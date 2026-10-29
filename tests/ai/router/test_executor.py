@@ -257,6 +257,25 @@ def test_headless_success_passes_through_execution_options(monkeypatch):
     assert call["prompt"].startswith("be strict")
 
 
+def test_a_headless_cli_that_fails_leaves_its_stderr_in_the_log_but_not_the_prompt(monkeypatch):
+    executor = _executor(AIRouteDecision(provider=AIProviderType.CLI_HEADLESS, cli="opencode"))
+    adapter = FakeAdapter(HeadlessResponse(stdout="", stderr="Error: model not found", exit_code=1))
+    monkeypatch.setattr("titan_cli.ai.router.executor.get_headless_adapter", lambda cli: adapter)
+    logged = []
+    monkeypatch.setattr(
+        "titan_cli.ai.router.executor.logger",
+        SimpleNamespace(warning=lambda event, **kw: logged.append((event, kw)), info=lambda *a, **k: None, error=lambda *a, **k: None),
+    )
+
+    result = executor.generate_text("a secret prompt", policy=declared_step)
+
+    assert isinstance(result, AIExecutionError) and result.error_code == "EXECUTION_FAILED"
+    event, fields = logged[0]
+    assert event == "ai_executor_headless_failed"
+    assert (fields["cli"], fields["exit_code"], fields["detail"]) == ("opencode", 1, "Error: model not found")
+    assert "secret" not in str(fields)
+
+
 def test_headless_without_a_resolved_cli_never_picks_one(monkeypatch):
     """
     Resolution attaches the configured CLI, so a decision arriving without one is a bug -

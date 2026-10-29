@@ -1,7 +1,7 @@
 """The pane's element tree, drawn from `m.state` only: it never waits on the network."""
 from typing import Optional
 
-from titan_cli.core.mods import Box, Button, Input, Option, Text, choice_card, error_card
+from titan_cli.core.mods import Box, Button, Input, Option, Text, ai_assist_button, choice_card, error_card, fix_prompt
 from titan_plugin_git.models.formatting import split_squash_pr_suffix
 from titan_plugin_git.operations import filter_branches, graph_lanes, merge_sources
 
@@ -144,7 +144,17 @@ def new_branch_option(m, branch, options):
                 lambda: new_branch_api.create(m, branch.name, options),
                 variant="primary",
             ),
-            error and Text(error, color="error", wrap=True),
+            error and error_card(
+                error,
+                copy=m.ui.copy,
+                # Only the model's own failure is worth a CLI session: a taken name or a
+                # missing plugin has nothing to debug.
+                actions=[ai_assist_button(
+                    m,
+                    fix_prompt(error, "Titan's git mod asked the AI to suggest a branch name for the uncommitted work and the request failed."),
+                    "✦ Fix with AI",
+                )] if error.startswith(new_branch_api.AI_ERROR_PREFIX) else [],
+            ),
         ),
     )
 

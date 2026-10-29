@@ -109,8 +109,8 @@ Configuration. Details in [ai-agents.md](.claude/docs/ai-agents.md).
   (Retry, Diagnose, Ask AI…). Steps: `ctx.textual.error_card(...)`; mods: `error_card(...)` in
   a pane (a toast with `severity="error"` already opens one); never a bare red `Text`/`panel`.
   Details in [textual-api.md](.claude/docs/textual-api.md).
-- User-facing strings live in `messages.py` (`titan_cli/messages.py`, and each plugin's own
-  `messages.py`), accessed as `msg.<Group>.<NAME>`. Don't hardcode them in steps or widgets.
+- User-facing strings are written where they are used (steps, widgets, mods). No new
+  `messages.py` groups; the existing ones stay until their code is touched.
 
 **Plugin docs:** when you add, remove or change a public client function of an official
 plugin (or add a workflow exposing a new capability), update `docs/plugins/<plugin>/`

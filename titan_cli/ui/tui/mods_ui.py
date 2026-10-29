@@ -8,6 +8,7 @@ onto the app thread first.
 import importlib
 import pkgutil
 import threading
+import time
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from rich.markup import escape
@@ -404,7 +405,8 @@ class TitanModHost:
         # The help button opens an interactive CLI, which a one-shot `m.ai.complete` could
         # never run: that is why it has a task of its own, and why the task a mod's
         # `complete` calls run under never offers it. Only what the button can drive is
-        # offered; a remote or headless answer joins here when the button can show one.
+        # offered. A remote or headless pin is refused with a toast: showing its answer would
+        # take `ask_ai`, and the button has nowhere to draw it.
         return AIRoutePolicy(
             task=f"mods.{mod}.assist",
             executes=[AIProviderType.CLI_INTERACTIVE],
@@ -570,6 +572,7 @@ class TitanModHost:
         if executor is None:
             return AIAnswer(error="AI is not configured")
         policy = self._policy(mod)
+        started = time.monotonic()
         try:
             result = executor.generate_text(
                 prompt, policy=policy, system_prompt=system, max_tokens=max_tokens, model=model, timeout=timeout,
@@ -577,9 +580,17 @@ class TitanModHost:
         except Exception as e:
             logger.exception("mod_ai_failed", mod=mod)
             return AIAnswer(error=str(e))
-        decision_model = getattr(getattr(result, "decision", None), "model", None)
+        decision = getattr(result, "decision", None)
+        decision_model = getattr(decision, "model", None)
+        # One line per request, the prompt left out: what a mod asked, of whom, and how it ended.
+        provider = getattr(decision, "provider", None)
+        who = {"task": policy.task, "provider": getattr(provider, "value", provider), "cli": getattr(decision, "cli", None),
+               "model": decision_model or model, "duration": round(time.monotonic() - started, 3)}
         if isinstance(result, AIExecutionSuccess):
+            logger.info("mod_ai_answered", mod=mod, chars=len(result.data or ""), **who)
             return AIAnswer(text=result.data, model=decision_model or model)
+        logger.warning("mod_ai_refused_or_failed", mod=mod, error_code=getattr(result, "error_code", None),
+                       error=(result.error_message or "")[:500], **who)
         return AIAnswer(error=result.error_message, model=decision_model or model)
 
     def _ai_executor(self):

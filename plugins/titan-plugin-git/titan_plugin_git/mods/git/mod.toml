@@ -7,6 +7,7 @@ requires_plugins = ["git"]
 events = ["app.start", "workflow.run", "ui.render", "section.change"]
 slots = ["pane", "toast"]
 ai_task = "Branch name suggestion"
+ai_assist_task = "Fix git error with AI"
 
 [sections.repo]
 title = "Repository"
