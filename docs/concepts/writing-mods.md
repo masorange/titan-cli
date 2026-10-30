@@ -120,6 +120,7 @@ Every hook receives the same `m` for its mod.
 |---|---|
 | `m.ui.open(pane, title)` | Give the mod a pane in the side panel, drawn by its `ui.render` hook |
 | `m.ui.badge(pane, text, severity)` | Text under the pane's rail icon (three characters at most); `None` removes it |
+| `m.ui.widget(name, cls)` | Bring your own widget: `cls` is a Textual widget with `apply(props)` (`Updatable`). A tree draws it with `Component(name, props)`, and a redraw calls `apply` on the mounted widget, so its own state (focus, scroll) survives. `name` is global: prefix it with your mod's (`"git.graph"`). An unregistered name shows a line saying so. Titan removes it when the mod unloads. You accept the Textual coupling: Titan's `Button`, `InputField` and `PressableRow` are the catalog to copy from. |
 | `m.ui.dock(label, badge, severity, on_click)` | A tile in the dock; `None` as label removes it |
 | `m.ui.home_card(title, text, on_click)` | A card on the home screen; `None` removes it |
 | `m.ui.toast(text, severity)` | `information` or `warning`. An `error` is never a toast: it opens an error card (a modal with a copy button), so use `error_card` in your pane when the error belongs there |
@@ -179,6 +180,7 @@ Box(
 | `ai_answer_box(m, key, title, render)` | What `key` answered, with a copy button, or an error card; nothing while it runs or was never asked. `render(value)` draws the mod's own `value` instead of the text. |
 | `ai_chip(m, title)` | The "⟳ who answers" line: pressing it opens `m.ai.configure`. Fill it at start with `m.run(lambda: refresh_ai_chip(m))`. |
 | `Input(value, placeholder, on_change, on_submit)` | A one-line text field. `on_change` fires on every keystroke — keep it to an `m.state` update, never a network or disk call; `on_submit` (optional) fires on Enter, the right place to kick off a search or write to `m.store`. |
+| `Component(name, props)` | A widget registered with `m.ui.widget(name, cls)`, drawn with `props`. For what the elements above cannot say. |
 
 Colours are semantic: `primary`, `accent`, `success`, `warning`, `error`, `info`, `subtle`. Lists are flattened and falsy children (`None`, `False`, `""`, `0`, `[]`) dropped, so conditionals and comprehensions read naturally.
 

@@ -7,84 +7,21 @@ focused button keeps its focus, a field keeps its cursor). `build`, `patch` and 
 do that for a whole tree and know nothing of any panel: a mod's side panel and a workspace
 both use them.
 """
-import re
 from typing import Any, List
 
-from rich.style import Style
 from rich.text import Text as RichText
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
-from textual.widgets import Static
 
-from titan_cli.core.logging import get_logger
-from titan_cli.ui.elements import Box, Button, Input, Link, Text, plain
-from titan_cli.ui.tui import colors
-from titan_cli.ui.tui.widgets.button import Button as TitanButton
+from titan_cli.ui.elements import Box, Component
+from titan_cli.ui.elements import Button as ButtonElement
+from titan_cli.ui.elements import Input, Link, Text, plain
+from titan_cli.ui.tui.widgets.button import Button
+from titan_cli.ui.tui.widgets.element_text import COLORS, Line, link_text, to_rich
 from titan_cli.ui.tui.widgets.input_field import InputField
+from titan_cli.ui.tui.widgets.pressable_row import PressableRow
+from titan_cli.ui.tui.widgets.registry import widget_for
 from titan_cli.ui.tui.widgets.updatable import Updatable
-
-logger = get_logger(__name__)
-
-COLORS = {
-    "primary": colors.PRIMARY,
-    "accent": colors.ACCENT,
-    "success": colors.SUCCESS,
-    "warning": colors.WARNING,
-    "error": colors.ERROR,
-    "info": colors.INFO,
-    "subtle": colors.TEXT_MUTED,
-}
-
-
-def _color(name: Any) -> Any:
-    return COLORS.get(name, name) if name else None
-
-
-def to_rich(text: Text, inherited: Style = Style()) -> RichText:
-    """Flatten a `Text` element, nested spans included, into one Rich Text."""
-    style = inherited + Style(
-        color=_color(text.color), bold=text.bold or None, dim=text.dim or None
-    )
-    out = RichText(no_wrap=not text.wrap, overflow="fold" if text.wrap else "ellipsis")
-    for part in text.parts:
-        if isinstance(part, Text):
-            out.append_text(to_rich(part, style))
-        elif isinstance(part, Link):
-            out.append_text(link_text(part, style))
-        else:
-            out.append_text(with_urls(str(part), style))
-    return out
-
-
-def _link_style(url: str, inherited: Style) -> Style:
-    return inherited + Style(color=_color("info"), underline=True) + Style.from_meta({"@click": f"open_link({url!r})"})
-
-
-def link_text(link: Link, inherited: Style = Style()) -> RichText:
-    """A link's label, underlined; a click runs the `open_link` action of the line holding it."""
-    return RichText(link.label, style=_link_style(link.url, inherited))
-
-
-_URL = re.compile(r"https?://[^\s<>\"'`]+")
-
-
-def with_urls(text: str, style: Style = Style()) -> RichText:
-    """
-    Plain text whose web addresses are links. Every piece of a wrapped address carries
-    the whole URL, so a click on any of its lines opens all of it - left to the terminal,
-    only the part on the clicked line would open.
-    """
-    out = RichText()
-    at = 0
-    for match in _URL.finditer(text):
-        url = match.group().rstrip(".,;:!?")
-        if url.endswith(")") and "(" not in url:
-            url = url[:-1]
-        out.append(text[at:match.start()], style)
-        out.append(url, _link_style(url, style))
-        at = match.start() + len(url)
-    out.append(text[at:], style)
-    return out
 
 
 class _Group(Vertical):
@@ -122,101 +59,6 @@ class _Row(Horizontal):
     """
 
 
-class _Line(Static):
-    DEFAULT_CSS = """
-    _Line {
-        height: auto;
-        width: 1fr;
-    }
-    """
-
-    def action_open_link(self, url: str) -> None:
-        # A mod's URL: only the web, never file:// or a custom scheme handler.
-        if not url.startswith(("https://", "http://")):
-            logger.warning("mod_link_refused", url=url)
-            return
-        self.app.open_url(url)
-
-
-class _PressableLine(_Line, can_focus=True):
-    """A line that runs a mod's `on_press` on click or Enter."""
-
-    BINDINGS = [("enter", "press", "Toggle")]
-
-    DEFAULT_CSS = """
-    _PressableLine:hover, _PressableLine:focus {
-        background: $boost;
-    }
-    """
-
-    def __init__(self, button: Button):
-        super().__init__(self._label(button))
-        self._button = button
-
-    @staticmethod
-    def _label(button: Button) -> RichText:
-        style = Style(dim=True) if button.dim else Style()
-        if isinstance(button.label, Text):
-            return to_rich(button.label, style)
-        return RichText(button.label, style=style, no_wrap=True, overflow="ellipsis")
-
-    def apply(self, button: Button) -> None:
-        """Take a redrawn button's label and handler, keeping this widget (and its focus)."""
-        self._button = button
-        self.update(self._label(button))
-
-    def on_click(self) -> None:
-        self.action_press()
-
-    def action_press(self) -> None:
-        try:
-            self._button.on_press()
-        except Exception:
-            logger.exception("mod_button_failed", label=plain(self._button.label))
-
-
-class _ElementButton(TitanButton):
-    """
-    A `Button` with a variant, drawn as Titan's own button in its colours but one
-    row tall, so a pane can put one under every item; runs the mod's `on_press`.
-    """
-
-    VARIANTS = ("primary", "default", "success", "warning", "error")
-
-    # Titan's button is three rows with tall borders per variant and on hover;
-    # `!important` beats those more specific rules.
-    DEFAULT_CSS = """
-    _ElementButton {
-        width: auto;
-        min-width: 0;
-        height: 1 !important;
-        border: none !important;
-        padding: 0 1;
-        margin: 0 1 0 0;
-    }
-    """
-
-    def __init__(self, button: Button):
-        super().__init__(plain(button.label), variant=self._variant(button))
-        self._button = button
-
-    @classmethod
-    def _variant(cls, button: Button) -> str:
-        return button.variant if button.variant in cls.VARIANTS else "default"
-
-    def apply(self, button: Button) -> None:
-        self._button = button
-        self.label = plain(button.label)
-        self.variant = self._variant(button)
-
-    def on_button_pressed(self, event: TitanButton.Pressed) -> None:
-        event.stop()
-        try:
-            self._button.on_press()
-        except Exception:
-            logger.exception("mod_button_failed", label=plain(self._button.label))
-
-
 def _spread(texts: List[Text], width: int) -> RichText:
     """A row of texts on one line: the first at the left, the rest pushed to the right."""
     left = to_rich(texts[0])
@@ -229,15 +71,17 @@ def _spread(texts: List[Text], width: int) -> RichText:
 
 def kind(element: Any) -> type:
     """The widget class `build` makes for an element: a widget of that class can be patched to it."""
-    if isinstance(element, Button):
-        return _ElementButton if element.variant else _PressableLine
+    if isinstance(element, ButtonElement):
+        return Button if element.variant else PressableRow
     if isinstance(element, Input):
         return InputField
+    if isinstance(element, Component):
+        return widget_for(element.name) or Line
     if isinstance(element, Box):
         if _is_spread(element):
-            return _Line
+            return Line
         return _Row if element.row else _Group
-    return _Line
+    return Line
 
 
 def _is_spread(box: Box) -> bool:
@@ -245,6 +89,8 @@ def _is_spread(box: Box) -> bool:
 
 
 def _line_text(element: Any, width: int) -> RichText:
+    if isinstance(element, Component):
+        return to_rich(Text(f"component {element.name!r} is not registered", color="error"))
     if isinstance(element, Text):
         return to_rich(element)
     if isinstance(element, Link):
@@ -275,7 +121,7 @@ def _style_box(widget: Widget, box: Box, children: List[Widget]) -> None:
             child.styles.clear_rule("margin")
     widget.set_class(bool(box.border), "-bordered")
     if box.border:
-        widget.styles.border = ("round", _color(box.border))
+        widget.styles.border = ("round", COLORS.get(box.border, box.border))
     else:
         # `border` is a shorthand stored per edge.
         for edge in ("border_top", "border_right", "border_bottom", "border_left"):
@@ -285,10 +131,14 @@ def _style_box(widget: Widget, box: Box, children: List[Widget]) -> None:
 def build(element: Any, width: int) -> Widget:
     """Turn one element of a mod's tree into a widget `width` columns wide."""
     cls = kind(element)
-    if cls in (_PressableLine, _ElementButton, InputField):
+    if cls is Button:
+        return Button(plain(element.label), variant=element.variant, size="compact", on_press=element.on_press)
+    if isinstance(element, Component) and cls is not Line:
+        return cls(element.props)
+    if cls in (PressableRow, InputField):
         return cls(element)
-    if cls is _Line:
-        return _Line(_line_text(element, width))
+    if cls is Line:
+        return Line(_line_text(element, width))
     children = [build(child, _inner_width(element, width)) for child in element.children]
     widget = cls(*children)
     _style_box(widget, element, children)
@@ -311,11 +161,13 @@ def patch(widget: Widget, element: Any, width: int) -> bool:
     cls = kind(element)
     if type(widget) is not cls:
         return False
-    if cls not in (_PressableLine, _ElementButton, _Line) and not widget.is_mounted:
+    if cls not in (PressableRow, Button, Line) and not widget.is_mounted:
         return False
-    if issubclass(cls, Updatable):
+    if isinstance(element, Component) and cls is not Line:
+        widget.apply(element.props)
+    elif issubclass(cls, Updatable):
         widget.apply(element)
-    elif cls is _Line:
+    elif cls is Line:
         widget.update(_line_text(element, width))
     else:
         reconcile(widget, list(element.children), _inner_width(element, width))

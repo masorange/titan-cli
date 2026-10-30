@@ -17,6 +17,7 @@ from textual.app import App
 from titan_cli.core.logging import get_logger
 from titan_cli.core.mods import AIAnswer, AssistResult, DockSlot, HomeCardSlot, ModBus, UIRender
 from titan_cli.core.mods.keys import key_refusal
+from titan_cli.ui.tui.widgets.registry import register_widget, unregister_widget
 
 logger = get_logger(__name__)
 
@@ -32,6 +33,8 @@ class TitanModHost:
         self._dock: Dict[str, DockSlot] = {}
         # mod -> its card on the home screen, in the order the mods first asked for one
         self._home_cards: Dict[str, HomeCardSlot] = {}
+        # mod -> the widget names it registered, to take them back when it is unloaded
+        self._widgets: Dict[str, List[str]] = {}
         # pane id -> (mod that opened it, title, rail icon), in the order they were opened
         self.panes: Dict[str, Tuple[str, str, str]] = {}
         # pane id -> (text, severity) its mod put under its rail icon
@@ -63,6 +66,13 @@ class TitanModHost:
         else:
             self._dock.pop(mod, None)
         self._on_app_thread(self._paint_dock)
+
+    def widget(self, mod: str, name: str, widget: Any) -> None:
+        register_widget(name, widget)
+        with self._lock:
+            names = self._widgets.setdefault(mod, [])
+            if name not in names:
+                names.append(name)
 
     def press_dock(self, mod: str) -> None:
         """A click on a mod's dock tile: its own action, if it gave one."""
@@ -378,6 +388,10 @@ class TitanModHost:
                 self.badges.pop(pane, None)
                 if self.active == pane:
                     self.active = next(iter(self.panes), None)
+        with self._lock:
+            names = self._widgets.pop(mod, [])
+        for name in names:
+            unregister_widget(name)
         self._dock.pop(mod, None)
         self._paint_dock()
         self._home_cards.pop(mod, None)

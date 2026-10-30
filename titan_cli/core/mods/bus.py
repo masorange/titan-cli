@@ -47,6 +47,8 @@ class ModHost(Protocol):
 
     def home_card(self, mod: str, slot: Optional["HomeCardSlot"]) -> None: ...
 
+    def widget(self, mod: str, name: str, widget: Any) -> None: ...
+
     def toast(self, mod: str, text: str, severity: str) -> None: ...
 
     def copy(self, mod: str, text: str, what: str) -> None: ...
@@ -142,6 +144,9 @@ class _HeadlessHost:
 
     def home_card(self, mod: str, slot: Optional["HomeCardSlot"]) -> None:
         logger.debug("mod_home_card", mod=mod, has_card=slot is not None)
+
+    def widget(self, mod: str, name: str, widget: Any) -> None:
+        logger.debug("mod_widget", mod=mod, name=name)
 
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, length=len(text), severity=severity)
@@ -263,6 +268,15 @@ class _ModUI:
         manifest = self._bus.manifests.get(self._mod)
         icon = manifest.icon if manifest else None
         self._bus.host.home_card(self._mod, HomeCardSlot(title, text, icon, on_click))
+
+    def widget(self, name: str, widget: Any) -> None:
+        """
+        Bring your own widget: a Textual widget class with `apply(props)` (see `Updatable`).
+        A tree then draws it with `Component(name, props)` and a redraw calls `apply` on the
+        mounted widget, so its own state survives. `name` is global: prefix it with the mod's.
+        Titan removes it when the mod is unloaded.
+        """
+        self._bus.host.widget(self._mod, name, widget)
 
     def toast(self, text: str, severity: str = "information") -> None:
         """Show a toast. `severity` is `information`, `warning` or `error`."""

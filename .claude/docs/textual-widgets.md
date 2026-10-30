@@ -187,13 +187,25 @@ from titan_cli.ui.tui.widgets import StepContainer
 **Implementation**: `/titan_cli/ui/tui/widgets/step_container.py`
 
 #### Button
-Styled button widget.
+Styled button widget. `variant` is `primary`, `default`, `success`, `warning` or `error`; `size` is
+`normal` (three rows, bordered) or `compact` (one row, as wide as its label, for a pane that puts
+one under every item). With `on_press` it runs that callback itself; without it the event bubbles
+like Textual's own button. It is `Updatable`: `apply(element_button)` takes a redrawn label, variant
+and callback and keeps the widget, so a focused button stays focused. Mods and workspaces get it
+from `Button(...)` in `titan_cli.ui.elements`.
 
 ```python
 from titan_cli.ui.tui.widgets import Button
 
-# Used internally by PromptChoice
-# Typically not used directly
+Button("Save", variant="primary", id="save")
+Button("Review #5", variant="primary", size="compact", on_press=review)
 ```
+
+#### PressableRow
+A line of text that runs a callback on click or Enter, drawn as a line of its pane instead of a
+button (a fold, a picker). It is what an element `Button` without a `variant` becomes.
+`Updatable`; `PressableRow(element_button)`.
+
+**Implementation**: `/titan_cli/ui/tui/widgets/pressable_row.py`
 
 **Implementation**: `/titan_cli/ui/tui/widgets/button.py`

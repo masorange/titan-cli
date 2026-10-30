@@ -15,7 +15,8 @@ changing Titan itself needs. Building a mod: the `titan-mod-builder` skill.
   visual pieces any mod, workspace or workflow can use.
 - TUI side: `ui/tui/mods_ui.py` (`TitanModHost`, the `ModHost` implementation),
   `widgets/mod_side_panel.py` (the panel) and `widgets/element_widgets.py` (elements as widgets,
-  repainted in place through the `Updatable` contract), `widgets/dock.py`, the home card in `screens/main_menu.py`,
+  repainted in place through the `Updatable` contract; `widgets/registry.py` holds the widgets mods bring
+  with `m.ui.widget`), `widgets/dock.py`, the home card in `screens/main_menu.py`,
   `screens/mods_screen.py`, `screens/task_ai_picker.py`.
 - Events are dispatched from `app.py` (`app.start`), `textual_workflow_executor.py`
   (`workflow.run`, `step.call`), `mods_ui.py` (`ui.render`) and `ModBus.set_section`

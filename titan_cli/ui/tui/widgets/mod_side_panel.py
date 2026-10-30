@@ -23,7 +23,8 @@ from textual.widgets import Static
 from titan_cli.core.logging import get_logger
 from titan_cli.ui.elements import Text
 from titan_cli.ui.tui import colors
-from titan_cli.ui.tui.widgets.element_widgets import COLORS, reconcile
+from titan_cli.ui.tui.widgets.element_text import COLORS
+from titan_cli.ui.tui.widgets.element_widgets import reconcile
 
 logger = get_logger(__name__)
 

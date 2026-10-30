@@ -14,9 +14,9 @@ flattened, so conditionals and comprehensions read naturally:
 """
 
 from dataclasses import dataclass
-from typing import Callable, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Tuple, Union
 
-Child = Union["Text", "Box", "Button", "Input", "Link", str, None, bool]
+Child = Union["Text", "Box", "Button", "Input", "Link", "Component", str, None, bool]
 
 
 def _children(children) -> tuple:
@@ -101,6 +101,20 @@ class Button:
     on_press: Callable[[], None]
     dim: bool = False
     variant: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Component:
+    """
+    A widget registered by name (`register_widget`), drawn with `props`.
+
+    For what the elements above cannot say: a mod or workspace brings its own widget, and the
+    tree names it. A redraw hands the new `props` to the mounted widget's `apply`, so it keeps
+    its own state (focus, scroll, typed text). An unregistered name shows a line saying so.
+    """
+
+    name: str
+    props: Any = None
 
 
 def plain(label) -> str:
