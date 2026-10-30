@@ -2,7 +2,7 @@
 
 User docs: `docs/concepts/mods.md` (using) and `docs/concepts/writing-mods.md` (authoring: manifest,
 events, `m` API, elements, testing). Read those first; this page is only what a contributor
-changing Titan itself needs. Building a mod: the `titan-mod-builder` skill.
+changing Titan itself needs. Building a mod: the `titan-mod-builder` skill; a workspace: `titan-workspace-builder`.
 
 ## Where the code is
 
@@ -28,12 +28,12 @@ A workspace is loaded by the mods' own code, parametrized by `Kind` in `loader.p
 `WORKSPACES`): `workspace.toml` + `workspace.py` with `register(w, on, options)`, the same sources
 (`workspaces_path` on `plugin_base.py`, `.titan/workspaces/`, `~/.titan/workspaces/`,
 `--workspace-dir`, `TITAN_WORKSPACE_DIRS`) and the `[workspaces.<name>]` config table. `w` is a
-`ModAPI` (no event hooks); its bus puts `workspace.` before every name it hands the host, so a mod and
+`ModAPI` and `register` also gets the `on` of its bus (hooks `workflow.run`, `step.call`, `section.change`, only the events its `workspace.toml` lists; the executor runs the workspaces' bus before the mods'); its bus puts `workspace.` before every name it hands the host, so a mod and
 a workspace called alike never share timers, keys, store or AI task. `TitanApp.workspaces` is that bus;
 it uses the same `TitanModHost`. A workspace answers `w.ui.view(fn, title)` (an element tree for a
 width) and its dock tile calls `w.ui.open_workspace`, put there from `w.on_start(fn)`: `register` runs before the
 host exists (a `w.ui` call there only logs), `TitanApp.on_mount` runs `workspaces.start()` after it; `screens/workspace_screen.py` draws it with
-`reconcile`, and `TitanModHost._repaint_now` redraws it on a `w.state` change. A new capability on `m` is on `w` too: do not fork `ModAPI`.
+`reconcile`, and `TitanModHost._repaint_now` redraws it on a `w.state` change. `w.on_open(fn)` runs `fn(w, focus)` when the screen opens (`bus.opened`), with what the opener passed to `ui.open_workspace(name, focus)`. A new capability on `m` is on `w` too: do not fork `ModAPI`. Users' and authors' docs: `docs/concepts/workspaces.md`, `writing-workspaces.md`.
 
 ## Rules
 
