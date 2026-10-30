@@ -74,7 +74,7 @@ class TitanModHost:
             if name not in names:
                 names.append(name)
 
-    def open_workspace(self, mod: str, name: str) -> Optional[str]:
+    def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]:
         from titan_cli.ui.tui.screens.workspace_screen import WorkspaceScreen
 
         bus = getattr(self._app, "workspaces", None)
@@ -89,10 +89,17 @@ class TitanModHost:
             return refusal
         top = self._app.screen
         if isinstance(top, WorkspaceScreen) and top.workspace == name:
+            self._on_app_thread(lambda: bus.opened(name, focus))
             return None  # already there
         title = bus.views[name][0] or name
         logger.info("workspace_opened", mod=mod, workspace=name)
-        self._on_app_thread(lambda: self._app.push_screen(WorkspaceScreen(config, name, title)))
+
+        def push():
+            # Its `w.on_open` first, so the first draw already shows what was asked for.
+            bus.opened(name, focus)
+            self._app.push_screen(WorkspaceScreen(config, name, title))
+
+        self._on_app_thread(push)
         return None
 
     def press_dock(self, mod: str) -> None:

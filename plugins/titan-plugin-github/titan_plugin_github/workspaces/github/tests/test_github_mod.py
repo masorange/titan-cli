@@ -851,3 +851,40 @@ def test_the_dock_tile_and_the_refresh_timers_wait_for_start(mod):
 
     bus.start()
     assert docked == [("workspace.github", "GitHub")] and len(calls.ticks) == 5
+
+
+def test_opened_on_a_pr_it_unfolds_that_row_in_its_group_and_drops_a_search(mod, pr):
+    from titan_plugin_github.readers.models import Search
+
+    bus, calls = _workspace(mod)
+    _register(mod, bus)
+    state = bus.api("github").state
+    state.set("prs", models.Prs(repo="o/r", to_review=[pr(5)], mine=[pr(2)]))
+    state.set("search", Search("label:bug"))
+    state.set("search_text", "label:bug")
+
+    bus.opened("github", {"pr": 5})
+    assert state.get("review_open") is True and state.get("rows_open") == {"5": True}
+    assert state.get("search") is None and state.get("search_text") == ""
+
+    bus.opened("github", {"pr": 2})
+    assert state.get("mine_open") is True and state.get("rows_open") == {"5": True, "2": True}
+
+
+def test_opened_on_a_run_it_unfolds_the_runs_and_that_run(mod):
+    bus, calls = _workspace(mod)
+    _register(mod, bus)
+
+    bus.opened("github", {"run": 77})
+
+    state = bus.api("github").state
+    assert state.get("runs_open") is True and state.get("rows_open") == {"run:77": True}
+
+
+def test_opened_from_its_dock_tile_it_changes_nothing(mod):
+    bus, calls = _workspace(mod)
+    _register(mod, bus)
+
+    bus.opened("github", None)
+
+    assert bus.api("github").state.get("rows_open") is None

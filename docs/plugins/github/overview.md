@@ -40,7 +40,7 @@ auto_assign_prs = true
 
 ## Mod
 
-The plugin ships the `github` [mod](../../concepts/mods.md): a side-panel pane that shows the repo's GitHub at a glance (PRs waiting for your review, your PRs, the merge queue length, failing runs among the latest ten) and a **Open GitHub workspace** button. Its rail icon shows how many reviews wait for you, and a toast tells you when a review is requested or one of your PRs leaves the merge queue. It refreshes on timers and right after any workflow ends. Options (`[mods.github.options]`): `prs_refresh_seconds`, `queue_refresh_seconds`, `runs_refresh_seconds`, `queue_shown`, `refresh_key` (`f5`).
+The plugin ships the `github` [mod](../../concepts/mods.md): a side-panel pane that answers "what needs me now?". A line of totals (open PRs, to review, yours, merge queue length, failing runs), then only what asks something of you: **Review requested** (author, age, conflicts), **Your PRs** that have something to act on (checks failing, changes requested, conflicts, ready to merge, or in the merge queue with its position), and **CI failing** (the latest failed runs). Each lists three rows and counts the rest; with nothing pending it says so. Pressing a PR or a run opens the workspace with that row unfolded; **Open GitHub workspace** opens it as is. Its rail icon shows how many reviews wait for you, and a toast tells you when a review is requested or one of your PRs leaves the merge queue. It refreshes on timers and right after any workflow ends. Options (`[mods.github.options]`): `prs_refresh_seconds`, `queue_refresh_seconds`, `runs_refresh_seconds`, `queue_shown`, `refresh_key` (`f5`).
 
 ## Workspace
 

@@ -10,7 +10,7 @@ from titan_cli.ui.components import refresh_ai_chip
 from titan_plugin_github.readers import prs as prs_reader, queue as queue_reader, runs as runs_reader
 
 from . import draw
-from .sections.prs import threads
+from .sections.prs import search, threads
 
 TITLE = "GitHub"
 
@@ -81,6 +81,25 @@ def register(w, on, options):
             w.keys.bind(options["refresh_key"], "Refresh status", lambda: w.run(lambda: refresh_all(w)))
 
     w.on_start(start)
+
+    def focus(w, what):
+        """Show what the mod's pane was pressed on: a PR or a run, its row open and its group unfolded."""
+        if not isinstance(what, dict):
+            return
+        if what.get("pr"):
+            number = what["pr"]
+            prs = w.state.get("prs")
+            mine = prs is not None and any(p.number == number for p in prs.mine)
+            search.clear(w)
+            w.state.set("mine_open" if mine else "review_open", True)
+            w.state.update("rows_open", lambda rows: {**(rows or {}), str(number): True}, default={})
+            if mine:
+                threads.start(w, number)
+        elif what.get("run"):
+            w.state.set("runs_open", True)
+            w.state.update("rows_open", lambda rows: {**(rows or {}), f"run:{what['run']}": True}, default={})
+
+    w.on_open(focus)
 
     @on("section.change")
     def section_changed(m, e, next):

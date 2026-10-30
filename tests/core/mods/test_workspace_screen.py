@@ -154,3 +154,40 @@ def test_the_github_workspace_puts_its_tile_in_the_dock_on_start():
 
     assert tiles["workspace.github"].label == "GitHub"
     assert tiles["workspace.github"].on_click is not None
+
+
+def test_what_the_opener_asks_to_show_reaches_the_workspace_before_its_screen_is_pushed():
+    app = FakeApp()
+    bus = workspace_bus(app)
+    w = bus.api("jira")
+    w.ui.view(lambda width: None)
+    seen = []
+    w.on_open(lambda w, focus: seen.append((focus, len(app.pushed))))
+
+    assert w.ui.open_workspace(focus={"issue": "ABC-1"}) is True
+
+    assert seen == [({"issue": "ABC-1"}, 0)]
+
+
+def test_a_mod_can_ask_a_workspace_of_its_own_name_to_open_on_something():
+    app = FakeApp()
+    bus = workspace_bus(app)
+    seen = []
+    bus.api("github").ui.view(lambda width: None)
+    bus.api("github").on_open(lambda w, focus: seen.append(focus))
+
+    bus.api("github").ui.open_workspace("github", focus={"pr": 7})
+
+    assert seen == [{"pr": 7}]
+
+
+def test_a_workspace_that_fails_on_open_is_logged_and_still_opens():
+    app = FakeApp()
+    bus = workspace_bus(app)
+    w = bus.api("jira")
+    w.ui.view(lambda width: None)
+    w.on_open(lambda w, focus: 1 / 0)
+
+    assert w.ui.open_workspace() is True
+    assert len(app.pushed) == 1
+

@@ -56,7 +56,12 @@ class WorkspaceScreen(BaseScreen):
         bus = getattr(self.app, "workspaces", None)
         if bus is None or self.workspace not in bus.views:
             return
-        body = self.query_one("#workspace-body", VerticalScroll)
+        # A repaint can arrive between the screen being pushed and its body being composed:
+        # on_mount draws the first time, so there is nothing to patch yet.
+        bodies = self.query("#workspace-body")
+        if not bodies:
+            return
+        body = bodies.first(VerticalScroll)
         width = max(10, (body.size.width or self.size.width) - GUTTER)
         try:
             tree = bus.render_view(self.workspace, width)

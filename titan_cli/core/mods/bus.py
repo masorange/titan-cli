@@ -49,7 +49,7 @@ class ModHost(Protocol):
 
     def widget(self, mod: str, name: str, widget: Any) -> None: ...
 
-    def open_workspace(self, mod: str, name: str) -> Optional[str]: ...
+    def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]: ...
 
     def toast(self, mod: str, text: str, severity: str) -> None: ...
 
@@ -150,7 +150,7 @@ class _HeadlessHost:
     def widget(self, mod: str, name: str, widget: Any) -> None:
         logger.debug("mod_widget", mod=mod, name=name)
 
-    def open_workspace(self, mod: str, name: str) -> Optional[str]:
+    def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]:
         return "there is no screen to open it on"
 
     def toast(self, mod: str, text: str, severity: str) -> None:
@@ -233,6 +233,10 @@ class _BusView:
     def starts(self) -> Dict[str, List[Callable[["ModAPI"], None]]]:
         return self._bus.starts
 
+    @property
+    def opens(self) -> Dict[str, List[Callable[["ModAPI", Any], None]]]:
+        return self._bus.opens
+
     def set_view(self, ident: str, title: Optional[str], fn: Callable[[int], Any]) -> None:
         self._bus.views[self.name_of(ident)] = (title, fn)
 
@@ -306,14 +310,16 @@ class _ModUI:
         """
         self._bus.set_view(self._mod, title, fn)
 
-    def open_workspace(self, name: Optional[str] = None) -> bool:
+    def open_workspace(self, name: Optional[str] = None, focus: Any = None) -> bool:
         """
         Open the workspace `name` on its own screen (`Esc` comes back); with no name, this
         very workspace, which is what its dock tile does: `w.ui.dock("GitHub", on_click=w.ui.open_workspace)`.
+        `focus` is what the caller wants shown once it is open (a mod's pane sends the PR it
+        was pressed on): the workspace gets it in the function it gave to `w.on_open`.
         Refused, with a toast, when there is no such workspace: the return says whether it opened.
         Call it from a button or a key.
         """
-        refusal = self._bus.host.open_workspace(self._mod, name or self._bus.name_of(self._mod))
+        refusal = self._bus.host.open_workspace(self._mod, name or self._bus.name_of(self._mod), focus)
         if refusal is not None:
             logger.warning("workspace_open_refused", mod=self._mod, workspace=name, reason=refusal)
             return False
@@ -499,6 +505,13 @@ class ModAPI:
         """
         self._bus.starts.setdefault(self.name, []).append(fn)
 
+    def on_open(self, fn: Callable[["ModAPI", Any], None]) -> None:
+        """
+        Run `fn(w, focus)` each time the workspace is opened, with what the opener passed to
+        `open_workspace(focus=...)` (None from its dock tile). Workspaces only.
+        """
+        self._bus.opens.setdefault(self.name, []).append(fn)
+
     def client(self, name: str) -> Any:
         """
         The client of an installed, enabled plugin (`"git"`, `"github"`, ...),
@@ -543,6 +556,8 @@ class ModBus:
         self.views: Dict[str, Tuple[Optional[str], Callable[[int], Any]]] = {}
         # name -> what the workspace asked to run once the interface is up (`w.on_start`)
         self.starts: Dict[str, List[Callable[["ModAPI"], None]]] = {}
+        # name -> what the workspace asked to run each time it is opened (`w.on_open`)
+        self.opens: Dict[str, List[Callable[["ModAPI", Any], None]]] = {}
         self._hooks: Dict[str, List[_Registration]] = {event: [] for event in self.EVENTS}
         self._apis: Dict[str, ModAPI] = {}
         # name -> ModManifest of every mod that loaded (filled by the loader)
@@ -602,6 +617,7 @@ class ModBus:
         self.sections.pop(mod, None)
         self.views.pop(mod, None)
         self.starts.pop(mod, None)
+        self.opens.pop(mod, None)
 
     def start(self, mod: Optional[str] = None) -> None:
         """Run the `w.on_start` functions of `mod`, or of every workspace; one that raises is logged, not fatal."""
@@ -611,6 +627,14 @@ class ModBus:
                     fn(self.api(name))
                 except Exception:
                     logger.exception("workspace_start_failed", mod=name)
+
+    def opened(self, name: str, focus: Any = None) -> None:
+        """Run the `w.on_open` functions of workspace `name` with `focus`; one that raises is logged, not fatal."""
+        for fn in list(self.opens.get(name, [])):
+            try:
+                fn(self.api(name), focus)
+            except Exception:
+                logger.exception("workspace_open_failed", mod=name)
 
     def render_view(self, name: str, width: int) -> Any:
         """The element tree workspace `name` draws for a screen `width` columns wide; raises what its view raises."""
