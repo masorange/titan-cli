@@ -642,6 +642,30 @@ class TestOpenCodeHeadlessAdapter(unittest.TestCase):
         self.assertTrue(kwargs["start_new_session"])
 
     @patch("titan_cli.core.interrupt.run_tracked")
+    def test_a_failed_run_reports_the_error_event_it_wrote_on_stdout(self, mock_run):
+        # `--format json` reports a rejected model as an "error" event and leaves stderr
+        # empty: without reading it the caller only sees "exited with code 1".
+        events = (
+            '{"type":"step_start"}\n'
+            '{"type":"error","error":{"name":"APIError","data":{"message":"model gpt-oss does not support tool_choice"}}}\n'
+        )
+        mock_run.return_value = MagicMock(stdout=events, stderr="", returncode=1)
+
+        response = self.adapter.execute("prompt")
+
+        self.assertFalse(response.succeeded)
+        self.assertEqual(response.stderr, "model gpt-oss does not support tool_choice")
+
+    @patch("titan_cli.core.interrupt.run_tracked")
+    def test_stderr_wins_over_events_and_a_good_run_ignores_them(self, mock_run):
+        error = '{"type":"error","error":{"name":"APIError","data":{"message":"from stdout"}}}\n'
+        mock_run.return_value = MagicMock(stdout=error, stderr="from stderr", returncode=1)
+        self.assertEqual(self.adapter.execute("p").stderr, "from stderr")
+
+        mock_run.return_value = MagicMock(stdout=error, stderr="", returncode=0)
+        self.assertEqual(self.adapter.execute("p").stderr, "")
+
+    @patch("titan_cli.core.interrupt.run_tracked")
     def test_execute_exports_readonly_permission_override(self, mock_run):
         # Headless opencode auto-rejects "ask" permissions and the run dies without
         # an answer; the env var scopes read-only git allows to Titan's subprocess

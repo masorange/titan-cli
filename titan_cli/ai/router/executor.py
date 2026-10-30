@@ -732,6 +732,11 @@ class AIExecutor:
                     decision=decision,
                     details={"cli": cli, "exit_code": response.exit_code},
                 )
+            # What the CLI said on stderr is the only trace of why it failed (a bad model name,
+            # a missing login): keep the start of it, never the prompt.
+            logger.warning(
+                "ai_executor_headless_failed", cli=cli, model=model, exit_code=response.exit_code, detail=detail[:500],
+            )
             return AIExecutionError(
                 error_message=detail,
                 error_code="EXECUTION_FAILED",

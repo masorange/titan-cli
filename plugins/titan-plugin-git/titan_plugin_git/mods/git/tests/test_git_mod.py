@@ -718,3 +718,33 @@ def test_a_failed_read_can_be_copied_whole(mod, flatten, key, model):
 
     assert "fatal: ambiguous argument 'HEAD'" in flatten(tree)
     assert copied[0][1] == "error" and "fatal: ambiguous argument 'HEAD'" in copied[0][0]
+
+
+def test_a_failed_branch_name_is_an_error_card_and_only_the_models_failure_offers_fix_with_ai(mod, flatten):
+    from titan_cli.core.mods import AssistResult
+
+    opened = []
+    host = NewBranchHost(FakeGit())
+    host.ai_assist = lambda mod_, prompt, cwd: opened.append(prompt) or AssistResult(True)
+    m = open_new_branch_fold(mod, host)
+    error = mod.sections.branches.new_branch.ERROR
+
+    m.state.set(error, "AI: litellm.UnsupportedParamsError: tool_choice")
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    assert "⧉ Copy error" in lines and "✦ Fix with AI" in lines
+    next(b for b in buttons_of(mod.draw.draw(m, 44, OPTIONS)) if b.label == "✦ Fix with AI").on_press()
+    assert opened and opened[0].startswith("Help me fix this error.") and "tool_choice" in opened[0]
+
+    m.state.set(error, "feat/x already exists")
+    lines = flatten(mod.draw.draw(m, 44, OPTIONS))
+    assert "⧉ Copy error" in lines and "✦ Fix with AI" not in lines
+
+
+def buttons_of(element):
+    from titan_cli.core.mods import Button
+
+    if isinstance(element, Button):
+        yield element
+    for child in getattr(element, "children", ()) or ():
+        if child:
+            yield from buttons_of(child)

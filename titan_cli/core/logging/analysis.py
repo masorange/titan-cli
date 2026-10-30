@@ -311,6 +311,8 @@ class SessionAnalysis:
     warnings: List[EntryGroup]      # only those logged inside a step
     slow_ops: List[LogEntry]
     warnings_outside_steps: int = 0
+    # Those same warnings, grouped, for a reader that wants to show them and not only count them.
+    unattributed_warnings: List[EntryGroup] = field(default_factory=list)
     error_entry_count: int = 0        # every error-level entry
     timeline_error_count: int = 0     # of those, the ones the timeline shows
     # Errors partitioned by the step they happened in. An error inside a step
@@ -609,6 +611,7 @@ def analyze_session(session: LogSession) -> SessionAnalysis:
     # about PR #999 and TEST-123 that have nothing to do with this session.
     warnings_in_steps = [w for w in warnings if id(w) in attributed_ids]
     warnings_outside = len(warnings) - len(warnings_in_steps)
+    outside_warnings = [w for w in warnings if id(w) not in attributed_ids]
 
     return SessionAnalysis(
         session=session,
@@ -616,6 +619,7 @@ def analyze_session(session: LogSession) -> SessionAnalysis:
         errors=group_entries(other_errors),
         warnings=group_entries(warnings_in_steps),
         warnings_outside_steps=warnings_outside,
+        unattributed_warnings=group_entries(outside_warnings),
         slow_ops=slow_ops,
         error_entry_count=len(error_entries),
         timeline_error_count=len(timeline_errors),

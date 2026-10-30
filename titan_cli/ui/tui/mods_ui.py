@@ -8,13 +8,14 @@ onto the app thread first.
 import importlib
 import pkgutil
 import threading
+import time
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from rich.markup import escape
 from textual.app import App
 
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods import AIAnswer, DockSlot, HomeCardSlot, ModBus, UIRender
+from titan_cli.core.mods import AIAnswer, AssistResult, DockSlot, HomeCardSlot, ModBus, UIRender
 from titan_cli.core.mods.keys import key_refusal
 
 logger = get_logger(__name__)
@@ -397,6 +398,21 @@ class TitanModHost:
             preferred=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
         )
 
+    @staticmethod
+    def _assist_policy(mod: str):
+        from titan_cli.ai.router import AIProviderType, AIRoutePolicy
+
+        # The help button opens an interactive CLI, which a one-shot `m.ai.complete` could
+        # never run: that is why it has a task of its own, and why the task a mod's
+        # `complete` calls run under never offers it. Only what the button can drive is
+        # offered. A remote or headless pin is refused with a toast: showing its answer would
+        # take `ask_ai`, and the button has nowhere to draw it.
+        return AIRoutePolicy(
+            task=f"mods.{mod}.assist",
+            executes=[AIProviderType.CLI_INTERACTIVE],
+            preferred=[AIProviderType.CLI_INTERACTIVE],
+        )
+
     def _ai_config(self):
         return getattr(getattr(getattr(self._app, "config", None), "config", None), "ai", None)
 
@@ -415,21 +431,23 @@ class TitanModHost:
         executor = self._ai_executor()
         if executor is None:
             return []
-        return [
-            self._task_routing(name, manifest.ai_task, executor)
-            for name, manifest in self._bus.manifests.items()
-            if manifest.ai_task
-        ]
+        rows = []
+        for name, manifest in self._bus.manifests.items():
+            if manifest.ai_task:
+                rows.append(self._task_routing(name, manifest.ai_task, executor))
+            if getattr(manifest, "ai_assist_task", None):
+                rows.append(self._task_routing(name, manifest.ai_assist_task, executor, assist=True))
+        return rows
 
-    def _task_routing(self, mod: str, title: str, executor=None):
-        """This mod's task as the AI screen's task rows see one."""
+    def _task_routing(self, mod: str, title: str, executor=None, assist: bool = False):
+        """One of this mod's tasks (`mods.<mod>`, or `mods.<mod>.assist`) as the AI screen's task rows see it."""
         from titan_cli.ui.tui.screens.ai_routing import TaskRouting
 
         executor = executor or self._ai_executor()
         ai_config = self._ai_config()
         prefs = getattr(ai_config, "preferences", None)
-        pin = prefs.tasks.get(f"mods.{mod}") if prefs is not None else None
-        policy = self._policy(mod)
+        policy = self._assist_policy(mod) if assist else self._policy(mod)
+        pin = prefs.tasks.get(policy.task) if prefs is not None else None
         return TaskRouting(
             task=policy.task,
             label=title,
@@ -471,13 +489,14 @@ class TitanModHost:
             lambda: pick_task_provider(self._app, config, self._task_routing(mod, title), provider_saved)
         )
 
-    def ai_assist(self, mod: str, prompt: str, cwd: Optional[str]) -> Optional[str]:
-        """Open the interactive AI CLI the person set for the assistant, suspending Titan while it runs.
+    def ai_assist(self, mod: str, prompt: str, cwd: Optional[str]) -> AssistResult:
+        """Open the interactive AI CLI the person set for this mod's help task, suspending Titan while it runs.
 
-        Resolved under the same task the `ai_code_assistant` step uses, so it is the CLI and model
-        chosen once in AI Configuration, never one asked for here. Runs on the app thread.
+        Resolved under `mods.<mod>.assist`, so it is the CLI and model chosen in AI
+        Configuration for that task (or pinned for the session), never one asked for
+        here. Runs on the app thread; a refusal is toasted once, here.
         """
-        from titan_cli.ai.router import AIProviderType, AIRouteDecision, AIRoutePolicy, AITask
+        from titan_cli.ai.router import AIProviderType, AIRouteDecision
         from titan_cli.external_cli.configs import CLI_REGISTRY
         from titan_cli.core.utils import find_project_root
         from titan_cli.external_cli.launcher import launcher_for
@@ -489,25 +508,20 @@ class TitanModHost:
             if executor is None:
                 refusal.append("AI is not configured")
                 return
-            policy = AIRoutePolicy(
-                task=AITask.GENERIC_ASSISTANT,
-                executes=[AIProviderType.CLI_INTERACTIVE],
-                preferred=[AIProviderType.CLI_INTERACTIVE],
-            )
             try:
-                decision = executor.resolve(policy=policy)
+                decision = executor.resolve(policy=self._assist_policy(mod))
             except Exception as e:
                 logger.warning("mod_ai_assist_resolve_failed", mod=mod, exc_info=True)
                 refusal.append(f"AI routing could not resolve: {e}")
                 return
             if not isinstance(decision, AIRouteDecision):
-                refusal.append(f"{decision.reason}. Pick an assistant CLI in AI Configuration.")
+                refusal.append(f"{decision.reason}. Pick a CLI for this task in AI Configuration.")
                 return
             if decision.provider == AIProviderType.OFF:
-                refusal.append("AI is turned off for the assistant")
+                refusal.append("AI is turned off for this task")
                 return
             if decision.provider != AIProviderType.CLI_INTERACTIVE or not decision.cli:
-                refusal.append("the assistant needs an interactive CLI: pick one in AI Configuration")
+                refusal.append("this task needs an interactive CLI: pick one in AI Configuration")
                 return
             name = CLI_REGISTRY.get(decision.cli, {}).get("display_name", decision.cli)
             logger.info("mod_ai_assist", mod=mod, cli=decision.cli)
@@ -520,11 +534,11 @@ class TitanModHost:
             self._app.notify(f"Back in Titan from {name}", severity="information")
 
         if not self._on_app_thread(launch):
-            return "Titan is closing"
+            return AssistResult(False, "Titan is closing")
         if refusal:
             self.toast(mod, refusal[0], "warning")
-            return refusal[0]
-        return None
+            return AssistResult(False, refusal[0])
+        return AssistResult(True)
 
     def ai_describe(self, mod: str) -> str:
         from titan_cli.ai.router import AIRouteNeedsInput
@@ -558,6 +572,7 @@ class TitanModHost:
         if executor is None:
             return AIAnswer(error="AI is not configured")
         policy = self._policy(mod)
+        started = time.monotonic()
         try:
             result = executor.generate_text(
                 prompt, policy=policy, system_prompt=system, max_tokens=max_tokens, model=model, timeout=timeout,
@@ -565,9 +580,17 @@ class TitanModHost:
         except Exception as e:
             logger.exception("mod_ai_failed", mod=mod)
             return AIAnswer(error=str(e))
-        decision_model = getattr(getattr(result, "decision", None), "model", None)
+        decision = getattr(result, "decision", None)
+        decision_model = getattr(decision, "model", None)
+        # One line per request, the prompt left out: what a mod asked, of whom, and how it ended.
+        provider = getattr(decision, "provider", None)
+        who = {"task": policy.task, "provider": getattr(provider, "value", provider), "cli": getattr(decision, "cli", None),
+               "model": decision_model or model, "duration": round(time.monotonic() - started, 3)}
         if isinstance(result, AIExecutionSuccess):
+            logger.info("mod_ai_answered", mod=mod, chars=len(result.data or ""), **who)
             return AIAnswer(text=result.data, model=decision_model or model)
+        logger.warning("mod_ai_refused_or_failed", mod=mod, error_code=getattr(result, "error_code", None),
+                       error=(result.error_message or "")[:500], **who)
         return AIAnswer(error=result.error_message, model=decision_model or model)
 
     def _ai_executor(self):

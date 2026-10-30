@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from titan_cli.core.mods import AIAnswer, AppStart, Box, Button, ModBus, UIRender
+from titan_cli.core.mods import AIAnswer, AIResult, AppStart, Box, Button, ModBus, UIRender
 from titan_cli.core.mods.loader import import_mod
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.models import (
@@ -35,13 +35,13 @@ def issue(status="Ready to Dev", description="line one", assignee="ANA GIL") -> 
 
 
 def actions():
-    return mod.CardActions(*(Mock() for _ in range(13)))
+    return mod.CardActions(*(Mock() for _ in range(12)))
 
 
-def card(i, unfolded=False, taking=None, comments=None, comments_open=False, summary=None, act=None,
+def card(i, unfolded=False, taking=None, comments=None, comments_open=False, act=None,
          transitions=None, move_open=False, moving=None, versions=None, fix_open=False, fixing=None, fix_released=False):
     return mod.issue_card(i, "https://x/browse/PROJ-1", OPTIONS, taking, unfolded,
-                          comments, comments_open, summary, "Claude · opus", act or actions(),
+                          comments, comments_open, act or actions(),
                           transitions, move_open, moving, versions, fix_open, fixing, fix_released)
 
 
@@ -118,7 +118,7 @@ def test_the_picker_says_so_while_loading_and_when_jira_fails():
     failed = card(issue(), transitions=mod.Transitions("error", error="403"), move_open=True).children[1].children[-2]
 
     assert loading.children[0].parts == ("Loading statuses…",)
-    assert failed.children[0].parts == ("Statuses: 403",)
+    assert failed.border == "error" and [c.parts for c in failed.children[:2]] == [("Statuses",), ("403",)]
 
 
 def test_a_closed_picker_adds_nothing_and_a_move_in_progress_blocks_the_buttons():
@@ -198,7 +198,8 @@ def test_the_fix_version_picker_says_so_while_loading_failing_or_empty_and_block
         return mod.fix_version_section(issue(), versions, True, fixing, actions())
 
     assert picker(mod.Versions("loading")).children[0].parts == ("Loading versions…",)
-    assert picker(mod.Versions("error", error="403")).children[0].parts == ("Versions: 403",)
+    failed = picker(mod.Versions("error", error="403"))
+    assert failed.border == "error" and [c.parts for c in failed.children[:2]] == [("Versions",), ("403",)]
     assert picker(mod.Versions("done")).children[0].parts == ("This project has no versions",)
     assert mod.fix_version_section(issue(), None, False, None, actions()) is None
     act = actions()
@@ -502,12 +503,12 @@ def test_a_folded_description_previews_its_first_lines():
 
 
 def test_an_issue_without_comments_shows_no_comments_fold():
-    assert mod.comments_section("PROJ-1", mod.Comments("done", []), False, Mock()) is None
-    assert texts(mod.comments_section("PROJ-1", None, False, Mock())) == ["Comments…"]
+    assert mod.comments_section("PROJ-1", mod.Comments("done", []), False, Mock(), Mock()) is None
+    assert texts(mod.comments_section("PROJ-1", None, False, Mock(), Mock())) == ["Comments…"]
 
 
 def test_open_comments_show_who_said_what():
-    box = mod.comments_section("PROJ-1", mod.Comments("done", [comment("Mejor\n\nsolo Android")]), True, Mock())
+    box = mod.comments_section("PROJ-1", mod.Comments("done", [comment("Mejor\n\nsolo Android")]), True, Mock(), Mock())
 
     assert box.children[0].label == "▾ Comments (1)"
     first = box.children[1].children[0]
@@ -516,24 +517,32 @@ def test_open_comments_show_who_said_what():
 
 
 def test_a_done_summary_is_framed_with_its_model_and_can_be_copied():
-    act = actions()
-    box = mod.summary_section(issue(), mod.Summary("done", "Qué: X", "opus"), "Claude · opus", act)
+    copied = []
+    m = ModBus().api("jira_ready")
+    m.ui.copy = lambda text, what: copied.append((text, what))
+    m.state.set("ai:summary:PROJ-1", AIResult("done", "Qué: X", "opus", value=("Qué: X",)))
+    m.state.set("ai:who", "Claude · opus")
+
+    box = mod.summary_section(m, issue(), lambda m: None)
 
     assert [b.label for b in box.children[0].children] == ["✦ Summarize again", "⟳ Claude · opus"]
     framed = box.children[1]
-    assert framed.border == "accent" and texts(framed)[1] == "Qué: X"
+    assert texts(framed)[1] == "Qué: X"
     framed.children[-1].on_press()
-    act.copy_summary.assert_called_once()
+    assert copied == [("Qué: X", "answer")]
 
 
 def test_a_running_summary_cannot_be_started_twice():
-    act = actions()
-    box = mod.summary_section(issue(), mod.Summary("running", model="opus"), None, act)
+    started = []
+    m = ModBus().api("jira_ready")
+    m.state.set("ai:summary:PROJ-1", AIResult("running", model="opus"))
+
+    box = mod.summary_section(m, issue(), lambda m: started.append(True))
 
     button = box.children[0].children[0]
     assert button.label == "… summarizing with opus"
     button.on_press()
-    act.summarize.assert_not_called()
+    assert started == []
 
 
 def test_summarize_reads_the_comments_first_and_sends_them_to_the_ai():
@@ -570,7 +579,8 @@ def test_summarize_reads_the_comments_first_and_sends_them_to_the_ai():
     runs[-1]()
 
     assert "Al final solo Android" in prompts[0]
-    assert m.state.get("summaries")["PROJ-1"] == mod.Summary("done", "Qué: X", "opus")
+    done = m.state.get("ai:summary:PROJ-1")
+    assert (done.status, done.text, done.model) == ("done", "Qué: X", "opus")
 
 
 def test_move_reads_the_statuses_when_opened_and_transitions_to_the_one_pressed():
@@ -709,3 +719,18 @@ def test_a_search_ignores_status_and_filters_and_looks_through_the_whole_project
 
     assert ready.query == ('project in ("ECAPP", "ESHOP") AND (key in ("ECAPP-2268", "ESHOP-2268")) '
                            'ORDER BY key ASC')
+
+
+def test_a_failed_read_inside_an_open_issue_is_an_error_card_with_copy():
+    copied = []
+
+    def copy(text, what):
+        copied.append((what, text))
+
+    for box in (
+        mod.comments_section("PROJ-1", mod.Comments("error", error="HTTP 403"), False, Mock(), copy),
+        mod.parent_section("PROJ-0", mod.Parent("error", error="HTTP 404"), copy),
+    ):
+        assert box.border == "error"
+        next(b for b in choices(box) if b.label == "⧉ Copy error").on_press()
+    assert copied == [("error", "Comments\nHTTP 403"), ("error", "⬆ PROJ-0\nHTTP 404")]

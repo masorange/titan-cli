@@ -2,11 +2,11 @@
 import webbrowser
 from typing import Optional
 
-from titan_cli.core.mods import Box, Button, Input, Link, Option, Text, choice_card, error_card, fix_with_ai_button
+from titan_cli.core.mods import AIResult, Box, Button, Input, Link, Option, Text, ai_assist_button, choice_card, ai_result, error_card, fix_prompt
 from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest, UIWorkflowRun
 from titan_plugin_github.operations import format_diagnoses_report
 
-from .diagnosis import Diagnosis, diagnosis_text, run_key, start_diagnosis, start_run_diagnosis
+from .diagnosis import diagnosis_text, pr_key, run_key, start_diagnosis, start_run_diagnosis
 from .models import Composer, Others, Prs, Queue, Runs, Search
 from .sections.prs import actions, conflicts, merge, search, threads
 from .sections.runs import actions as run_actions, runs as runs_reader
@@ -56,7 +56,7 @@ def error_box(m, text: str, what: str = "error", retry: Optional[str] = None) ->
 ROW_INSET = 9
 
 
-def diagnose_label(d: Optional[Diagnosis]):
+def diagnose_label(d: Optional[AIResult]):
     """Whether a diagnosis is running, and what its button says."""
     running = d is not None and d.status == "running"
     if running:
@@ -66,7 +66,7 @@ def diagnose_label(d: Optional[Diagnosis]):
     return False, "✦ Diagnose failure"
 
 
-def diagnosed_jobs(d: Diagnosis, urls: dict):
+def diagnosed_jobs(d: AIResult, urls: dict):
     """What the AI found for each failed job: cause, where, and the log line it rests on."""
     return [
         Box(
@@ -77,12 +77,12 @@ def diagnosed_jobs(d: Diagnosis, urls: dict):
             j.quote and Text(f"“{j.quote}”", dim=True, wrap=True),
             j.quote and not j.is_quote_in_log and Text("  ⚠ this line is not in the log: do not trust the cause", color="warning"),
         )
-        for j in d.jobs
+        for j in d.value
     ]
 
 
 def diagnosis_of(m, pr: UIPullRequest, options, width: int = 40) -> Box:
-    d: Optional[Diagnosis] = (m.state.get("diagnoses") or {}).get(str(pr.number))
+    d: Optional[AIResult] = ai_result(m, pr_key(pr.number))
     running, label = diagnose_label(d)
 
     def press():
@@ -93,14 +93,11 @@ def diagnosis_of(m, pr: UIPullRequest, options, width: int = 40) -> Box:
     run_ids = sorted({c.run_id for c in pr.failed_checks if c.run_id})
     return Box(
         Button(label, press, dim=not running),
-        d is not None and d.status == "error" and Text(f"Could not diagnose: {d.error}", color="error"),
+        d is not None and d.status == "error" and error_card(
+            f"Could not diagnose: {d.error}", copy=m.ui.copy, copy_text=diagnosis_text(pr, d), what=f"#{pr.number} error"),
         done and diagnosed_jobs(d, urls),
-        done and len(pr.failed_checks) > len(d.jobs) and Text(f"…and {len(pr.failed_checks) - len(d.jobs)} more failed checks", dim=True),
-        d is not None and not running and Button(
-            "⧉ Copy " + ("error" if d.status == "error" else "diagnosis"),
-            lambda: m.ui.copy(diagnosis_text(pr, d), f"#{pr.number} " + ("error" if d.status == "error" else "diagnosis")),
-            dim=True,
-        ),
+        done and len(pr.failed_checks) > len(d.value) and Text(f"…and {len(pr.failed_checks) - len(d.value)} more failed checks", dim=True),
+        done and Button("⧉ Copy diagnosis", lambda: m.ui.copy(diagnosis_text(pr, d), f"#{pr.number} diagnosis"), dim=True),
         not running and choice_card(
             [
                 # A cancelled runner or a flaky test needs no fix, only another go.
@@ -237,7 +234,8 @@ def conflicts_fold(m, pr: UIPullRequest, options) -> Box:
                toggle, dim=True),
         is_open and Box(
             (found is None or found.status == "running") and Text("… asking git", dim=True),
-            found is not None and found.status == "error" and Text(f"Could not tell: {found.error}", color="error", wrap=True),
+            found is not None and found.status == "error" and error_card(
+                f"Could not tell: {found.error}", copy=m.ui.copy, what=f"#{pr.number} conflicts error"),
             found is not None and found.status == "done" and not found.files
             and Text(f"Nothing clashes with {pr.base_ref} any more", color="success"),
             counted and [Text(path, color="error", dim=True) for path in found.files],
@@ -429,13 +427,13 @@ RUN_ICON = {"running": ("●", "warning"), "success": ("✓", "success"), "failu
 
 def run_diagnosis_of(m, run: UIWorkflowRun) -> Box:
     """What the AI found for a failed run, once asked, in the shared error card; asking is in the run's Actions."""
-    d: Optional[Diagnosis] = (m.state.get("diagnoses") or {}).get(run_key(run.id))
+    d: Optional[AIResult] = ai_result(m, run_key(run.id))
     if d is None or d.status == "running":
         return Box()
     if d.status == "error":
         return error_card(f"Could not diagnose: {d.error}", copy=m.ui.copy, what="error")
     heading = f"Run #{run.number} {run.title}" + (f" (PR #{run.pr_number})" if run.pr_number else "")
-    reports = {j.job_name: format_diagnoses_report(heading, [j], d.model) for j in d.jobs}
+    reports = {j.job_name: format_diagnoses_report(heading, [j], d.model) for j in d.value}
     return Box(
         *[
             error_card(
@@ -450,9 +448,9 @@ def run_diagnosis_of(m, run: UIWorkflowRun) -> Box:
                 copy_text=reports[j.job_name],
                 what="diagnosis",
                 # The same report that is copied, handed to the user's AI CLI.
-                actions=[fix_with_ai_button(m, reports[j.job_name])],
+                actions=[ai_assist_button(m, fix_prompt(reports[j.job_name]), "✦ Fix with AI")],
             )
-            for j in d.jobs
+            for j in d.value
         ],
         gap=1,
     )
@@ -465,7 +463,7 @@ def run_actions_card(m, run: UIWorkflowRun, options, width: int):
         return Text(f"… {run_actions.PROGRESS[in_flight]}", dim=True)
     label = f"#{run.number} {run.title}"
     finished = run.state != "running"
-    d: Optional[Diagnosis] = (m.state.get("diagnoses") or {}).get(run_key(run.id))
+    d: Optional[AIResult] = ai_result(m, run_key(run.id))
     _, diagnose_text = diagnose_label(d)
     return choice_card(
         [

@@ -210,6 +210,35 @@ def test_ai_screen_lists_only_mods_that_declare_an_ai_task():
     assert TaskRoutingRow._usage_summary(SimpleNamespace(routing=routing)) == "used by mod dev"
 
 
+def test_a_mod_that_declares_an_assist_task_gets_a_second_row_of_its_own():
+    from types import SimpleNamespace
+
+    from titan_cli.ai.router import AIProviderType
+    from titan_cli.core.models import AIConfig
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    bus = ModBus()
+    bus.manifests = {
+        "dev": SimpleNamespace(ai_task="Dev diagnosis", ai_assist_task="Fix with AI"),
+        "help": SimpleNamespace(ai_task=None, ai_assist_task="Help"),
+    }
+    host = TitanModHost(SimpleNamespace(config=SimpleNamespace(config=SimpleNamespace(ai=AIConfig()))), bus)
+
+    class FakeExecutor:
+        ai_config = host._ai_config()
+
+        def resolve(self, policy):
+            return None
+
+    host._executor = FakeExecutor()
+    rows = {r.task: r for r in host.ai_routings()}
+
+    assert set(rows) == {"mods.dev", "mods.dev.assist", "mods.help.assist"}
+    assert rows["mods.dev.assist"].label == "Fix with AI" and rows["mods.dev.assist"].mod == "dev"
+    assert rows["mods.dev.assist"].executes == [AIProviderType.CLI_INTERACTIVE]
+    assert AIProviderType.CLI_INTERACTIVE not in rows["mods.dev"].executes
+
+
 def test_a_dragged_panel_stays_between_its_minimum_and_the_room_the_screen_needs():
     from titan_cli.ui.tui.widgets.mod_side_panel import MIN_MAIN_WIDTH, MIN_PANEL_WIDTH, clamp_panel_width
 
@@ -423,4 +452,4 @@ def test_pane_snapshot_is_a_copy_the_mods_cannot_change_under_the_reader():
 def test_ai_assist_in_the_headless_host_refuses_instead_of_opening_anything():
     from titan_cli.core.mods import ModBus
 
-    assert ModBus().api("dev").ai.assist("fix this") is False
+    assert ModBus().api("dev").ai.assist("fix this").opened is False

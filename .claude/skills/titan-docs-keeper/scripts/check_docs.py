@@ -18,6 +18,7 @@ KNOWN_COMMANDS = {"titan-dev"}
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 BACKTICK_PATH = re.compile(r"`((?:\.claude|docs|plugins|titan_cli|harness)/[\w./\-<>*]+)`")
 HARNESS_ID = re.compile(r"\b(?:D|F|FEAT)-\d{2,}\b")
+SHARED_WORDS = 9  # consecutive words two files must share before it is worth a look
 
 findings: list[tuple[str, str, str]] = []
 
@@ -56,6 +57,32 @@ def check_links(root: Path, f: Path) -> None:
                 continue
             if not (root / p.rstrip("/")).exists():
                 add("WARN", f"{f.relative_to(root)}:{n}", f"path not found `{p}`")
+
+
+def shared_passages(root: Path, files: list[Path]) -> None:
+    """WARN when two files carry the same run of words: a likely second copy of a fact.
+
+    Approximate on purpose (tables, code and links are stripped; wording that differs is not
+    caught), so it only warns; the judgment is the audit checklist's.
+    """
+    seen: dict[tuple[str, ...], tuple[str, int]] = {}
+    reported: set[tuple[str, str]] = set()
+    for f in files:
+        rel, in_fence = str(f.relative_to(root)), False
+        for n, line in enumerate(lines_of(f), 1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", line)
+            if in_fence or line.lstrip().startswith("|") or len(text.split()) < SHARED_WORDS:
+                continue
+            words = re.sub(r"[`*_]", "", text).lower().split()
+            for i in range(len(words) - SHARED_WORDS + 1):
+                key = tuple(words[i:i + SHARED_WORDS])
+                other = seen.setdefault(key, (rel, n))
+                if other[0] != rel and (other[0], rel) not in reported:
+                    reported.add((other[0], rel))
+                    add("WARN", f"{rel}:{n}", f"same passage as {other[0]}:{other[1]} - keep it in one home, link the other")
 
 
 def main() -> int:
@@ -128,6 +155,9 @@ def main() -> int:
         for i, line in enumerate(lines_of(f), 1):
             if HARNESS_ID.search(line):
                 add("WARN", f"{f.relative_to(root)}:{i}", "harness/feature ID cited in docs")
+
+    # Plugin AGENTS.md files share an intro template on purpose.
+    shared_passages(root, [f for f in scanned if f not in plugin_agents])
 
     order = {"ERROR": 0, "WARN": 1}
     for level, where, msg in sorted(findings, key=lambda x: (order[x[0]], x[1])):

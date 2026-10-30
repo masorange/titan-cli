@@ -20,7 +20,21 @@ confirmed search live in `m.store`, so they survive a restart.
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence
 
-from titan_cli.core.mods import Box, Button, Input, Link, Option, Text, choice_card
+from titan_cli.core.mods import (
+    AIResult,
+    Box,
+    Button,
+    Input,
+    Link,
+    Option,
+    Text,
+    ai_answer_box,
+    ai_ask_button,
+    ai_chip,
+    choice_card,
+    error_card,
+    refresh_ai_chip,
+)
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.models import (
     UIJiraComment,
@@ -107,15 +121,6 @@ class Versions:
     error: Optional[str] = None
 
 
-@dataclass(frozen=True)
-class Summary:
-    """What an AI made of an issue and its comments: running, done or error."""
-    status: str
-    text: str = ""
-    model: Optional[str] = None
-    error: Optional[str] = None
-
-
 @dataclass
 class CardActions:
     """What the open card's buttons do; the pane's `render` wires them to `m`."""
@@ -124,9 +129,8 @@ class CardActions:
     plan: Callable[[str], None]
     take: Callable[[UIJiraIssue], None]
     toggle_comments: Callable[[str], None]
-    summarize: Callable[[UIJiraIssue], None]
-    copy_summary: Callable[[UIJiraIssue], None]
-    pick_ai: Callable[[], None]
+    summary: Callable[[UIJiraIssue], Box]
+    copy: Callable[[str, str], None]
     toggle_move: Callable[[str], None]
     move: Callable[[UIJiraIssue, str], None]
     toggle_fix: Callable[[UIJiraIssue], None]
@@ -300,14 +304,14 @@ def description(issue: UIJiraIssue, unfolded: bool, fold) -> Optional[Box]:
     return Box(toggle, Box(*(Text(line or " ", wrap=True) for line in lines), border="subtle"))
 
 
-def parent_section(parent_key: Optional[str], parent: Optional[Parent]) -> Optional[Box]:
+def parent_section(parent_key: Optional[str], parent: Optional[Parent], copy) -> Optional[Box]:
     """A line naming the issue's parent, when it has one: its key, summary, status and a link."""
     if not parent_key:
         return None
     if parent is None or parent.status == "loading":
         return Box(Text(f"⬆ {parent_key} · loading…", dim=True))
     if parent.status == "error":
-        return Box(Text(f"⬆ {parent_key} · {parent.error}", color="error", wrap=True))
+        return error_card(parent.error or "unknown error", copy=copy, title=f"⬆ {parent_key}", what="error")
     p = parent.issue
     return Box(
         Text(Text(f"⬆ {p.key} ", dim=True), Text(p.summary, wrap=True), Text(f" · {p.status_icon} {p.status}", dim=True)),
@@ -315,12 +319,12 @@ def parent_section(parent_key: Optional[str], parent: Optional[Parent]) -> Optio
     )
 
 
-def comments_section(key: str, comments: Optional[Comments], is_open: bool, toggle) -> Optional[Box]:
+def comments_section(key: str, comments: Optional[Comments], is_open: bool, toggle, copy) -> Optional[Box]:
     """A fold with the issue's comments, oldest first; nothing at all when it has none."""
     if comments is None or comments.status == "loading":
         return Box(Text("Comments…", dim=True))
     if comments.status == "error":
-        return Box(Text(f"Comments: {comments.error}", color="error", wrap=True))
+        return error_card(comments.error or "unknown error", copy=copy, title="Comments", what="error")
     if not comments.items:
         return None
     toggle_button = Button(f"{'▾' if is_open else '▸'} Comments ({len(comments.items)})", lambda: toggle(key), dim=not is_open)
@@ -342,29 +346,21 @@ def comments_section(key: str, comments: Optional[Comments], is_open: bool, togg
     )
 
 
-def summary_section(issue: UIJiraIssue, summary: Optional[Summary], ai_label: Optional[str], act: CardActions) -> Box:
+def summary_key(issue: UIJiraIssue) -> str:
+    """Where the issue's summary lives in `m.state` (see `ask_ai`)."""
+    return f"summary:{issue.key}"
+
+
+def summary_section(m, issue: UIJiraIssue, work) -> Box:
     """The button that asks an AI what the issue asks for, who answers, and its last answer."""
-    running = summary is not None and summary.status == "running"
-    if running:
-        label = f"… summarizing with {summary.model or 'AI routing'}"
-    elif summary is not None and summary.status == "done":
-        label = "✦ Summarize again"
-    else:
-        label = "✦ Summarize"
-    done = summary is not None and summary.status == "done"
+    key = summary_key(issue)
     return Box(
         Box(
-            Button(label, lambda: None if running else act.summarize(issue), dim=running),
-            Button(f"⟳ {ai_label or 'AI routing'}", act.pick_ai, dim=True),
+            ai_ask_button(m, key, work, "✦ Summarize", "✦ Summarize again", "… summarizing with"),
+            ai_chip(m, "Jira issue summary"),
             row=True,
         ),
-        summary is not None and summary.status == "error" and Text(f"Could not summarize: {summary.error}", color="error", wrap=True),
-        done and Box(
-            Text(Text("✦ Summary", bold=True, color="accent"), Text(f" · {summary.model or 'AI'}", dim=True)),
-            *(Text(line or " ", wrap=True) for line in display_lines(summary.text)),
-            Button("⧉ Copy", lambda: act.copy_summary(issue), dim=True),
-            border="accent",
-        ),
+        ai_answer_box(m, key, "✦ Summary", render=lambda lines: [Text(line or " ", wrap=True) for line in lines]),
     )
 
 
@@ -406,7 +402,7 @@ def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open
     if transitions is None or transitions.status == "loading":
         return Box(Text("Loading statuses…", dim=True), border="subtle")
     if transitions.status == "error":
-        return Box(Text(f"Statuses: {transitions.error}", color="error", wrap=True), border="subtle")
+        return error_card(transitions.error or "unknown error", copy=act.copy, title="Statuses", what="error")
     options = move_options(issue, transitions.items)
     if not options:
         return Box(Text("Jira offers no other status from here", dim=True), border="subtle")
@@ -435,7 +431,7 @@ def fix_version_section(issue: UIJiraIssue, versions: Optional[Versions], is_ope
     if versions is None or versions.status == "loading":
         return Box(Text("Loading versions…", dim=True), border="subtle")
     if versions.status == "error":
-        return Box(Text(f"Versions: {versions.error}", color="error", wrap=True), border="subtle")
+        return error_card(versions.error or "unknown error", copy=act.copy, title="Versions", what="error")
     if not versions.items:
         return Box(Text("This project has no versions", dim=True), border="subtle")
     busy = fixing == issue.key
@@ -472,8 +468,8 @@ def actions(issue: UIJiraIssue, url: str, options, taking: Optional[str], moving
 
 
 def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unfolded: bool,
-               comments: Optional[Comments], comments_open: bool, summary: Optional[Summary],
-               ai_label: Optional[str], act: CardActions, transitions: Optional[Transitions] = None,
+               comments: Optional[Comments], comments_open: bool,
+               act: CardActions, transitions: Optional[Transitions] = None,
                move_open: bool = False, moving: Optional[str] = None, versions: Optional[Versions] = None,
                fix_open: bool = False, fixing: Optional[str] = None, fix_released: bool = False,
                parent: Optional[Parent] = None, width: int = 40) -> Box:
@@ -492,10 +488,10 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
                 Text("🏷 ", ", ".join(issue.fix_versions)) if issue.fix_versions else Text("🏷 No fix version", dim=True),
                 issue.priority and Text(f"Priority: {issue.priority}", dim=True),
             ),
-            parent_section(issue.parent_key, parent),
+            parent_section(issue.parent_key, parent, act.copy),
             description(issue, unfolded, act.fold),
-            comments_section(issue.key, comments, comments_open, act.toggle_comments),
-            summary_section(issue, summary, ai_label, act),
+            comments_section(issue.key, comments, comments_open, act.toggle_comments, act.copy),
+            act.summary(issue),
             move_section(issue, transitions, move_open, moving, act, width),
             fix_version_section(issue, versions, fix_open, fixing, act, fix_released),
             actions(issue, url, options, taking, moving, move_open, fix_open, act.plan, act.take,
@@ -649,7 +645,7 @@ def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projec
         results_section = section(Text("🎫 Issues", bold=True, color="info"), "info", Text("Loading…", dim=True))
     elif ready.error:
         title = Text(Text("🎫 Issues", bold=True, color="error"), Text(f" {ready.project or 'All projects'}", dim=True))
-        results_section = section(title, "error", Text(ready.error, color="error", wrap=True))
+        results_section = section(title, "error", error_card(ready.error, copy=m.ui.copy, what="error"))
     else:
         count = " · loading…" if m.state.get("loading") else f" · {len(ready.issues)}{'+' if ready.more else ''}"
         title = Text(Text("🎫 Issues", bold=True, color="info"), Text(f" {ready.project or 'All projects'}{count}", dim=True))
@@ -658,7 +654,6 @@ def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projec
         else:
             selected = m.state.get("selected")
             comments = m.state.get("comments") or {}
-            summaries = m.state.get("summaries") or {}
             transitions = m.state.get("transitions") or {}
             versions = m.state.get("versions") or {}
             parents = m.state.get("parents") or {}
@@ -670,8 +665,7 @@ def draw(m, options, toggle_status, toggle_filter, toggle_project, change_projec
                     *(
                         issue_card(i, ready.urls.get(i.key, ""), options, m.state.get("taking"),
                                    m.state.get("unfolded") == i.key, comments.get(i.key),
-                                   m.state.get("comments_open") == i.key, summaries.get(i.key),
-                                   m.state.get("ai_label"), act, transitions.get(i.key),
+                                   m.state.get("comments_open") == i.key, act, transitions.get(i.key),
                                    m.state.get("move_open") == i.key, m.state.get("moving"),
                                    versions.get(project_key(i.key)), m.state.get("fix_open") == i.key,
                                    m.state.get("fixing"), bool(m.state.get("fix_released")),
@@ -787,30 +781,25 @@ def register(on, options):
             case ClientError(error_message=message):
                 put(Versions("error", error=message))
 
-    def summarize(m, issue: UIJiraIssue) -> None:
-        """Ask the AI what `issue` asks for, its comments included; off the UI thread."""
-        def put(s):
-            m.state.update("summaries", lambda all_: {**(all_ or {}), issue.key: s}, default={})
+    def summary_work(issue: UIJiraIssue):
+        """What `ask_ai` runs for `issue`: its comments, then the AI's summary."""
+        def work(m):
+            known: Optional[Comments] = (m.state.get("comments") or {}).get(issue.key)
+            # A comment may refine or settle the description: never summarize without them.
+            comments = known.items if known is not None and known.status == "done" else load_comments(m, issue.key)
+            prompt, system = build_issue_summary_prompt(issue, comments)
+            answer = m.ai.complete(prompt, system=system, max_tokens=SUMMARY_TOKENS)
+            if not answer.ok:
+                return answer
+            return AIResult("done", answer.text, answer.model, value=tuple(display_lines(answer.text)))
 
-        put(Summary("running", model=m.state.get("ai_label")))
-        known: Optional[Comments] = (m.state.get("comments") or {}).get(issue.key)
-        # A comment may refine or settle the description: never summarize without them.
-        comments = known.items if known is not None and known.status == "done" else load_comments(m, issue.key)
-        prompt, system = build_issue_summary_prompt(issue, comments)
-        answer = m.ai.complete(prompt, system=system, max_tokens=SUMMARY_TOKENS)
-        if answer.ok:
-            put(Summary("done", answer.text, answer.model))
-        else:
-            put(Summary("error", error=answer.error))
-
-    def refresh_ai_label(m) -> None:
-        m.state.set("ai_label", m.ai.describe())
+        return work
 
     @on("app.start")
     def start(m, e, next):
         m.ui.open(PANE, TITLE)
         m.clock.every(options["refresh_seconds"], lambda: refresh(m))
-        m.run(lambda: refresh_ai_label(m))
+        m.run(lambda: refresh_ai_chip(m))
         return next(e)
 
     @on("ui.render", match={"component": "Pane", "pane": PANE})
@@ -900,14 +889,6 @@ def register(on, options):
 
         def toggle_comments(key):
             m.state.set("comments_open", None if m.state.get("comments_open") == key else key)
-
-        def copy_summary(issue):
-            summary: Optional[Summary] = (m.state.get("summaries") or {}).get(issue.key)
-            if summary is not None and summary.status == "done":
-                m.ui.copy(f"{issue.key} {issue.summary}\n\n{summary.text}\n", f"{issue.key} summary")
-
-        def pick_ai():
-            m.ai.configure("Jira issue summary", on_done=lambda: m.run(lambda: refresh_ai_label(m)))
 
         def fold(key):
             m.state.set("unfolded", None if m.state.get("unfolded") == key else key)
@@ -999,7 +980,7 @@ def register(on, options):
             m.run(work)
 
         act = CardActions(select, fold, plan, take, toggle_comments,
-                          lambda issue: m.run(lambda: summarize(m, issue)), copy_summary, pick_ai, toggle_move, move, toggle_fix, set_fix, toggle_released)
+                          lambda issue: summary_section(m, issue, summary_work(issue)), m.ui.copy, toggle_move, move, toggle_fix, set_fix, toggle_released)
         return draw(m, options, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
                    toggle_project_browse, change_project_filter, show_more_projects, change_search, submit_search,
                    clear_search, open_control, show_more, act, e.width)

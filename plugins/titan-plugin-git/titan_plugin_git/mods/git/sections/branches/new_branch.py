@@ -25,6 +25,7 @@ LABELS = 20    # how many pull request labels go with them
 NAME = "new_branch_name"
 STATUS = "new_branch_status"  # "suggesting", "creating" or None
 ERROR = "new_branch_error"
+AI_ERROR_PREFIX = "AI: "  # an error that starts with it came from the model, not from git or the name
 
 
 def menu_key(branch: str) -> str:
@@ -128,7 +129,7 @@ def run_suggest(m, options) -> None:
         prompt, system = build_branch_name_prompt(summary, excerpt, prefixes, pr_labels(m, LABELS))
         answer = m.ai.complete(prompt, system=system, max_tokens=60)
         if not answer.ok:
-            m.state.set(ERROR, f"AI: {answer.error}")
+            m.state.set(ERROR, f"{AI_ERROR_PREFIX}{answer.error}")
             return
 
         name = parse_suggested_branch_name(answer.text)

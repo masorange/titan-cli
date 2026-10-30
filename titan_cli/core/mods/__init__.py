@@ -1,8 +1,9 @@
 """Mods: user code that hooks Titan's runtime events. See `bus.py` for the hook contract."""
 
-from .bus import AIAnswer, DockSlot, HomeCardSlot, ModAPI, ModBus, ModHost
+from .bus import AIAnswer, AssistResult, DockSlot, HomeCardSlot, ModAPI, ModBus, ModHost
 from .error_card import error_card
-from .fix_with_ai import fix_with_ai_button
+from .ai_answer import AIResult, ai_answer_box, ai_ask_button, ai_chip, ai_result, ask_ai, refresh_ai_chip
+from .ai_assist import ai_assist_button, fix_prompt
 from .elements import Box, Button, Input, Link, Text
 from .choice_card import Option, choice_card
 from .events import AppStart, SectionChange, StepCall, UIRender, WorkflowRun, outcome
@@ -11,13 +12,22 @@ from .loader import ModManifest, build_mod_bus, discover_mods, import_mod, load_
 
 __all__ = [
     "AIAnswer",
+    "AssistResult",
     "DockSlot",
     "HomeCardSlot",
     "AppStart",
     "SectionChange",
     "Box",
     "error_card",
-    "fix_with_ai_button",
+    "AIResult",
+    "ai_answer_box",
+    "ai_ask_button",
+    "ai_assist_button",
+    "ai_chip",
+    "ai_result",
+    "ask_ai",
+    "refresh_ai_chip",
+    "fix_prompt",
     "Option",
     "choice_card",
     "Button",

@@ -65,7 +65,7 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
 | Step conventions (outputs, AI, secrets, no low-level calls) | [workflow-step-rules.md](.claude/docs/workflow-step-rules.md) |
 | Workflow YAML, `extends`/hooks, Success/Skip/Error/Exit | [workflows.md](.claude/docs/workflows.md) |
 | Secrets | [security.md](.claude/docs/security.md) |
-| AI agents | [ai-agents.md](.claude/docs/ai-agents.md) |
+| AI calls (routing) and AI agents | [ai-agents.md](.claude/docs/ai-agents.md) |
 | Mods (the `m` API, events, slots, shipping one with a plugin) | [mods.md](.claude/docs/mods.md) |
 | Community plugin installer & dependency rules | [community-plugins.md](.claude/docs/community-plugins.md) |
 | Logging | [logging.md](.claude/docs/logging.md) |
@@ -93,6 +93,10 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
   `SecretLeakError`). Wrap derived material in `SensitiveValue`, `reveal()` it late.
 - Never pass a credential on argv or via the inherited environment.
 
+**AI calls:** every AI call, from a step, a mod or an agent, goes through `AIExecutor` under a
+declared task. Code never picks remote vs CLI or a model: the user does, per task, in AI
+Configuration. Details in [ai-agents.md](.claude/docs/ai-agents.md).
+
 **Steps:**
 - Publish outputs via `Success(metadata={...})`, not by mutating `ctx.data` at return.
 - Project/user steps (`.titan/steps/`, `~/.titan/steps/`): the function name must equal
@@ -105,8 +109,8 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
   (Retry, Diagnose, Ask AI…). Steps: `ctx.textual.error_card(...)`; mods: `error_card(...)` in
   a pane (a toast with `severity="error"` already opens one); never a bare red `Text`/`panel`.
   Details in [textual-api.md](.claude/docs/textual-api.md).
-- User-facing strings live in `messages.py` (`titan_cli/messages.py`, and each plugin's own
-  `messages.py`), accessed as `msg.<Group>.<NAME>`. Don't hardcode them in steps or widgets.
+- User-facing strings are written where they are used (steps, widgets, mods). No new
+  `messages.py` groups; the existing ones stay until their code is touched.
 
 **Plugin docs:** when you add, remove or change a public client function of an official
 plugin (or add a workflow exposing a new capability), update `docs/plugins/<plugin>/`

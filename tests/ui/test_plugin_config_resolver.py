@@ -25,30 +25,40 @@ class _PluginWithCustomScreen:
 
 def test_plugin_has_config_ui_for_schema_plugin() -> None:
     config = MagicMock()
-    config.registry._plugins = {"sample": _PluginWithSchema()}
+    config.registry.load_plugin.side_effect = {"sample": _PluginWithSchema()}.get
 
     assert plugin_has_config_ui(config, "sample") is True
 
 
 def test_plugin_has_config_ui_for_custom_screen_plugin() -> None:
     config = MagicMock()
-    config.registry._plugins = {"sample": _PluginWithCustomScreen()}
+    config.registry.load_plugin.side_effect = {"sample": _PluginWithCustomScreen()}.get
 
     assert plugin_has_config_ui(config, "sample") is True
 
 
 def test_resolve_plugin_config_screen_prefers_custom_screen() -> None:
     config = MagicMock()
-    config.registry._plugins = {"sample": _PluginWithCustomScreen()}
+    config.registry.load_plugin.side_effect = {"sample": _PluginWithCustomScreen()}.get
 
     assert resolve_plugin_config_screen(config, "sample") == "custom-screen"
 
 
 def test_resolve_plugin_config_screen_falls_back_to_generic_wizard() -> None:
     config = MagicMock()
-    config.registry._plugins = {"sample": _PluginWithSchema()}
+    config.registry.load_plugin.side_effect = {"sample": _PluginWithSchema()}.get
 
     screen = resolve_plugin_config_screen(config, "sample")
 
     assert isinstance(screen, PluginConfigWizardScreen)
     assert screen.plugin_name == "sample"
+
+
+def test_resolver_loads_plugin_that_is_not_loaded_yet() -> None:
+    # A fresh project has no plugin enabled, so nothing is loaded up front.
+    config = MagicMock()
+    config.registry._plugins = {}
+    config.registry.load_plugin.side_effect = {"sample": _PluginWithSchema()}.get
+
+    assert plugin_has_config_ui(config, "sample") is True
+    config.registry.load_plugin.assert_called_with("sample")
