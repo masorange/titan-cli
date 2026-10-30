@@ -45,7 +45,8 @@ def test_copy_button_caption_makes_it_a_labelled_button():
 
 
 def test_mod_error_card_copies_its_text_and_keeps_the_mods_own_actions():
-    from titan_cli.core.mods import Button, error_card
+    from titan_cli.ui.elements import Button
+    from titan_cli.ui.components import error_card
 
     copied = []
     card = error_card("push rejected\nnon-fast-forward", copy=lambda text, what: copied.append((text, what)),

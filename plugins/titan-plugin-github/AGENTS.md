@@ -14,7 +14,9 @@ on the `git` plugin (repo owner/name are auto-detected from its remote when not 
 clients/network/` (`gh_network.py` for the gh CLI/REST, `graphql_network.py` +
 `graphql_queries.py` for GraphQL). `models/network/{rest,graphql}` mirror each API
 separately. Also: `agents/` (PR and issue generators, configured by `config/pr_agent.toml`),
-`widgets/` (comment views), the `github` mod (`mods/github/`), `messages.py`.
+`widgets/` (comment views), `readers/` (snapshots of the repo the mod and the workspace both read),
+the `github` mod (`mods/github/`, the summary pane) and the `github` workspace (`workspaces/github/`,
+the PRs, queue and runs), `messages.py`.
 
 ## Plugin-specific rules
 

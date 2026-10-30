@@ -61,6 +61,8 @@ nav:
     - AI Integration: concepts/ai-integration.md
     - Mods: concepts/mods.md
     - Writing a Mod: concepts/writing-mods.md
+    - Workspaces: concepts/workspaces.md
+    - Writing a Workspace: concepts/writing-workspaces.md
   - Plugins:
     - Overview: plugins/index.md
     - Git:

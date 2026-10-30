@@ -70,6 +70,8 @@ from .status import DISABLED, FAILED, LOADED, ModStatus
 
 logger = get_logger(__name__)
 
+TITAN_WORKSPACES = Path(__file__).resolve().parents[2] / "workspaces"
+USER_WORKSPACES = Path.home() / ".titan" / "workspaces"
 MANIFEST = "mod.toml"
 ENTRYPOINT = "mod.py"
 TITAN_MODS = Path(__file__).resolve().parents[2] / "mods"
@@ -82,6 +84,67 @@ DEV = "dev"
 # Also a package name segment: a `.` would split it, so not allowed.
 VALID_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 PACKAGE_PREFIX = "titan_mod_"
+
+
+@dataclass(frozen=True)
+class Kind:
+    """
+    What differs between the things this loader finds: a mod and a workspace are the same
+    shape (a folder with a manifest and an entry point, many sources, one config table) under
+    other names. `MODS` is what every function below defaults to.
+    """
+
+    noun: str  # "mod" or "workspace": the manifest's table and the word in logs and errors
+    manifest: str
+    entrypoint: str
+    package_prefix: str
+    config_table: str  # `[<table>.<name>]` in the user's config, and `project_sources.<key>.<table>`
+    dirs_env: str
+    # Folders under Titan, a project's `.titan/` and the user's `~/.titan/`. `titan_root` and
+    # `user_dir` are read when used, not held, so a test can point the module's constant elsewhere.
+    titan_root_name: str
+    project_dir: Path
+    user_dir_name: str
+    # What the bus puts before a name for Titan's host (see `ModBus`), and where its store lives
+    host_prefix: str = ""
+    store_dir: str = ""
+    register_args: str = "on, options"  # for the error of an entry point with no `register`
+
+    @property
+    def titan_root(self) -> Path:
+        return globals()[self.titan_root_name]
+
+    @property
+    def user_dir(self) -> Path:
+        return globals()[self.user_dir_name]
+
+
+MODS = Kind(
+    noun="mod",
+    manifest=MANIFEST,
+    entrypoint=ENTRYPOINT,
+    package_prefix=PACKAGE_PREFIX,
+    config_table="mods",
+    dirs_env=MOD_DIRS_ENV,
+    titan_root_name="TITAN_MODS",
+    project_dir=PROJECT_MODS,
+    user_dir_name="USER_MODS",
+)
+
+WORKSPACES = Kind(
+    noun="workspace",
+    manifest="workspace.toml",
+    entrypoint="workspace.py",
+    package_prefix="titan_workspace_",
+    config_table="workspaces",
+    dirs_env="TITAN_WORKSPACE_DIRS",
+    titan_root_name="TITAN_WORKSPACES",
+    project_dir=Path(".titan") / "workspaces",
+    user_dir_name="USER_WORKSPACES",
+    host_prefix="workspace.",
+    store_dir="workspaces",
+    register_args="w, on, options",
+)
 
 
 @dataclass(frozen=True)
@@ -106,23 +169,25 @@ class ModManifest:
     ai_assist_task: Optional[str] = None
     # What the side panel's rail shows for the mod's pane: one character or emoji.
     icon: Optional[str] = None
+    # The file `register` is in, which is the kind's (`mod.py`, `workspace.py`).
+    entry_file: str = ENTRYPOINT
 
     @property
     def entrypoint(self) -> Path:
-        return self.folder / ENTRYPOINT
+        return self.folder / self.entry_file
 
 
-def read_manifest(folder: Path, source: str) -> ModManifest:
-    """Parse `<folder>/mod.toml`. Raises ValueError when it is missing or malformed."""
-    path = folder / MANIFEST
+def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
+    """Parse `<folder>/mod.toml` (`workspace.toml` for a workspace). Raises ValueError when it is missing or malformed."""
+    path = folder / kind.manifest
     try:
         data = tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError) as e:
         raise ValueError(f"{path}: {e}") from e
 
-    mod = data.get("mod", {})
+    mod = data.get(kind.noun, {})
     if not isinstance(mod, dict):
-        raise ValueError(f"{path}: [mod] must be a table")
+        raise ValueError(f"{path}: [{kind.noun}] must be a table")
     name = mod.get("name") or folder.name
     if not isinstance(name, str):
         raise ValueError(f"{path}: name must be a string")
@@ -136,7 +201,7 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
     if not VALID_NAME.fullmatch(name):
         raise ValueError(f"{path}: name '{name}' must be letters, digits, '_' or '-', up to 64")
     if name == DIRS_KEY:
-        raise ValueError(f"{path}: '{DIRS_KEY}' is reserved in [mods] and cannot name a mod")
+        raise ValueError(f"{path}: '{DIRS_KEY}' is reserved in [{kind.config_table}] and cannot name a {kind.noun}")
     # Under a mods root the folder is the name; a dev folder is a checkout named freely.
     if source != DEV and name != folder.name:
         raise ValueError(f"{path}: name '{name}' does not match its folder '{folder.name}'")
@@ -159,10 +224,11 @@ def read_manifest(folder: Path, source: str) -> ModManifest:
         ai_task=mod.get("ai_task") or None,
         ai_assist_task=mod.get("ai_assist_task") or None,
         icon=mod.get("icon") or None,
+        entry_file=kind.entrypoint,
     )
 
 
-def discover_mods(sources: List[Tuple[str, Path]]) -> Dict[str, ModManifest]:
+def discover_mods(sources: List[Tuple[str, Path]], kind: Kind = MODS) -> Dict[str, ModManifest]:
     """
     Every mod under each `(source, root)`, later sources overriding earlier by name.
 
@@ -171,26 +237,26 @@ def discover_mods(sources: List[Tuple[str, Path]]) -> Dict[str, ModManifest]:
     found: Dict[str, ModManifest] = {}
     for source, root in sources:
         if source == DEV:
-            if not (root / MANIFEST).is_file():
-                logger.warning("mod_dir_without_mod", path=str(root))
+            if not (root / kind.manifest).is_file():
+                logger.warning(f"{kind.noun}_dir_without_{kind.noun}", path=str(root))
                 continue
             folders = [root]
         elif root.is_dir():
-            folders = sorted(p for p in root.iterdir() if p.is_dir() and (p / MANIFEST).is_file())
+            folders = sorted(p for p in root.iterdir() if p.is_dir() and (p / kind.manifest).is_file())
         else:
             continue
         for folder in folders:
             try:
-                manifest = read_manifest(folder, source)
+                manifest = read_manifest(folder, source, kind)
             except Exception:  # a bad manifest of any shape must not stop Titan starting
-                logger.exception("mod_manifest_invalid", path=str(folder))
+                logger.exception(f"{kind.noun}_manifest_invalid", path=str(folder))
                 continue
             if not manifest.entrypoint.is_file():
-                logger.warning("mod_entrypoint_missing", mod=manifest.name, path=str(folder))
+                logger.warning(f"{kind.noun}_entrypoint_missing", mod=manifest.name, path=str(folder))
                 continue
             if manifest.name in found:
                 logger.warning(
-                    "mod_overrides_mod",
+                    f"{kind.noun}_overrides_{kind.noun}",
                     mod=manifest.name,
                     source=manifest.source,
                     replaces=found[manifest.name].source,
@@ -206,13 +272,14 @@ def mod_sources(
     user_root: Optional[Path] = None,
     titan_root: Optional[Path] = None,
     dev_dirs: Sequence[Path] = (),
+    kind: Kind = MODS,
 ) -> List[Tuple[str, Path]]:
     """Every place mods live, in override order (see the module docstring)."""
-    sources = [("titan", titan_root or TITAN_MODS)]
+    sources = [("titan", titan_root or kind.titan_root)]
     sources += [(f"plugin:{plugin}", path) for plugin, path in sorted(plugin_mod_paths.items())]
     if project_root is not None:
-        sources.append(("project", project_root / PROJECT_MODS))
-    sources.append(("user", user_root or USER_MODS))
+        sources.append(("project", project_root / kind.project_dir))
+    sources.append(("user", user_root or kind.user_dir))
     sources += [(DEV, folder) for folder in dev_dirs]
     return sources
 
@@ -234,13 +301,13 @@ def _read_config(config_path: Optional[Path]) -> Dict[str, Any]:
         return {}
 
 
-def _read_mods_table(config_path: Optional[Path]) -> Dict[str, Any]:
-    mods = _read_config(config_path).get("mods", {})
+def _read_mods_table(config_path: Optional[Path], kind: Kind = MODS) -> Dict[str, Any]:
+    mods = _read_config(config_path).get(kind.config_table, {})
     return mods if isinstance(mods, dict) else {}
 
 
 def read_mods_config(
-    config_path: Optional[Path] = None, project_root_path: Optional[Path] = None
+    config_path: Optional[Path] = None, project_root_path: Optional[Path] = None, kind: Kind = MODS
 ) -> Dict[str, Dict[str, Any]]:
     """
     The `[mods.<name>]` tables as they apply here: the background default (the same file's
@@ -252,7 +319,7 @@ def read_mods_config(
     are the background default only, not scoped per project.
     """
     data = _read_config(config_path)
-    mods = data.get("mods", {})
+    mods = data.get(kind.config_table, {})
     config: Dict[str, Dict[str, Any]] = {}
     for name, table in (mods.items() if isinstance(mods, dict) else ()):
         if name == DIRS_KEY:
@@ -271,7 +338,7 @@ def read_mods_config(
         return config
     scoped = data.get("project_sources", {})
     scoped = scoped.get(project_source_scope_key(root), {}) if isinstance(scoped, dict) else {}
-    scoped_mods = scoped.get("mods", {}) if isinstance(scoped, dict) else {}
+    scoped_mods = scoped.get(kind.config_table, {}) if isinstance(scoped, dict) else {}
     if not isinstance(scoped_mods, dict):
         return config
     for name, table in scoped_mods.items():
@@ -289,17 +356,18 @@ def mod_dirs(
     cli_dirs: Sequence[str] = (),
     config_path: Optional[Path] = None,
     environ: Optional[Mapping[str, str]] = None,
+    kind: Kind = MODS,
 ) -> List[Path]:
     """
     The extra mod folders: `[mods] dirs`, then TITAN_MOD_DIRS, then `--mod-dir`.
 
     The most explicit comes last, so it wins when two folders hold a mod of the same name.
     """
-    configured = _read_mods_table(config_path).get(DIRS_KEY, [])
+    configured = _read_mods_table(config_path, kind).get(DIRS_KEY, [])
     if not isinstance(configured, list) or not all(isinstance(d, str) for d in configured):
         logger.warning("mod_dirs_config_invalid", value=repr(configured))
         configured = []
-    env = (os.environ if environ is None else environ).get(MOD_DIRS_ENV, "")
+    env = (os.environ if environ is None else environ).get(kind.dirs_env, "")
     raw = [*configured, *env.split(os.pathsep), *cli_dirs]
 
     folders: List[Path] = []
@@ -318,7 +386,7 @@ def _forget_modules(package: str) -> None:
         del sys.modules[module]
 
 
-def import_mod(folder: Path, name: Optional[str] = None) -> ModuleType:
+def import_mod(folder: Path, name: Optional[str] = None, kind: Kind = MODS) -> ModuleType:
     """
     Import a mod's folder as the package `titan_mod_<name>`, `mod.py` being its `__init__`.
 
@@ -326,13 +394,13 @@ def import_mod(folder: Path, name: Optional[str] = None) -> ModuleType:
     dropped first; when the import fails nothing of it stays in `sys.modules`. A mod's own
     tests use this to import it exactly as Titan does.
     """
-    package = PACKAGE_PREFIX + (name or folder.name)
+    package = kind.package_prefix + (name or folder.name)
     _forget_modules(package)
     spec = importlib.util.spec_from_file_location(
-        package, folder / ENTRYPOINT, submodule_search_locations=[str(folder)]
+        package, folder / kind.entrypoint, submodule_search_locations=[str(folder)]
     )
     if spec is None or spec.loader is None:
-        raise ImportError(f"cannot import {folder / ENTRYPOINT}")
+        raise ImportError(f"cannot import {folder / kind.entrypoint}")
     module = importlib.util.module_from_spec(spec)
     # Registered before running, as the import system does: relative imports look it up.
     sys.modules[package] = module
@@ -350,6 +418,7 @@ def load_mods(
     mods_config: Optional[Dict[str, Dict[str, Any]]] = None,
     *,
     enabled_plugins: Optional[Collection[str]] = None,
+    kind: Kind = MODS,
 ) -> List[str]:
     """
     Import each enabled mod and run its `register`. Returns the names that loaded.
@@ -363,7 +432,7 @@ def load_mods(
     loaded: List[str] = []
     for name, manifest in mods.items():
         bus.found[name] = manifest
-        if _load_one(bus, name, manifest, mods_config.get(name, {}), bus.enabled_plugins):
+        if _load_one(bus, name, manifest, mods_config.get(name, {}), bus.enabled_plugins, kind):
             loaded.append(name)
     return loaded
 
@@ -374,6 +443,7 @@ def reload_mod(
     mods_config: Optional[Dict[str, Dict[str, Any]]] = None,
     *,
     enabled_plugins: Optional[Collection[str]] = None,
+    kind: Kind = MODS,
 ) -> str:
     """
     Unload one mod and load it again with the current config, as if Titan had just started
@@ -392,15 +462,18 @@ def reload_mod(
         raise KeyError(f"no mod named '{name}'")
     bus.unload(name)
     try:
-        manifest = read_manifest(previous.folder, previous.source)
+        manifest = read_manifest(previous.folder, previous.source, kind)
     except Exception as e:
         bus.statuses[name] = ModStatus(name, FAILED, error=str(e))
         logger.error("mod_reload_failed", mod=name, reason=str(e))
         return FAILED
     bus.found[name] = manifest
-    if _load_one(bus, name, manifest, (mods_config or {}).get(name, {}), enabled_plugins) and bus.started is not None:
+    if _load_one(bus, name, manifest, (mods_config or {}).get(name, {}), enabled_plugins, kind):
         # The mod missed Titan's own `app.start`: give it one of its own.
-        bus.dispatch("app.start", bus.started, lambda e: None, mod=name)
+        if kind is not MODS:
+            bus.start(name)
+        elif bus.started is not None:
+            bus.dispatch("app.start", bus.started, lambda e: None, mod=name)
     return bus.statuses[name].state
 
 
@@ -410,15 +483,16 @@ def _load_one(
     manifest: ModManifest,
     config: Dict[str, Any],
     enabled_plugins: Optional[Collection[str]] = None,
+    kind: Kind = MODS,
 ) -> bool:
     if config.get("enabled", True) is False:
-        logger.info("mod_disabled", mod=name, source=manifest.source)
+        logger.info(f"{kind.noun}_disabled", mod=name, source=manifest.source)
         bus.statuses[name] = ModStatus(name, DISABLED)
         return False
     if enabled_plugins is not None:
         missing = set(manifest.requires_plugins) - set(enabled_plugins)
         if missing:
-            logger.warning("mod_plugins_missing", mod=name, missing=sorted(missing))
+            logger.warning(f"{kind.noun}_plugins_missing", mod=name, missing=sorted(missing))
             bus.statuses[name] = ModStatus(
                 name, FAILED, error=f"needs plugin(s) not enabled: {', '.join(sorted(missing))}"
             )
@@ -427,28 +501,30 @@ def _load_one(
     for option, _reason in dropped:
         # The reason quotes the offending value, which may be a secret typed into a
         # string option: log which option was dropped, never what was in it.
-        logger.warning("mod_option_dropped", mod=name, option=option)
+        logger.warning(f"{kind.noun}_option_dropped", mod=name, option=option)
     options["sections"], dropped = resolve_sections(manifest.sections, config.get("sections", {}))
     for section, reason in dropped:
-        logger.warning("mod_section_dropped", mod=name, section=section, reason=reason)
+        logger.warning(f"{kind.noun}_section_dropped", mod=name, section=section, reason=reason)
     try:
-        module = import_mod(manifest.folder, name)
+        module = import_mod(manifest.folder, name, kind)
         register = getattr(module, "register", None)
         if not callable(register):
-            raise AttributeError(f"{manifest.entrypoint} defines no register(on, options)")
-        register(bus.on_for(name, manifest.events), options)
+            raise AttributeError(f"{manifest.entrypoint} defines no register({kind.register_args})")
+        # A mod gets `on` to hook events; a workspace its own handle (`w`, the same `ModAPI`) and `on`.
+        on = bus.on_for(name, manifest.events)
+        register(on, options) if kind is MODS else register(bus.api(name), on, options)
     except (Exception, SystemExit) as e:  # a mod calling sys.exit() must not stop Titan starting
         bus.statuses[name] = ModStatus(name, FAILED, error=f"{type(e).__name__}: {e}")
         # All or nothing: hooks a register() added before failing would run
         # for a mod that is reported as not loaded, and its modules would linger.
         bus.unload(name)
-        _forget_modules(PACKAGE_PREFIX + name)
-        logger.exception("mod_load_failed", mod=name, path=str(manifest.folder))
+        _forget_modules(kind.package_prefix + name)
+        logger.exception(f"{kind.noun}_load_failed", mod=name, path=str(manifest.folder))
         return False
     bus.sections[name] = options["sections"]
     bus.statuses[name] = ModStatus(name, LOADED)
     bus.manifests[name] = manifest
-    logger.info("mod_loaded", mod=name, source=manifest.source, version=manifest.version)
+    logger.info(f"{kind.noun}_loaded", mod=name, source=manifest.source, version=manifest.version)
     return True
 
 
@@ -456,8 +532,10 @@ def build_mod_bus(
     plugin_mod_paths: Optional[Dict[str, Path]] = None,
     cli_mod_dirs: Sequence[str] = (),
     enabled_plugins: Optional[Collection[str]] = None,
+    kind: Kind = MODS,
 ) -> ModBus:
-    bus = ModBus()
-    sources = mod_sources(plugin_mod_paths or {}, project_root(), dev_dirs=mod_dirs(cli_mod_dirs))
-    load_mods(bus, discover_mods(sources), read_mods_config(), enabled_plugins=enabled_plugins)
+    """The bus of every `kind` found and loaded: mods by default, `WORKSPACES` for the workspaces."""
+    bus = ModBus(prefix=kind.host_prefix, store_dir=kind.store_dir)
+    sources = mod_sources(plugin_mod_paths or {}, project_root(), dev_dirs=mod_dirs(cli_mod_dirs, kind=kind), kind=kind)
+    load_mods(bus, discover_mods(sources, kind), read_mods_config(kind=kind), enabled_plugins=enabled_plugins, kind=kind)
     return bus

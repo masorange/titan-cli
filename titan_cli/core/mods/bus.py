@@ -19,7 +19,7 @@ never runs twice.
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 from titan_cli.core.logging import get_logger
 from titan_cli.engine.results import Error
@@ -46,6 +46,10 @@ class ModHost(Protocol):
     def dock(self, mod: str, slot: Optional["DockSlot"]) -> None: ...
 
     def home_card(self, mod: str, slot: Optional["HomeCardSlot"]) -> None: ...
+
+    def widget(self, mod: str, name: str, widget: Any) -> None: ...
+
+    def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]: ...
 
     def toast(self, mod: str, text: str, severity: str) -> None: ...
 
@@ -143,6 +147,12 @@ class _HeadlessHost:
     def home_card(self, mod: str, slot: Optional["HomeCardSlot"]) -> None:
         logger.debug("mod_home_card", mod=mod, has_card=slot is not None)
 
+    def widget(self, mod: str, name: str, widget: Any) -> None:
+        logger.debug("mod_widget", mod=mod, name=name)
+
+    def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]:
+        return "there is no screen to open it on"
+
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, length=len(text), severity=severity)
 
@@ -215,6 +225,25 @@ class _BusView:
     def manifests(self) -> Dict[str, Any]:
         return self._bus.manifests
 
+    def name_of(self, ident: str) -> str:
+        """The bare name behind what the host knows a handle as."""
+        return ident.removeprefix(self._bus.prefix)
+
+    @property
+    def starts(self) -> Dict[str, List[Callable[["ModAPI"], None]]]:
+        return self._bus.starts
+
+    @property
+    def opens(self) -> Dict[str, List[Callable[["ModAPI", Any], None]]]:
+        return self._bus.opens
+
+    def set_view(self, ident: str, title: Optional[str], fn: Callable[[int], Any]) -> None:
+        self._bus.views[self.name_of(ident)] = (title, fn)
+
+    def manifest(self, ident: str) -> Any:
+        """The manifest of the handle the host knows as `ident` (a workspace's carries the bus's prefix)."""
+        return self._bus.manifests.get(ident.removeprefix(self._bus.prefix))
+
 
 class _ModUI:
     def __init__(self, bus: "ModBus", mod: str):
@@ -237,7 +266,7 @@ class _ModUI:
         if not label:
             self._bus.host.dock(self._mod, None)
             return
-        manifest = self._bus.manifests.get(self._mod)
+        manifest = self._bus.manifest(self._mod)
         icon = manifest.icon if manifest else None
         self._bus.host.dock(self._mod, DockSlot(label, icon, badge, severity, on_click))
 
@@ -260,9 +289,41 @@ class _ModUI:
         if not title:
             self._bus.host.home_card(self._mod, None)
             return
-        manifest = self._bus.manifests.get(self._mod)
+        manifest = self._bus.manifest(self._mod)
         icon = manifest.icon if manifest else None
         self._bus.host.home_card(self._mod, HomeCardSlot(title, text, icon, on_click))
+
+    def widget(self, name: str, widget: Any) -> None:
+        """
+        Bring your own widget: a Textual widget class with `apply(props)` (see `Updatable`).
+        A tree then draws it with `Component(name, props)` and a redraw calls `apply` on the
+        mounted widget, so its own state survives. `name` is global: prefix it with the mod's.
+        Titan removes it when the mod is unloaded.
+        """
+        self._bus.host.widget(self._mod, name, widget)
+
+    def view(self, fn: Callable[[int], Any], title: Optional[str] = None) -> None:
+        """
+        What a workspace's screen shows: `fn(width)` answers with an element tree (`Box`, `Text`,
+        `Button`, `Component`...), called again whenever `w.state` changes. `title` heads the
+        screen; it defaults to the workspace's name. A mod has panes (`open`) instead.
+        """
+        self._bus.set_view(self._mod, title, fn)
+
+    def open_workspace(self, name: Optional[str] = None, focus: Any = None) -> bool:
+        """
+        Open the workspace `name` on its own screen (`Esc` comes back); with no name, this
+        very workspace, which is what its dock tile does: `w.ui.dock("GitHub", on_click=w.ui.open_workspace)`.
+        `focus` is what the caller wants shown once it is open (a mod's pane sends the PR it
+        was pressed on): the workspace gets it in the function it gave to `w.on_open`.
+        Refused, with a toast, when there is no such workspace: the return says whether it opened.
+        Call it from a button or a key.
+        """
+        refusal = self._bus.host.open_workspace(self._mod, name or self._bus.name_of(self._mod), focus)
+        if refusal is not None:
+            logger.warning("workspace_open_refused", mod=self._mod, workspace=name, reason=refusal)
+            return False
+        return True
 
     def toast(self, text: str, severity: str = "information") -> None:
         """Show a toast. `severity` is `information`, `warning` or `error`."""
@@ -279,7 +340,7 @@ class _ModUI:
         The panel's rail shows the `icon` of the mod's `mod.toml` for it (the
         title's initial when it has none), and clicking it shows this pane.
         """
-        manifest = self._bus.manifests.get(self._mod)
+        manifest = self._bus.manifest(self._mod)
         self._bus.host.open_pane(self._mod, pane, title, manifest.icon if manifest else None)
 
     def badge(self, pane: str, text: Optional[str], severity: Optional[str] = None) -> None:
@@ -419,19 +480,37 @@ class ModAPI:
 
     def __init__(self, bus: "ModBus", name: str):
         self.name = name
+        # What Titan's host knows this handle by: a workspace's differs from a mod's of the same name.
+        self.ident = ident = bus.prefix + name
         # False once the mod is unloaded: nothing it still holds reaches Titan any more.
         self.alive = True
         view = _BusView(bus, lambda: self.alive)
-        self.ui = _ModUI(view, name)
-        self.clock = _ModClock(view, name)
-        self.ai = _ModAI(view, name)
-        self.keys = _ModKeys(view, name)
-        self.workflows = _ModWorkflows(view, name)
-        self.state = ModState(on_change=lambda: view.host.repaint(name))
+        self.ui = _ModUI(view, ident)
+        self.clock = _ModClock(view, ident)
+        self.ai = _ModAI(view, ident)
+        self.keys = _ModKeys(view, ident)
+        self.workflows = _ModWorkflows(view, ident)
+        self.state = ModState(on_change=lambda: view.host.repaint(ident))
         # Read through the module so tests can point every store elsewhere.
-        self.store = ModStore(name, root=lambda: _store.STORE_DIR)
+        self.store = ModStore(name, root=lambda: _store.STORE_DIR / bus.store_dir)
         self.log = logger.bind(mod=name)
         self._bus = view
+
+    def on_start(self, fn: Callable[["ModAPI"], None]) -> None:
+        """
+        Run `fn(w)` once Titan's interface is up (the bus's `start`), on the UI thread: the place
+        for what needs the screen, such as the dock tile. `register` runs earlier, before there is
+        a host to draw on, so a `w.ui` call made there goes nowhere. Workspaces only: a mod
+        hooks `app.start` instead.
+        """
+        self._bus.starts.setdefault(self.name, []).append(fn)
+
+    def on_open(self, fn: Callable[["ModAPI", Any], None]) -> None:
+        """
+        Run `fn(w, focus)` each time the workspace is opened, with what the opener passed to
+        `open_workspace(focus=...)` (None from its dock tile). Workspaces only.
+        """
+        self._bus.opens.setdefault(self.name, []).append(fn)
 
     def client(self, name: str) -> Any:
         """
@@ -443,7 +522,7 @@ class ModAPI:
 
     def run(self, fn: Callable[[], None]) -> None:
         """Run `fn` once on a background thread, e.g. slow work a button starts. Exceptions are logged."""
-        self._bus.host.run(self.name, fn)
+        self._bus.host.run(self.ident, fn)
 
     def deny(self, reason: str) -> Error:
         """The answer for a `step.call` hook that refuses the step."""
@@ -467,7 +546,18 @@ class ModBus:
 
     EVENTS = ("app.start", "workflow.run", "step.call", "ui.render", "section.change")
 
-    def __init__(self) -> None:
+    def __init__(self, prefix: str = "", store_dir: str = "") -> None:
+        # What a bus of another kind (workspaces) puts before a name for Titan's host, so a mod and
+        # a workspace called alike never share timers, keys, a store or an AI task; and the folder
+        # of the store it keeps its values in, under the mods' one.
+        self.prefix = prefix
+        self.store_dir = store_dir
+        # name -> (title, fn) of what each workspace's screen draws, set with `w.ui.view`
+        self.views: Dict[str, Tuple[Optional[str], Callable[[int], Any]]] = {}
+        # name -> what the workspace asked to run once the interface is up (`w.on_start`)
+        self.starts: Dict[str, List[Callable[["ModAPI"], None]]] = {}
+        # name -> what the workspace asked to run each time it is opened (`w.on_open`)
+        self.opens: Dict[str, List[Callable[["ModAPI", Any], None]]] = {}
         self._hooks: Dict[str, List[_Registration]] = {event: [] for event in self.EVENTS}
         self._apis: Dict[str, ModAPI] = {}
         # name -> ModManifest of every mod that loaded (filled by the loader)
@@ -525,13 +615,37 @@ class ModBus:
             api.alive = False
         self.manifests.pop(mod, None)
         self.sections.pop(mod, None)
+        self.views.pop(mod, None)
+        self.starts.pop(mod, None)
+        self.opens.pop(mod, None)
+
+    def start(self, mod: Optional[str] = None) -> None:
+        """Run the `w.on_start` functions of `mod`, or of every workspace; one that raises is logged, not fatal."""
+        for name in [mod] if mod is not None else list(self.starts):
+            for fn in list(self.starts.get(name, [])):
+                try:
+                    fn(self.api(name))
+                except Exception:
+                    logger.exception("workspace_start_failed", mod=name)
+
+    def opened(self, name: str, focus: Any = None) -> None:
+        """Run the `w.on_open` functions of workspace `name` with `focus`; one that raises is logged, not fatal."""
+        for fn in list(self.opens.get(name, [])):
+            try:
+                fn(self.api(name), focus)
+            except Exception:
+                logger.exception("workspace_open_failed", mod=name)
+
+    def render_view(self, name: str, width: int) -> Any:
+        """The element tree workspace `name` draws for a screen `width` columns wide; raises what its view raises."""
+        return self.views[name][1](width)
 
     def unload(self, mod: str) -> None:
         """`forget` plus what the mod left on the host: timers, keys, panes, badges, its dock tile."""
         self.forget(mod)
         unload = getattr(self.host, "unload", None)
         if unload is not None:
-            unload(mod)
+            unload(self.prefix + mod)
 
     def has_hooks(self, event: str) -> bool:
         return bool(self._hooks.get(event))
@@ -547,7 +661,7 @@ class ModBus:
             return False
         switches[section] = enabled
         self.dispatch("section.change", SectionChange(section, enabled), lambda e: None, mod=mod)
-        self.host.repaint(mod)
+        self.host.repaint(self.prefix + mod)
         return True
 
     def dispatch(self, event: str, e: Any, final: Next, mod: Optional[str] = None) -> Any:

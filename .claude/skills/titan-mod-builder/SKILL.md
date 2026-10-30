@@ -1,6 +1,6 @@
 ---
 name: titan-mod-builder
-description: Design and build a Titan mod - a change to Titan's own interface or behaviour such as a side-panel pane, a dock tile, a home card, a toast, a key binding, or a hook on workflows and steps. Use when the user wants to make, change or debug a mod (mod.toml + mod.py), or asks what a mod can do. Not for workflows or steps (use the titan-*-workflow-builder skills).
+description: Design and build a Titan mod - a change to Titan's own interface or behaviour such as a side-panel pane, a dock tile, a home card, a toast, a key binding, or a hook on workflows and steps. Use when the user wants to make, change or debug a mod (mod.toml + mod.py), or asks what a mod can do. Not for a full-screen workspace (use titan-workspace-builder) nor for workflows or steps (use the titan-*-workflow-builder skills).
 disable-model-invocation: false
 ---
 
@@ -19,6 +19,7 @@ Read them instead of restating them:
 | The ask | Use |
 |---|---|
 | Something always visible or reacting to what Titan does (PR count, branch, a card) | **Mod** |
+| The whole service on its own screen, with lists, search and actions | Workspace (`titan-workspace-builder`); keep the mod as its summary |
 | A sequence of actions the user runs | Workflow (`titan-project-workflow-builder`) |
 | A reusable action inside workflows | Step / plugin |
 
@@ -40,7 +41,8 @@ clash. Ask only if the user's intent is ambiguous between yourself and the team.
 ## 3. Reuse before inventing
 
 1. Look at an existing mod close to the ask: `plugins/titan-plugin-git/titan_plugin_git/mods/git/` is
-   the smallest, `.../github/mods/github/` shows sections, badges, AI and workflows.
+   the smallest, `.../github/mods/github/` shows a badge, toasts and the way into a workspace; the
+   github workspace (`.../github/workspaces/github/`) shows sections, AI and workflows.
 2. Data comes from a plugin client (`m.client("github")`) and the plugin's operations and UI models.
    If the plugin lacks something generally useful, add it to the plugin (with docs), not to the mod.
    A personal mod may build what a plugin lacks.

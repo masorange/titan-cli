@@ -187,13 +187,33 @@ from titan_cli.ui.tui.widgets import StepContainer
 **Implementation**: `/titan_cli/ui/tui/widgets/step_container.py`
 
 #### Button
-Styled button widget.
+Styled button widget. `variant` is `primary`, `default`, `success`, `warning` or `error`; `size` is
+`normal` (three rows, bordered) or `compact` (one row, as wide as its label, for a pane that puts
+one under every item). With `on_press` it runs that callback itself; without it the event bubbles
+like Textual's own button. It is `Updatable`: `apply(element_button)` takes a redrawn label, variant
+and callback and keeps the widget, so a focused button stays focused. Mods and workspaces get it
+from `Button(...)` in `titan_cli.ui.elements`.
 
 ```python
 from titan_cli.ui.tui.widgets import Button
 
-# Used internally by PromptChoice
-# Typically not used directly
+Button("Save", variant="primary", id="save")
+Button("Review #5", variant="primary", size="compact", on_press=review)
 ```
 
+#### PressableRow
+A line of text that runs a callback on click or Enter, drawn as a line of its pane instead of a
+button (a fold, a picker). It is what an element `Button` without a `variant` becomes.
+`Updatable`; `PressableRow(element_button)`.
+
+**Implementation**: `/titan_cli/ui/tui/widgets/pressable_row.py`
+
 **Implementation**: `/titan_cli/ui/tui/widgets/button.py`
+
+---
+
+## Columns (element)
+
+Side-by-side layout of elements, for a mod pane or a workspace view (`titan_cli.ui.elements`). `Columns(*children, ratio=(3, 2), gap=1)` shares the width by `ratio`; `responsive_columns(width, builders, ratio, collapse_below=120)` is the usual entry: every builder gets the width of its column and answers with a tree, and below `collapse_below` they stack at full width. Crossing the threshold swaps the container, so a focused field inside it is rebuilt: keep fields outside.
+
+**Implementation**: `/titan_cli/ui/tui/widgets/element_widgets.py` (`_Columns`, `_Column`); width rule `column_widths` in `/titan_cli/ui/elements.py`; tests `tests/ui/test_columns.py`.

@@ -139,7 +139,8 @@ def test_the_filter_keeps_only_the_branches_that_match(mod, flatten):
 
 
 def test_the_search_is_always_there_and_reaches_beyond_the_recent_branches(mod, flatten):
-    from titan_cli.core.mods import ModBus, Input
+    from titan_cli.core.mods import ModBus
+    from titan_cli.ui.elements import Input
 
     m = ModBus().api("git")
     m.state.set("repo", mod.models.Repo(branch="feat/x"))
@@ -664,7 +665,7 @@ def _commits(n):
 
 
 def _press(tree, label):
-    from titan_cli.core.mods import Box, Button
+    from titan_cli.ui.elements import Box, Button
     stack = [tree]
     while stack:
         element = stack.pop()
@@ -741,7 +742,7 @@ def test_a_failed_branch_name_is_an_error_card_and_only_the_models_failure_offer
 
 
 def buttons_of(element):
-    from titan_cli.core.mods import Button
+    from titan_cli.ui.elements import Button
 
     if isinstance(element, Button):
         yield element

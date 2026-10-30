@@ -25,7 +25,7 @@ slots = ["pane"]
 
 ```python
 # mod.py
-from titan_cli.core.mods import Box, Button, Text
+from titan_cli.ui.elements import Box, Button, Text
 
 
 def draw(m, width):
@@ -120,6 +120,8 @@ Every hook receives the same `m` for its mod.
 |---|---|
 | `m.ui.open(pane, title)` | Give the mod a pane in the side panel, drawn by its `ui.render` hook |
 | `m.ui.badge(pane, text, severity)` | Text under the pane's rail icon (three characters at most); `None` removes it |
+| `w.ui.view`, `w.ui.open_workspace(name, focus)`, `w.on_start`, `w.on_open` | **Workspaces only.** A workspace is a full screen with the same handle; a mod opens one with `m.ui.open_workspace("github", focus={...})`. See [Writing a Workspace](writing-workspaces.md). |
+| `m.ui.widget(name, cls)` | Bring your own widget: `cls` is a Textual widget with `apply(props)` (`Updatable`). A tree draws it with `Component(name, props)`, and a redraw calls `apply` on the mounted widget, so its own state (focus, scroll) survives. `name` is global: prefix it with your mod's (`"git.graph"`). An unregistered name shows a line saying so. Titan removes it when the mod unloads. You accept the Textual coupling: Titan's `Button`, `InputField` and `PressableRow` are the catalog to copy from. |
 | `m.ui.dock(label, badge, severity, on_click)` | A tile in the dock; `None` as label removes it |
 | `m.ui.home_card(title, text, on_click)` | A card on the home screen; `None` removes it |
 | `m.ui.toast(text, severity)` | `information` or `warning`. An `error` is never a toast: it opens an error card (a modal with a copy button), so use `error_card` in your pane when the error belongs there |
@@ -153,7 +155,7 @@ Hooks, button handlers and key handlers run on the **UI thread**. Anything that 
 `ui.render` answers with a tree of plain values; Titan decides how to draw them. Mods never touch Textual widgets.
 
 ```python
-from titan_cli.core.mods import Box, Button, Link, Text
+from titan_cli.ui.elements import Box, Button, Link, Text
 
 Box(
     Text("PRs", bold=True, color="info"),
@@ -169,16 +171,18 @@ Box(
 | `Text(*parts, color, bold, dim, wrap)` | Parts are strings, `Link`s or nested `Text` spans. Truncates with an ellipsis unless `wrap=True`. |
 | `Link(label, url)` | Opens an http(s) URL. URLs in any text are links even when wrapped. |
 | `Box(*children, border, row, indent, gap)` | Vertical group; `border` is a colour name; `row=True` puts children on one line: the first at the left, the rest pushed to the right (a title with a switch beside it). |
+| `Columns(*children, ratio, gap)`, `responsive_columns(width, builders, ratio, collapse_below, gap)` | Children side by side, each as wide as its share of `ratio` (`(3, 2)`: three fifths and two fifths). `responsive_columns` is what to use in a `ui.render` or workspace view: each builder is called with the width its column has, so a `choice_card` fits either way, and under `collapse_below` columns (default 120) the builders stack in one column at the full width. Keep fields the user types in outside the columns: crossing the width rebuilds them. |
 | `Button(label, on_press, dim, variant)` | With a `variant` (`primary`, `default`, `success`, `warning`, `error`) it is Titan's own button, for something that does work; without one it reads as a line of the pane, right for a fold or picker. `label` is a string, or a `Text` when parts of the line need their own style (a name plain, its date dim); a variant button flattens a `Text` to its words. |
-| `error_card(message, copy=m.ui.copy, title, details, copy_text, what, actions, color)` | An **ErrorCard**: a bordered box with the error (wrapped, never cut off), its details dim and a "⧉ Copy error" button that puts it on the clipboard. `actions` are your own `Button`s beside Copy (a "✦ Ask AI to fix", say); `copy_text` replaces what is copied. Import it from `titan_cli.core.mods`. Steps show the same card with `ctx.textual.error_card(error, title, actions)`. |
+| `error_card(message, copy=m.ui.copy, title, details, copy_text, what, actions, color)` | An **ErrorCard**: a bordered box with the error (wrapped, never cut off), its details dim and a "⧉ Copy error" button that puts it on the clipboard. `actions` are your own `Button`s beside Copy (a "✦ Ask AI to fix", say); `copy_text` replaces what is copied. Import it from `titan_cli.ui.components`. Steps show the same card with `ctx.textual.error_card(error, title, actions)`. |
 | `choice_card(options, width, title, hint, state, key, close, border)` | A **choice card**: a bordered box that asks the user to pick, the standard way to offer actions to choose from. `options` are `Option(label, on_press, variant)`; pass the `width` your `ui.render` received: options that sit together go on one line when they fit, in a grid of equal cells when they do not, and in a column when only one fits. `Option(label, options=[...])` is a dropdown inside the card (`▸`/`▾`) and `Option(label, content=Box(...), on_open=fn)` one with a body of your own, such as a small form; `state=m.state` and `key` keep which one is open (one at a time; two cards in one pane need two keys) and `close` folds it after a pick. Mix options and dropdowns in one card instead of one card per kind. `None` options are dropped. Import `Option` and `choice_card` from `titan_cli.core.mods`. |
-| `ai_assist_button(m, prompt, label, cwd)` | A **help button** for an `error_card`'s `actions` or anywhere a `Button` goes: pressing it opens the user's interactive AI CLI with `prompt` typed in, through `m.ai.assist`. Which CLI and model is the user's choice in AI Configuration, on the task `mods.<name>.assist` (declare `ai_assist_task` in `mod.toml` so the AI screen lists it). No workflow in between; use a workflow only when the button must do more than open the CLI (check out a branch, commit, push). Import it from `titan_cli.core.mods`. |
+| `ai_assist_button(m, prompt, label, cwd)` | A **help button** for an `error_card`'s `actions` or anywhere a `Button` goes: pressing it opens the user's interactive AI CLI with `prompt` typed in, through `m.ai.assist`. Which CLI and model is the user's choice in AI Configuration, on the task `mods.<name>.assist` (declare `ai_assist_task` in `mod.toml` so the AI screen lists it). No workflow in between; use a workflow only when the button must do more than open the CLI (check out a branch, commit, push). Import it from `titan_cli.ui.components`. |
 | `fix_prompt(error, context)` | The prompt for "help me fix this error": the error whole, `context` after it (a log excerpt, the branch). Pass it to `ai_assist_button`. |
 | `ask_ai(m, key, work)` | Asks the routed AI in the background and keeps the outcome under `key` as an `AIResult` (`status` `running`/`done`/`error`, `text`, `model`, `error`, and a free `value` for whatever `work` makes of the answer). `work(m)` calls `m.ai.complete` and returns its `AIAnswer` (or an `AIResult`). A second call under a key that is still running starts nothing and returns `False`. Read it with `ai_result(m, key)`. |
 | `ai_ask_button(m, key, work, label, again_label, running_label)` | The button that runs `ask_ai`; its label follows the state (ask, "… asking <model>", ask again). |
 | `ai_answer_box(m, key, title, render)` | What `key` answered, with a copy button, or an error card; nothing while it runs or was never asked. `render(value)` draws the mod's own `value` instead of the text. |
 | `ai_chip(m, title)` | The "⟳ who answers" line: pressing it opens `m.ai.configure`. Fill it at start with `m.run(lambda: refresh_ai_chip(m))`. |
-| `Input(value, placeholder, on_change, on_submit)` | A one-line text field. `on_change` fires on every keystroke — keep it to an `m.state` update, never a network or disk call; `on_submit` (optional) fires on Enter, the right place to kick off a search or write to `m.store`. |
+| `Input(value, placeholder, on_change, on_submit, size)` | A text field: one line (`size="compact"`, the default) or, with `size="normal"`, three lines with a border, for a field that is the point of a screen such as a search box. `on_change` fires on every keystroke — keep it to an `m.state` update, never a network or disk call; `on_submit` (optional) fires on Enter, the right place to kick off a search or write to `m.store`. |
+| `Component(name, props)` | A widget registered with `m.ui.widget(name, cls)`, drawn with `props`. For what the elements above cannot say. |
 
 Colours are semantic: `primary`, `accent`, `success`, `warning`, `error`, `info`, `subtle`. Lists are flattened and falsy children (`None`, `False`, `""`, `0`, `[]`) dropped, so conditionals and comprehensions read naturally.
 
@@ -212,7 +216,8 @@ Keep reading and drawing as plain functions over fake clients, and test them wit
 from pathlib import Path
 
 import pytest
-from titan_cli.core.mods import ModBus, Text, import_mod
+from titan_cli.core.mods import ModBus, import_mod
+from titan_cli.ui.elements import Text
 
 
 @pytest.fixture(scope="session")

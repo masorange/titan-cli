@@ -1,8 +1,10 @@
 from rich.console import Console
 from rich.text import Text as RichText
 
-from titan_cli.core.mods import AppStart, Box, Button, ModBus, Text, UIRender
-from titan_cli.ui.tui.widgets.mod_side_panel import _spread, to_rich
+from titan_cli.core.mods import AppStart, ModBus, UIRender
+from titan_cli.ui.elements import Box, Button, Text
+from titan_cli.ui.tui.widgets.element_text import to_rich
+from titan_cli.ui.tui.widgets.element_widgets import _spread
 
 
 class RecordingHost:
@@ -346,7 +348,7 @@ def test_a_pane_takes_its_rail_icon_from_the_mod_manifest(tmp_path):
 
 
 def test_a_link_is_underlined_and_a_click_opens_its_url():
-    from titan_cli.core.mods import Link
+    from titan_cli.ui.elements import Link
 
     line = to_rich(Text(Link("#12", "https://github.com/o/r/pull/12"), " fix it"))
 
@@ -360,7 +362,7 @@ def test_a_link_is_underlined_and_a_click_opens_its_url():
 def test_only_web_links_open():
     from types import SimpleNamespace
 
-    from titan_cli.ui.tui.widgets.mod_side_panel import _Line
+    from titan_cli.ui.tui.widgets.element_text import Line as _Line
 
     opened = []
     line = _Line("")
@@ -376,16 +378,16 @@ def test_only_web_links_open():
 
 def test_a_button_with_a_variant_is_drawn_as_titans_button():
     from titan_cli.ui.tui.widgets.button import Button as TitanButton
-    from titan_cli.ui.tui.widgets.mod_side_panel import _ModButton, _Pressable, kind
+    from titan_cli.ui.tui.widgets.element_widgets import kind
+    from titan_cli.ui.tui.widgets.pressable_row import PressableRow
 
-    assert kind(Button("▸ fold", lambda: None)) is _Pressable
-    assert kind(Button("Review #5", lambda: None, variant="primary")) is _ModButton
-    assert issubclass(_ModButton, TitanButton)
-    assert _ModButton._variant(Button("x", lambda: None, variant="loud")) == "default"
+    assert kind(Button("▸ fold", lambda: None)) is PressableRow
+    assert kind(Button("Review #5", lambda: None, variant="primary")) is TitanButton
+    assert TitanButton._variant("loud") == "default"
 
 
 def test_a_url_in_plain_text_is_one_link_however_it_wraps():
-    from titan_cli.ui.tui.widgets.mod_side_panel import with_urls
+    from titan_cli.ui.tui.widgets.element_text import with_urls
 
     url = "https://www.figma.com/design/nTUhkbEFwF4V/Home?node-id=1-2"
     text = with_urls(f"Design ({url}). Rest")
@@ -453,3 +455,85 @@ def test_ai_assist_in_the_headless_host_refuses_instead_of_opening_anything():
     from titan_cli.core.mods import ModBus
 
     assert ModBus().api("dev").ai.assist("fix this").opened is False
+
+
+def test_every_widget_that_holds_an_element_is_updatable():
+    from titan_cli.ui.tui.widgets.button import Button as TitanButton
+    from titan_cli.ui.tui.widgets.input_field import InputField
+    from titan_cli.ui.tui.widgets.pressable_row import PressableRow
+    from titan_cli.ui.tui.widgets.updatable import Updatable
+
+    for cls in (TitanButton, InputField, PressableRow):
+        assert issubclass(cls, Updatable)
+
+
+def test_a_redraw_patches_what_has_the_same_kind_and_replaces_the_rest():
+    from titan_cli.ui.tui.widgets.element_widgets import _Group, plan_reconcile
+    from titan_cli.ui.tui.widgets.element_text import Line as _Line
+    from titan_cli.ui.tui.widgets.pressable_row import PressableRow as _PressableLine
+
+    current = [_Line, _PressableLine, _Group, _Line]
+    tree = [Text("a"), Button("b", lambda: None), Text("c")]
+    assert plan_reconcile(current, tree) == [("patch", 0), ("patch", 1), ("replace", 2), ("remove", 3)]
+    assert plan_reconcile([_Line], tree) == [("patch", 0), ("add", 1), ("add", 2)]
+    assert plan_reconcile([], []) == []
+
+
+def test_a_button_is_compact_by_size_and_keeps_its_callback_across_a_redraw():
+    from titan_cli.ui.tui.widgets.button import Button as TitanButton
+
+    pressed = []
+    widget = TitanButton("Go", variant="primary", size="compact", on_press=lambda: pressed.append("old"))
+    assert widget.has_class("-compact")
+    assert not TitanButton("Go").has_class("-compact")
+
+    widget.apply(Button("Stop", lambda: pressed.append("new"), variant="error"))
+    widget._on_press()
+    assert (str(widget.label), widget.variant, pressed) == ("Stop", "error", ["new"])
+
+
+def test_a_component_is_drawn_by_the_widget_registered_under_its_name():
+    from textual.widget import Widget
+
+    from titan_cli.ui.elements import Component
+    from titan_cli.ui.tui.widgets.element_text import Line
+    from titan_cli.ui.tui.widgets.element_widgets import kind
+    from titan_cli.ui.tui.widgets.registry import register_widget, unregister_widget, widget_for
+
+    class Graph(Widget):
+        def apply(self, props):
+            self.props = props
+
+    assert kind(Component("test.graph", [1, 2])) is Line  # not registered: a line that says so
+    register_widget("test.graph", Graph)
+    try:
+        assert kind(Component("test.graph", [1, 2])) is Graph
+        assert widget_for("test.graph") is Graph
+    finally:
+        unregister_widget("test.graph")
+    assert widget_for("test.graph") is None
+
+
+def test_only_an_updatable_class_can_be_registered_as_a_widget():
+    import pytest
+    from textual.widget import Widget
+
+    from titan_cli.ui.tui.widgets.registry import register_widget
+
+    class NoApply(Widget):
+        pass
+
+    with pytest.raises(TypeError):
+        register_widget("test.bad", NoApply)
+    with pytest.raises(TypeError):
+        register_widget("test.bad", "not a class")
+
+
+def test_m_ui_widget_reaches_the_host_and_the_headless_host_only_logs():
+    bus = ModBus()
+    bus.api("dev").ui.widget("dev.graph", object)  # headless: nothing raised
+
+    seen = []
+    bus.host = type("H", (RecordingHost,), {"widget": lambda self, mod, name, widget: seen.append((mod, name, widget))})()
+    bus.api("dev").ui.widget("dev.graph", int)
+    assert seen == [("dev", "dev.graph", int)]

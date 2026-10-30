@@ -38,6 +38,7 @@ its last step (docs, tests and the architecture review included). A task can nee
 |---|---|
 | New or changed public client function of an official plugin (network → model → mapper → service → client) | `titan-plugin-capability` |
 | Anything in a mod: pane, section, button, timer, `mod.toml`/`mod.py` | `titan-mod-builder` |
+| Anything in a workspace: its screen, view, dock tile, `workspace.toml`/`workspace.py`; deciding mod vs workspace | `titan-workspace-builder` |
 | Workflow or step in an official plugin | `titan-official-plugin-workflow-builder` |
 | Workflow or step under `.titan/` | `titan-project-workflow-builder` |
 | Workflow in a community plugin | `titan-public-plugin-workflow-builder` |

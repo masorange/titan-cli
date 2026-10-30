@@ -20,14 +20,9 @@ confirmed search live in `m.store`, so they survive a restart.
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence
 
-from titan_cli.core.mods import (
+from titan_cli.ui.components import (
     AIResult,
-    Box,
-    Button,
-    Input,
-    Link,
     Option,
-    Text,
     ai_answer_box,
     ai_ask_button,
     ai_chip,
@@ -35,6 +30,7 @@ from titan_cli.core.mods import (
     error_card,
     refresh_ai_chip,
 )
+from titan_cli.ui.elements import Box, Button, Input, Link, Text
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.models import (
     UIJiraComment,

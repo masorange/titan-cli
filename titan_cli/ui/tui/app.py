@@ -14,7 +14,7 @@ from typing import Any, Callable, Optional, Sequence
 from titan_cli.ai.router.session import AISessionOverride
 from titan_cli.core.config import TitanConfig
 from titan_cli.core.logging import get_logger
-from titan_cli.core.mods import AppStart, build_mod_bus
+from titan_cli.core.mods import WORKSPACES, AppStart, build_mod_bus
 from titan_cli.core.utils import find_project_root
 from titan_cli.core.plugins.plugin_registry import PluginRegistry
 from titan_cli.external_cli.launcher import launcher_for
@@ -76,7 +76,14 @@ class TitanApp(App):
             return
         super().notify(message, title=title, severity=severity, timeout=timeout)
 
-    def __init__(self, config: TitanConfig = None, initial_screen=None, mod_dirs: Sequence[str] = (), **kwargs):
+    def __init__(
+        self,
+        config: TitanConfig = None,
+        initial_screen=None,
+        mod_dirs: Sequence[str] = (),
+        workspace_dirs: Sequence[str] = (),
+        **kwargs,
+    ):
         """
         Initialize the Titan TUI application.
 
@@ -85,6 +92,7 @@ class TitanApp(App):
             initial_screen: Initial screen to show. If None, shows MainMenuScreen.
                           Can be a screen instance or a callable that returns a screen.
             mod_dirs: Extra mod folders from `--mod-dir`, one mod each.
+            workspace_dirs: Extra workspace folders from `--workspace-dir`, one workspace each.
         """
         super().__init__(**kwargs)
 
@@ -112,6 +120,15 @@ class TitanApp(App):
         )
         self.mods_host = TitanModHost(self, self.mods, registry)
         self.mods.host = self.mods_host
+        # Workspaces are loaded like mods, and lent the same host: what it keeps is keyed by
+        # the `workspace.` prefix the workspaces' bus puts on every name, so nothing collides.
+        self.workspaces = build_mod_bus(
+            _plugin_workspace_paths(config, registry),
+            workspace_dirs,
+            enabled_plugins=_enabled_plugins(config, registry),
+            kind=WORKSPACES,
+        )
+        self.workspaces.host = self.mods_host
 
     def on_mount(self) -> None:
         """Initialize app and show initial screen."""
@@ -120,6 +137,8 @@ class TitanApp(App):
             self.mods.dispatch("app.start", AppStart(project_root=str(find_project_root())), lambda e: None)
         except Exception:
             get_logger(__name__).exception("mods_app_start_failed")
+        # The workspaces' dock tiles and the like: they need the host, which exists now.
+        self.workspaces.start()
         if self._initial_screen is not None:
             # Use custom initial screen
             if callable(self._initial_screen):
@@ -530,11 +549,20 @@ def _enabled_plugins(config, registry) -> Optional[list]:
 
 def _plugin_mod_paths(config, registry) -> dict:
     """Where each enabled plugin keeps the mods it ships."""
+    return _plugin_paths(config, registry, "mods_path")
+
+
+def _plugin_workspace_paths(config, registry) -> dict:
+    """Where each enabled plugin keeps the workspaces it ships."""
+    return _plugin_paths(config, registry, "workspaces_path")
+
+
+def _plugin_paths(config, registry, attribute: str) -> dict:
     paths = {}
     for name in _enabled_plugins(config, registry) or []:
         try:
             plugin = registry.get_plugin(name)
-            path = plugin.mods_path if plugin is not None else None
+            path = getattr(plugin, attribute, None) if plugin is not None else None
         except Exception:
             continue
         if path is not None:

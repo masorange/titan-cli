@@ -145,6 +145,15 @@ class TitanPlugin(ABC):
         return None
 
     @property
+    def workspaces_path(self) -> Optional[Path]:
+        """
+        Optional directory holding workspaces this plugin ships, one folder per workspace
+        (`workspace.toml` + `workspace.py`). They load while the plugin is enabled, unless
+        the user turns one off with `[workspaces.<name>] enabled = false`.
+        """
+        return None
+
+    @property
     def workflows_path(self) -> Optional[Path]:
         """
         Optional path to the directory containing workflow definitions for this plugin.

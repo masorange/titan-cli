@@ -17,6 +17,7 @@ from textual.app import App
 from titan_cli.core.logging import get_logger
 from titan_cli.core.mods import AIAnswer, AssistResult, DockSlot, HomeCardSlot, ModBus, UIRender
 from titan_cli.core.mods.keys import key_refusal
+from titan_cli.ui.tui.widgets.registry import register_widget, unregister_widget
 
 logger = get_logger(__name__)
 
@@ -32,6 +33,8 @@ class TitanModHost:
         self._dock: Dict[str, DockSlot] = {}
         # mod -> its card on the home screen, in the order the mods first asked for one
         self._home_cards: Dict[str, HomeCardSlot] = {}
+        # mod -> the widget names it registered, to take them back when it is unloaded
+        self._widgets: Dict[str, List[str]] = {}
         # pane id -> (mod that opened it, title, rail icon), in the order they were opened
         self.panes: Dict[str, Tuple[str, str, str]] = {}
         # pane id -> (text, severity) its mod put under its rail icon
@@ -63,6 +66,41 @@ class TitanModHost:
         else:
             self._dock.pop(mod, None)
         self._on_app_thread(self._paint_dock)
+
+    def widget(self, mod: str, name: str, widget: Any) -> None:
+        register_widget(name, widget)
+        with self._lock:
+            names = self._widgets.setdefault(mod, [])
+            if name not in names:
+                names.append(name)
+
+    def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]:
+        from titan_cli.ui.tui.screens.workspace_screen import WorkspaceScreen
+
+        bus = getattr(self._app, "workspaces", None)
+        config = getattr(self._app, "config", None)
+        refusal = None
+        if bus is None or name not in bus.views:
+            refusal = f"there is no workspace '{name}'"
+        elif config is None:
+            refusal = "Titan has no configuration loaded"
+        if refusal is not None:
+            self.toast(mod, f"Cannot open workspace {name}: {refusal}", "warning")
+            return refusal
+        top = self._app.screen
+        if isinstance(top, WorkspaceScreen) and top.workspace == name:
+            self._on_app_thread(lambda: bus.opened(name, focus))
+            return None  # already there
+        title = bus.views[name][0] or name
+        logger.info("workspace_opened", mod=mod, workspace=name)
+
+        def push():
+            # Its `w.on_open` first, so the first draw already shows what was asked for.
+            bus.opened(name, focus)
+            self._app.push_screen(WorkspaceScreen(config, name, title))
+
+        self._on_app_thread(push)
+        return None
 
     def press_dock(self, mod: str) -> None:
         """A click on a mod's dock tile: its own action, if it gave one."""
@@ -186,12 +224,16 @@ class TitanModHost:
                 self._repaint_pending = False
 
     def _repaint_now(self) -> None:
+        from titan_cli.ui.tui.screens.workspace_screen import WorkspaceScreen
         from titan_cli.ui.tui.widgets.mod_side_panel import ModSidePanel
 
         with self._lock:
             self._repaint_pending = False
+        screen = self._app.screen
+        if isinstance(screen, WorkspaceScreen):
+            screen.refresh_view()
         try:
-            panel = self._app.screen.query_one(ModSidePanel)
+            panel = screen.query_one(ModSidePanel)
         except Exception:
             return  # this screen has no panel; the next one paints on mount
         panel.refresh_panes()
@@ -378,6 +420,10 @@ class TitanModHost:
                 self.badges.pop(pane, None)
                 if self.active == pane:
                     self.active = next(iter(self.panes), None)
+        with self._lock:
+            names = self._widgets.pop(mod, [])
+        for name in names:
+            unregister_widget(name)
         self._dock.pop(mod, None)
         self._paint_dock()
         self._home_cards.pop(mod, None)
@@ -432,11 +478,14 @@ class TitanModHost:
         if executor is None:
             return []
         rows = []
-        for name, manifest in self._bus.manifests.items():
-            if manifest.ai_task:
-                rows.append(self._task_routing(name, manifest.ai_task, executor))
-            if getattr(manifest, "ai_assist_task", None):
-                rows.append(self._task_routing(name, manifest.ai_assist_task, executor, assist=True))
+        workspaces = getattr(self._app, "workspaces", None)
+        for bus in (self._bus, workspaces):
+            for name, manifest in (bus.manifests.items() if bus is not None else ()):
+                ident = bus.prefix + name
+                if manifest.ai_task:
+                    rows.append(self._task_routing(ident, manifest.ai_task, executor))
+                if getattr(manifest, "ai_assist_task", None):
+                    rows.append(self._task_routing(ident, manifest.ai_assist_task, executor, assist=True))
         return rows
 
     def _task_routing(self, mod: str, title: str, executor=None, assist: bool = False):

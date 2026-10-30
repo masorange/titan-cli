@@ -2,20 +2,38 @@
 
 User docs: `docs/concepts/mods.md` (using) and `docs/concepts/writing-mods.md` (authoring: manifest,
 events, `m` API, elements, testing). Read those first; this page is only what a contributor
-changing Titan itself needs. Building a mod: the `titan-mod-builder` skill.
+changing Titan itself needs. Building a mod: the `titan-mod-builder` skill; a workspace: `titan-workspace-builder`.
 
 ## Where the code is
 
 - `titan_cli/core/mods/` — the system, UI-free: `bus.py` (`ModBus`, `ModAPI`, `ModHost` protocol,
   `DockSlot`, `HomeCardSlot`), `loader.py` (sources, manifest, load/reload), `events.py`,
-  `elements.py`, `options.py`, `sections.py`, `settings.py`, `state.py`, `store.py`, `keys.py`,
+  `options.py`, `sections.py`, `settings.py`, `state.py`, `store.py`, `keys.py`,
   `status.py`. Public names are re-exported from `titan_cli/core/mods/__init__.py`.
+  Elements (`Box`, `Button`, `Input`, `Link`, `Text`) live in `titan_cli/ui/elements.py` and the
+  cards (`Option`, `choice_card`, `error_card`, `fix_with_ai_button`) in `titan_cli/ui/components/`:
+  visual pieces any mod, workspace or workflow can use.
 - TUI side: `ui/tui/mods_ui.py` (`TitanModHost`, the `ModHost` implementation),
-  `widgets/mod_side_panel.py`, `widgets/dock.py`, the home card in `screens/main_menu.py`,
+  `widgets/mod_side_panel.py` (the panel) and `widgets/element_widgets.py` (elements as widgets,
+  repainted in place through the `Updatable` contract; `widgets/registry.py` holds the widgets mods bring
+  with `m.ui.widget`), `widgets/dock.py`, the home card in `screens/main_menu.py`,
   `screens/mods_screen.py`, `screens/task_ai_picker.py`.
 - Events are dispatched from `app.py` (`app.start`), `textual_workflow_executor.py`
   (`workflow.run`, `step.call`), `mods_ui.py` (`ui.render`) and `ModBus.set_section`
   (`section.change`).
+
+## Workspaces share the loader
+
+A workspace is loaded by the mods' own code, parametrized by `Kind` in `loader.py` (`MODS`,
+`WORKSPACES`): `workspace.toml` + `workspace.py` with `register(w, on, options)`, the same sources
+(`workspaces_path` on `plugin_base.py`, `.titan/workspaces/`, `~/.titan/workspaces/`,
+`--workspace-dir`, `TITAN_WORKSPACE_DIRS`) and the `[workspaces.<name>]` config table. `w` is a
+`ModAPI` and `register` also gets the `on` of its bus (hooks `workflow.run`, `step.call`, `section.change`, only the events its `workspace.toml` lists; the executor runs the workspaces' bus before the mods'); its bus puts `workspace.` before every name it hands the host, so a mod and
+a workspace called alike never share timers, keys, store or AI task. `TitanApp.workspaces` is that bus;
+it uses the same `TitanModHost`. A workspace answers `w.ui.view(fn, title)` (an element tree for a
+width) and its dock tile calls `w.ui.open_workspace`, put there from `w.on_start(fn)`: `register` runs before the
+host exists (a `w.ui` call there only logs), `TitanApp.on_mount` runs `workspaces.start()` after it; `screens/workspace_screen.py` draws it with
+`reconcile`, and `TitanModHost._repaint_now` redraws it on a `w.state` change. `w.on_open(fn)` runs `fn(w, focus)` when the screen opens (`bus.opened`), with what the opener passed to `ui.open_workspace(name, focus)`. A new capability on `m` is on `w` too: do not fork `ModAPI`. Users' and authors' docs: `docs/concepts/workspaces.md`, `writing-workspaces.md`.
 
 ## Rules
 

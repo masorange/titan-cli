@@ -2,7 +2,7 @@
 
 A **mod** is a small piece of Python that changes Titan's own interface: a live pane in the side panel, a tile in the dock, a card on the home screen, a toast, a key binding. It reacts to what Titan does (the app starting, a workflow running, a step being called) and reads data through the plugins' clients and Titan's AI routing.
 
-This page is for people who **use** mods. To write one, see [Writing a Mod](writing-mods.md).
+This page is for people who **use** mods. To write one, see [Writing a Mod](writing-mods.md). For a whole service on its own screen, see [Workspaces](workspaces.md).
 
 ## Mods, plugins and workflow hooks
 
@@ -21,7 +21,7 @@ Official plugins ship their own mods, and they load while the plugin is enabled:
 | Mod | Plugin | Shows |
 |---|---|---|
 | `git` | git | Branch, upstream, recent commits; a switcher for the branches you use most (switch, or merge another branch into one); the repository's worktrees, each folding into its removal |
-| `github` | github | PRs waiting for your review (with a Review button), your PRs, merge queue, AI diagnosis of failed checks |
+| `github` | github | What needs you now: reviews asked of you, your PRs that need action, failing CI runs; pressing one opens the GitHub [workspace](workspaces.md) on it |
 | `jira_ready` | jira | Issues narrowed by status and filters read from Jira, with description, comments and an AI summary |
 
 ## Where you see a mod
