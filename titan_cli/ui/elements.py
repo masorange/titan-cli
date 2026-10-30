@@ -14,9 +14,9 @@ flattened, so conditionals and comprehensions read naturally:
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
-Child = Union["Text", "Box", "Button", "Input", "Link", "Component", str, None, bool]
+Child = Union["Text", "Box", "Columns", "Button", "Input", "Link", "Component", str, None, bool]
 
 
 def _children(children) -> tuple:
@@ -82,6 +82,52 @@ class Box:
 
 
 @dataclass(frozen=True)
+class Columns:
+    """
+    Children side by side, each as wide as its share of `ratio` (`(3, 2)`: three fifths and two
+    fifths), `gap` columns apart. Each child is drawn for the width it gets: see `column_widths`.
+    Use `responsive_columns` to fall back to one column on a narrow screen.
+    """
+
+    children: Tuple[Child, ...]
+    ratio: Tuple[int, ...] = ()
+    gap: int = 1
+
+    def __init__(self, *children, ratio=(), gap=1):
+        kept = _children(children)
+        object.__setattr__(self, "children", kept)
+        object.__setattr__(self, "ratio", tuple(ratio) or (1,) * len(kept))
+        object.__setattr__(self, "gap", gap)
+
+
+def column_widths(width: int, ratio: Tuple[int, ...], gap: int = 1) -> Tuple[int, ...]:
+    """How many columns each share of `ratio` gets out of `width`, once the gaps are taken off."""
+    usable = max(0, width - gap * (len(ratio) - 1))
+    return tuple(max(1, usable * share // sum(ratio)) for share in ratio)
+
+
+def responsive_columns(
+    width: int,
+    builders: Sequence[Callable[[int], Child]],
+    ratio: Tuple[int, ...] = (),
+    collapse_below: int = 120,
+    gap: int = 1,
+) -> Child:
+    """
+    `Columns` while `width` is at least `collapse_below`, one column otherwise.
+
+    Each builder gets the width its column has and answers with its tree, so what it draws
+    (a card that lays its buttons out by width, say) fits either way. Narrow, the builders
+    stack top to bottom at the full width, in order.
+    """
+    ratio = tuple(ratio) or (1,) * len(builders)
+    if width < collapse_below:
+        return Box(*[build(width) for build in builders])
+    widths = column_widths(width, ratio, gap)
+    return Columns(*[build(w) for build, w in zip(builders, widths)], ratio=ratio, gap=gap)
+
+
+@dataclass(frozen=True)
 class Button:
     """
     A pressable line. `on_press` runs on the UI thread: keep it to a state update.
@@ -132,9 +178,13 @@ class Input:
     A one-line text field. `on_change` runs on every keystroke, on the UI thread: keep
     it to `m.state`, never a network or disk call. `on_submit`, when given, runs when
     the user presses Enter.
+
+    `size` is `compact` (one line, the default, for a pane) or `normal` (three lines with a
+    border, for a field that is the point of a screen, such as a search box).
     """
 
     value: str
     placeholder: str = ""
     on_change: Callable[[str], None] = lambda value: None
     on_submit: Optional[Callable[[str], None]] = None
+    size: str = "compact"

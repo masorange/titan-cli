@@ -235,6 +235,7 @@ class WorkflowExecutionScreen(BaseScreen):
                 workflow_registry=self.config.workflows,
                 message_target=self,  # Pass self to receive messages
                 mods=getattr(app, "mods", None),
+                workspaces=getattr(app, "workspaces", None),
             )
             # The cancel handler runs on the UI thread, where the run id
             # contextvar bound inside the worker is not visible.

@@ -28,11 +28,20 @@ class InputField(Widget, can_focus=True, can_focus_children=True):
         padding: 0 !important;
         background: $surface-lighten-1;
     }
+    InputField.-normal {
+        height: 3;
+    }
+    InputField.-normal > Input {
+        border: round $primary !important;
+        height: 3 !important;
+        padding: 0 1 !important;
+    }
     """
 
     def __init__(self, element: Input):
         super().__init__()
         self._element = element
+        self.set_class(element.size == "normal", "-normal")
 
     def compose(self) -> ComposeResult:
         yield TextualInput(value=self._element.value, placeholder=self._element.placeholder)
@@ -41,6 +50,7 @@ class InputField(Widget, can_focus=True, can_focus_children=True):
         """Take a redrawn input's handlers; only reset the shown value when it actually
         changed from outside (an own keystroke already matches, so the cursor stays put)."""
         self._element = element
+        self.set_class(element.size == "normal", "-normal")
         field = self.query_one(TextualInput)
         if field.value != element.value:
             field.value = element.value

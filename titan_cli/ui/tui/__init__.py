@@ -40,7 +40,9 @@ def _run_app(app: TitanApp) -> None:
     os._exit(0)
 
 
-def launch_tui(debug: bool = False, devtools: bool = False, mod_dirs: Sequence[str] = ()):
+def launch_tui(
+    debug: bool = False, devtools: bool = False, mod_dirs: Sequence[str] = (), workspace_dirs: Sequence[str] = ()
+):
     """
     Launch the Titan TUI application.
 
@@ -50,6 +52,7 @@ def launch_tui(debug: bool = False, devtools: bool = False, mod_dirs: Sequence[s
         debug: Enable DEBUG level file logging (set by titan-dev or --debug)
         devtools: Enable Textual devtools for visual debugging (requires `textual console` in another terminal)
         mod_dirs: Extra mod folders from `--mod-dir`, one mod each
+        workspace_dirs: Extra workspace folders from `--workspace-dir`, one workspace each
 
     Flow:
     1. Check if global config exists (~/.titan/config.toml)
@@ -262,5 +265,5 @@ def launch_tui(debug: bool = False, devtools: bool = False, mod_dirs: Sequence[s
     # Both global and project configs exist: Initialize normally with plugins
     plugin_registry = PluginRegistry()
     config = TitanConfig(registry=plugin_registry)  # Plugins will initialize here
-    app = TitanApp(config=config, mod_dirs=mod_dirs)
+    app = TitanApp(config=config, mod_dirs=mod_dirs, workspace_dirs=workspace_dirs)
     _run_app(app)

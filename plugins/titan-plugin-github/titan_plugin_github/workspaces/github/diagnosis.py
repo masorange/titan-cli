@@ -17,7 +17,7 @@ from titan_plugin_github.operations import (
     parse_job_diagnosis,
 )
 
-from .models import Prs
+from titan_plugin_github.readers.models import Prs
 
 
 def diagnose_job(m, github, check: UIFailedCheck) -> Tuple[UIJobDiagnosis, Optional[str]]:

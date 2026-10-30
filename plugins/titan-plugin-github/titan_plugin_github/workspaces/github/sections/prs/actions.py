@@ -13,7 +13,7 @@ from typing import List, Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Composer
+from titan_plugin_github.readers.models import Composer
 
 # What the pane shows while the action is in flight, and what the toast says after.
 PROGRESS = {"approve": "approving", "request_changes": "requesting changes", "comment": "commenting",

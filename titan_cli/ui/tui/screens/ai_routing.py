@@ -1054,6 +1054,8 @@ class TaskRoutingRow(Container):
 
     def _usage_summary(self) -> str:
         if self.routing.mod is not None:
+            if self.routing.mod.startswith("workspace."):
+                return f"used by workspace {self.routing.mod.removeprefix('workspace.')}"
             return f"used by mod {self.routing.mod}"
         count = len(self.routing.workflows)
         if count == 1:

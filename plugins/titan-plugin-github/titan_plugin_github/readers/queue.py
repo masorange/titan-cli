@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Queue
+from .models import Queue
 
 
 def read_queue(github, shown: int) -> Queue:

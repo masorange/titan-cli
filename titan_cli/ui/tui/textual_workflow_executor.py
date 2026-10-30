@@ -123,6 +123,7 @@ class TextualWorkflowExecutor:
         workflow_registry: WorkflowRegistry,
         message_target: Any = None,
         mods: Optional[ModBus] = None,
+        workspaces: Optional[ModBus] = None,
     ):
         """
         Initialize the Textual workflow executor.
@@ -132,11 +133,13 @@ class TextualWorkflowExecutor:
             workflow_registry: Workflow registry for resolving workflows
             message_target: Target to post messages to (typically a Textual Widget/Screen)
             mods: Loaded mods whose `workflow.run` and `step.call` hooks wrap execution
+            workspaces: Loaded workspaces, whose hooks wrap it too, outside the mods' ones
         """
         self._plugin_registry = plugin_registry
         self._workflow_registry = workflow_registry
         self._message_target = message_target
         self._mods = mods or ModBus()
+        self._workspaces = workspaces or ModBus()
         # Mints the namespace-scoped broker each step receives as
         # ctx.secret_broker. The vault stays inside the factory; neither the
         # executor nor the context ever holds it.
@@ -199,6 +202,13 @@ class TextualWorkflowExecutor:
         finally:
             structlog.contextvars.reset_contextvars(**token)
 
+    def _has_hooks(self, event: str) -> bool:
+        return self._mods.has_hooks(event) or self._workspaces.has_hooks(event)
+
+    def _dispatch_hooks(self, event: str, e: Any, final: Any) -> Any:
+        """Through the workspaces' hooks, then the mods', ending in `final`."""
+        return self._workspaces.dispatch(event, e, lambda w: self._mods.dispatch(event, w, final))
+
     def _run_workflow(
         self,
         workflow: ParsedWorkflow,
@@ -206,7 +216,7 @@ class TextualWorkflowExecutor:
         params_override: Optional[Dict[str, Any]] = None
     ) -> WorkflowResult:
         """Run the workflow through the mods' `workflow.run` hooks."""
-        if not self._mods.has_hooks("workflow.run"):
+        if not self._has_hooks("workflow.run"):
             return self._execute_tagged(workflow, ctx, params_override)
 
         started = False
@@ -221,7 +231,7 @@ class TextualWorkflowExecutor:
             source=workflow.source,
             nested=bool(ctx._workflow_stack),
         )
-        result = self._mods.dispatch("workflow.run", event, run)
+        result = self._dispatch_hooks("workflow.run", event, run)
 
         # A mod that refused the workflow answered before anything was posted,
         # and the screen only learns a run is over from these messages. Every
@@ -528,7 +538,7 @@ class TextualWorkflowExecutor:
 
     def _call_step(self, workflow_name: str, step_config: WorkflowStepModel, ctx: WorkflowContext) -> WorkflowResult:
         """Run one step through the mods' `step.call` hooks."""
-        if not self._mods.has_hooks("step.call"):
+        if not self._has_hooks("step.call"):
             return self._dispatch_step(step_config, ctx)
 
         ran = False
@@ -551,7 +561,7 @@ class TextualWorkflowExecutor:
             nested_workflow=step_config.workflow,
             params=step_config.params,
         )
-        result = self._mods.dispatch("step.call", event, run)
+        result = self._dispatch_hooks("step.call", event, run)
 
         # A step shows its own errors; one a mod refused never ran, so nothing
         # would say why it failed.

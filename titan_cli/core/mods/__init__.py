@@ -3,7 +3,7 @@
 from .bus import AIAnswer, AssistResult, DockSlot, HomeCardSlot, ModAPI, ModBus, ModHost
 from .events import AppStart, SectionChange, StepCall, UIRender, WorkflowRun, outcome
 from .state import ModState
-from .loader import ModManifest, build_mod_bus, discover_mods, import_mod, load_mods, mod_sources, read_manifest, reload_mod
+from .loader import MODS, WORKSPACES, Kind, ModManifest, build_mod_bus, discover_mods, import_mod, load_mods, mod_sources, read_manifest, reload_mod
 
 __all__ = [
     "AIAnswer",
@@ -20,6 +20,9 @@ __all__ = [
     "UIRender",
     "WorkflowRun",
     "ModManifest",
+    "Kind",
+    "MODS",
+    "WORKSPACES",
     "build_mod_bus",
     "discover_mods",
     "import_mod",

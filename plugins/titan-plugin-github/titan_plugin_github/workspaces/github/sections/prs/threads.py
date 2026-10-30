@@ -5,7 +5,7 @@ is opened, and again with each read of the lists while it stays open.
 """
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Threads
+from titan_plugin_github.readers.models import Threads
 
 
 def of(m, number: int):

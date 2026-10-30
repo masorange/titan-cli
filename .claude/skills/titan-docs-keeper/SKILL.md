@@ -14,7 +14,7 @@ decides the home and finds violations. The map is in
 ## Modes
 
 Load this skill **before** the first edit to `AGENTS.md`, `.claude/` or `docs/`, not after:
-the Stop hook only reviews what is already written.
+a review afterwards only sees what is already written.
 
 **Place** - "where does this go?" / you are about to write docs:
 1. Ask of the text, in order: Is it loaded by every task and a one-line rule? -> root
@@ -30,7 +30,7 @@ the Stop hook only reviews what is already written.
    version to root `AGENTS.md` Non-Negotiable Rules **and** link to the guide section. Root
    holds the rule, the guide holds the why and the examples.
 
-**Review** - after a task (the Stop hook `docs-review-stop-hook.sh` triggers this):
+**Review** - after a task, when invoked explicitly (`/titan-docs-keeper`):
 1. Follow [references/when-to-write.md](references/when-to-write.md). Truth check is
    mandatory (fix or delete what the task made false); adding anything must pass its
    write-test and size-test. **"docs: no change" is the normal result.**

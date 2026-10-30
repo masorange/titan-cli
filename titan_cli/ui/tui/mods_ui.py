@@ -74,6 +74,27 @@ class TitanModHost:
             if name not in names:
                 names.append(name)
 
+    def open_workspace(self, mod: str, name: str) -> Optional[str]:
+        from titan_cli.ui.tui.screens.workspace_screen import WorkspaceScreen
+
+        bus = getattr(self._app, "workspaces", None)
+        config = getattr(self._app, "config", None)
+        refusal = None
+        if bus is None or name not in bus.views:
+            refusal = f"there is no workspace '{name}'"
+        elif config is None:
+            refusal = "Titan has no configuration loaded"
+        if refusal is not None:
+            self.toast(mod, f"Cannot open workspace {name}: {refusal}", "warning")
+            return refusal
+        top = self._app.screen
+        if isinstance(top, WorkspaceScreen) and top.workspace == name:
+            return None  # already there
+        title = bus.views[name][0] or name
+        logger.info("workspace_opened", mod=mod, workspace=name)
+        self._on_app_thread(lambda: self._app.push_screen(WorkspaceScreen(config, name, title)))
+        return None
+
     def press_dock(self, mod: str) -> None:
         """A click on a mod's dock tile: its own action, if it gave one."""
         slot = self._dock.get(mod)
@@ -196,12 +217,16 @@ class TitanModHost:
                 self._repaint_pending = False
 
     def _repaint_now(self) -> None:
+        from titan_cli.ui.tui.screens.workspace_screen import WorkspaceScreen
         from titan_cli.ui.tui.widgets.mod_side_panel import ModSidePanel
 
         with self._lock:
             self._repaint_pending = False
+        screen = self._app.screen
+        if isinstance(screen, WorkspaceScreen):
+            screen.refresh_view()
         try:
-            panel = self._app.screen.query_one(ModSidePanel)
+            panel = screen.query_one(ModSidePanel)
         except Exception:
             return  # this screen has no panel; the next one paints on mount
         panel.refresh_panes()
@@ -446,11 +471,14 @@ class TitanModHost:
         if executor is None:
             return []
         rows = []
-        for name, manifest in self._bus.manifests.items():
-            if manifest.ai_task:
-                rows.append(self._task_routing(name, manifest.ai_task, executor))
-            if getattr(manifest, "ai_assist_task", None):
-                rows.append(self._task_routing(name, manifest.ai_assist_task, executor, assist=True))
+        workspaces = getattr(self._app, "workspaces", None)
+        for bus in (self._bus, workspaces):
+            for name, manifest in (bus.manifests.items() if bus is not None else ()):
+                ident = bus.prefix + name
+                if manifest.ai_task:
+                    rows.append(self._task_routing(ident, manifest.ai_task, executor))
+                if getattr(manifest, "ai_assist_task", None):
+                    rows.append(self._task_routing(ident, manifest.ai_assist_task, executor, assist=True))
         return rows
 
     def _task_routing(self, mod: str, title: str, executor=None, assist: bool = False):

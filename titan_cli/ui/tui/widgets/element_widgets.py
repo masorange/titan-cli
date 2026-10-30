@@ -13,7 +13,7 @@ from rich.text import Text as RichText
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
 
-from titan_cli.ui.elements import Box, Component
+from titan_cli.ui.elements import Box, Columns, Component, column_widths
 from titan_cli.ui.elements import Button as ButtonElement
 from titan_cli.ui.elements import Input, Link, Text, plain
 from titan_cli.ui.tui.widgets.button import Button
@@ -34,6 +34,23 @@ class _Group(Vertical):
         border: round $primary;
         padding: 0 1;
         margin-bottom: 1;
+    }
+    """
+
+
+class _Columns(Horizontal):
+    DEFAULT_CSS = """
+    _Columns {
+        height: auto;
+        width: 1fr;
+    }
+    """
+
+
+class _Column(Vertical):
+    DEFAULT_CSS = """
+    _Column {
+        height: auto;
     }
     """
 
@@ -77,6 +94,8 @@ def kind(element: Any) -> type:
         return InputField
     if isinstance(element, Component):
         return widget_for(element.name) or Line
+    if isinstance(element, Columns):
+        return _Columns
     if isinstance(element, Box):
         if _is_spread(element):
             return Line
@@ -98,6 +117,16 @@ def _line_text(element: Any, width: int) -> RichText:
     if isinstance(element, Box):
         return _spread(list(element.children), width)
     return RichText(str(element), no_wrap=True, overflow="ellipsis")
+
+
+def _column(element: Columns, i: int, width: int) -> tuple:
+    """The width column `i` of `element` is drawn for, and its share of the row (`fr`)."""
+    return column_widths(width, element.ratio, element.gap)[i], element.ratio[i]
+
+
+def _style_column(column: Widget, element: Columns, i: int) -> None:
+    column.styles.width = f"{element.ratio[i]}fr"
+    column.styles.margin = (0, 0, 0, element.gap if i else 0)
 
 
 def _inner_width(box: Box, width: int) -> int:
@@ -139,6 +168,13 @@ def build(element: Any, width: int) -> Widget:
         return cls(element)
     if cls is Line:
         return Line(_line_text(element, width))
+    if cls is _Columns:
+        columns = []
+        for i, child in enumerate(element.children):
+            column = _Column(build(child, _column(element, i, width)[0]))
+            _style_column(column, element, i)
+            columns.append(column)
+        return _Columns(*columns)
     children = [build(child, _inner_width(element, width)) for child in element.children]
     widget = cls(*children)
     _style_box(widget, element, children)
@@ -163,7 +199,15 @@ def patch(widget: Widget, element: Any, width: int) -> bool:
         return False
     if cls not in (PressableRow, Button, Line) and not widget.is_mounted:
         return False
-    if isinstance(element, Component) and cls is not Line:
+    if cls is _Columns:
+        columns = live_children(widget)
+        if len(columns) != len(element.children):
+            return False
+        for i, (column, child) in enumerate(zip(columns, element.children)):
+            reconcile(column, [child], _column(element, i, width)[0])
+            _style_column(column, element, i)
+        widget.refresh(layout=True)
+    elif isinstance(element, Component) and cls is not Line:
         widget.apply(element.props)
     elif issubclass(cls, Updatable):
         widget.apply(element)

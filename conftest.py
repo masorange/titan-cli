@@ -51,8 +51,10 @@ def _isolate_titan_mods():
     with tempfile.TemporaryDirectory(prefix="titan-test-mods-") as tmp:
         with mock.patch("titan_cli.core.mods.loader.USER_MODS", Path(tmp) / "mods"), \
                 mock.patch("titan_cli.core.mods.loader.TITAN_MODS", Path(tmp) / "titan-mods"), \
+                mock.patch("titan_cli.core.mods.loader.USER_WORKSPACES", Path(tmp) / "workspaces"), \
+                mock.patch("titan_cli.core.mods.loader.TITAN_WORKSPACES", Path(tmp) / "titan-workspaces"), \
                 mock.patch("titan_cli.core.mods.loader.project_root", lambda: None), \
                 mock.patch("titan_cli.core.mods.loader.USER_CONFIG", Path(tmp) / "config.toml"), \
                 mock.patch("titan_cli.core.mods.store.STORE_DIR", Path(tmp) / "mods-data"), \
-                mock.patch.dict(os.environ, {"TITAN_MOD_DIRS": ""}):
+                mock.patch.dict(os.environ, {"TITAN_MOD_DIRS": "", "TITAN_WORKSPACE_DIRS": ""}):
             yield

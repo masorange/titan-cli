@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Others, Prs
+from .models import Others, Prs
 
 
 def read_prs(github) -> Prs:

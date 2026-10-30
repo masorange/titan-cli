@@ -22,6 +22,19 @@ changing Titan itself needs. Building a mod: the `titan-mod-builder` skill.
   (`workflow.run`, `step.call`), `mods_ui.py` (`ui.render`) and `ModBus.set_section`
   (`section.change`).
 
+## Workspaces share the loader
+
+A workspace is loaded by the mods' own code, parametrized by `Kind` in `loader.py` (`MODS`,
+`WORKSPACES`): `workspace.toml` + `workspace.py` with `register(w, on, options)`, the same sources
+(`workspaces_path` on `plugin_base.py`, `.titan/workspaces/`, `~/.titan/workspaces/`,
+`--workspace-dir`, `TITAN_WORKSPACE_DIRS`) and the `[workspaces.<name>]` config table. `w` is a
+`ModAPI` (no event hooks); its bus puts `workspace.` before every name it hands the host, so a mod and
+a workspace called alike never share timers, keys, store or AI task. `TitanApp.workspaces` is that bus;
+it uses the same `TitanModHost`. A workspace answers `w.ui.view(fn, title)` (an element tree for a
+width) and its dock tile calls `w.ui.open_workspace`, put there from `w.on_start(fn)`: `register` runs before the
+host exists (a `w.ui` call there only logs), `TitanApp.on_mount` runs `workspaces.start()` after it; `screens/workspace_screen.py` draws it with
+`reconcile`, and `TitanModHost._repaint_now` redraws it on a `w.state` change. A new capability on `m` is on `w` too: do not fork `ModAPI`.
+
 ## Rules
 
 - A new `m` capability is a method on `ModAPI`/`_Mod*` **and** on the `ModHost` protocol **and** on

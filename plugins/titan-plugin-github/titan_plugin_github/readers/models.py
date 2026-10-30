@@ -1,4 +1,4 @@
-"""What the pane shows: snapshots the readers build from the github plugin's UI models and the drawing reads."""
+"""What the pane and the workspace show: snapshots the readers build from the github plugin's UI models and the drawing reads."""
 from dataclasses import dataclass, field
 from typing import List, Optional
 

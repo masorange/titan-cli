@@ -62,6 +62,11 @@ def main(
         "--mod-dir",
         help="Load the mod in this folder above every other source (repeatable)",
     ),
+    workspace_dir: List[str] = typer.Option(
+        [],
+        "--workspace-dir",
+        help="Load the workspace in this folder above every other source (repeatable)",
+    ),
 ):
     """Titan CLI - Main entry point"""
     # Auto-enable debug if running as titan-dev (detected via TITAN_ENV set by the script)
@@ -76,6 +81,7 @@ def main(
     ctx.ensure_object(dict)
     ctx.obj["devtools"] = devtools
     ctx.obj["mod_dirs"] = mod_dir
+    ctx.obj["workspace_dirs"] = workspace_dir
 
     logger.debug("cli_invoked", command=ctx.invoked_subcommand, verbose=verbose, debug=debug, devtools=devtools)
 
@@ -169,7 +175,7 @@ def main(
             pass
 
         # Launch TUI (only if no update or update was declined/failed)
-        launch_tui(debug=debug, devtools=devtools, mod_dirs=mod_dir)
+        launch_tui(debug=debug, devtools=devtools, mod_dirs=mod_dir, workspace_dirs=workspace_dir)
 
 
 @app.command()
@@ -188,4 +194,5 @@ def tui(
     debug = ctx.parent.params.get("debug", False) if ctx.parent else False
     devtools = ctx.parent.obj.get("devtools", False) if ctx.parent and ctx.parent.obj else False
     mod_dirs = ctx.parent.obj.get("mod_dirs", []) if ctx.parent and ctx.parent.obj else []
-    launch_tui(debug=debug, devtools=devtools, mod_dirs=mod_dirs)
+    workspace_dirs = ctx.parent.obj.get("workspace_dirs", []) if ctx.parent and ctx.parent.obj else []
+    launch_tui(debug=debug, devtools=devtools, mod_dirs=mod_dirs, workspace_dirs=workspace_dirs)

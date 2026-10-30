@@ -7,7 +7,7 @@ checked out. Resolving them is the `resolve-pr-conflicts` workflow's job.
 """
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Conflicts
+from titan_plugin_github.readers.models import Conflicts
 
 
 def of(m, number: int):

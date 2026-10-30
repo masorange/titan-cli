@@ -4,7 +4,7 @@ from typing import Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Runs
+from .models import Runs
 
 # Runs shown at first, and how many more each "show more" adds; GitHub answers at most MAX in a page.
 PAGE = 10

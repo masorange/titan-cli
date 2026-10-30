@@ -5,7 +5,7 @@ API, which has a rate limit of its own, so it never runs per keystroke.
 """
 from titan_cli.core.result import ClientError, ClientSuccess
 
-from ...models import Search
+from titan_plugin_github.readers.models import Search
 
 # What the box suggests, as GitHub's own filters do; any other qualifier GitHub knows works too.
 EXAMPLES = "author:ana label:bug review:approved status:failure draft:false base:develop"
