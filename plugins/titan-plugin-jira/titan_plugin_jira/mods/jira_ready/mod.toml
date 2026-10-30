@@ -1,24 +1,22 @@
 [mod]
 name = "jira_ready"
-version = "0.5.0"
+version = "0.6.0"
 icon = "🎫"
-description = "Side panel with Jira issues from one or several projects, narrowed by statuses, components and filters read from Jira, or by a free-text search"
+description = "Side panel with the Jira issues assigned to you that are not done; pressing one opens the jira workspace on it"
 requires_plugins = ["jira"]
 events = ["app.start", "ui.render"]
 slots = ["pane"]
-# Its AI summary runs under the routing task "mods.jira_ready", listed with this label.
-ai_task = "Jira issue summary"
 
 [options.project]
 type = "string"
 title = "Project keys"
-description = "Comma-separated project keys to search (e.g. \"ECAPP, ESHOP\"); empty uses the jira plugin's default_project, and every project you can see when that is unset too. Only seeds the pane's Projects dropdown the first time it runs - pick there after that."
+description = "Comma-separated project keys to look in (e.g. \"ECAPP, ESHOP\"); empty uses the jira plugin's default_project, and every project you can see when that is unset too."
 default = ""
 
 [options.shown]
 type = "int"
-title = "Issues shown"
-default = 10
+title = "Issues read"
+default = 20
 min = 1
 
 [options.refresh_seconds]
@@ -26,15 +24,3 @@ type = "int"
 title = "Refresh every (s)"
 default = 300
 min = 1
-
-[options.plan_workflow]
-type = "string"
-title = "Plan workflow"
-description = "Workflow the Plan button opens on an issue (it receives jira_issue_key); empty hides the button."
-default = "plan-jira-issue"
-
-[options.take_status]
-type = "string"
-title = "Take status"
-description = "Status Take moves an issue to after assigning it to you; empty hides the button."
-default = "In Progress"

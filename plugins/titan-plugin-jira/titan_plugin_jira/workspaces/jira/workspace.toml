@@ -1,0 +1,45 @@
+[workspace]
+name = "jira"
+version = "0.1.0"
+icon = "🎫"
+description = "A full screen for Jira: issues from one or several projects, narrowed by status, components, starred filters or a search, with the open issue's description, comments, AI summary and its Plan, Take, Move and Fix version actions"
+requires_plugins = ["jira"]
+events = ["workflow.run"]
+# Its AI summary runs under the routing task "workspace.jira", listed with this label.
+ai_task = "Jira issue summary"
+
+[options.project]
+type = "string"
+title = "Project keys"
+description = "Comma-separated project keys to search (e.g. \"ECAPP, ESHOP\"); empty uses the jira plugin's default_project, and every project you can see when that is unset too. Only seeds the Projects dropdown the first time it runs - pick there after that."
+default = ""
+
+[options.shown]
+type = "int"
+title = "Issues shown"
+default = 20
+min = 1
+
+[options.refresh_seconds]
+type = "int"
+title = "Refresh every (s)"
+default = 120
+min = 1
+
+[options.refresh_key]
+type = "string"
+title = "Refresh key"
+description = "Key that refreshes the list now; empty for none."
+default = ""
+
+[options.plan_workflow]
+type = "string"
+title = "Plan workflow"
+description = "Workflow the Plan button opens on an issue (it receives jira_issue_key); empty hides the button."
+default = "plan-jira-issue"
+
+[options.take_status]
+type = "string"
+title = "Take status"
+description = "Status Take moves an issue to after assigning it to you; empty hides the button."
+default = "In Progress"

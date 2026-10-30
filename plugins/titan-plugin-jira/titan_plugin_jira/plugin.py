@@ -344,3 +344,10 @@ class JiraPlugin(TitanPlugin):
         Returns the path to the mods directory this plugin ships.
         """
         return Path(__file__).parent / "mods"
+
+    @property
+    def workspaces_path(self) -> Optional[Path]:
+        """
+        Returns the path to the workspaces directory this plugin ships.
+        """
+        return Path(__file__).parent / "workspaces"
