@@ -1,0 +1,26 @@
+[mod]
+name = "jira"
+version = "0.6.0"
+icon = "🎫"
+description = "Side panel with the Jira issues assigned to you that are not done; pressing one opens the jira workspace on it"
+requires_plugins = ["jira"]
+events = ["app.start", "ui.render"]
+slots = ["pane"]
+
+[options.project]
+type = "string"
+title = "Project keys"
+description = "Comma-separated project keys to look in (e.g. \"ECAPP, ESHOP\"); empty uses the jira plugin's default_project, and every project you can see when that is unset too."
+default = ""
+
+[options.shown]
+type = "int"
+title = "Issues read"
+default = 20
+min = 1
+
+[options.refresh_seconds]
+type = "int"
+title = "Refresh every (s)"
+default = 300
+min = 1

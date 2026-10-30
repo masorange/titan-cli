@@ -12,7 +12,7 @@ This page is for people who **use** workspaces. To write one, see [Writing a Wor
 | **Workspace** | The whole service on its own screen | A dock tile that opens a full screen |
 | **Plugin** | Clients, steps and workflows | Inside workflows |
 
-A workspace and a mod are loaded the same way and can share a name: the `github` mod is the summary in the side panel (what needs you now), and its **Open GitHub workspace** button, or pressing one of its PRs or runs, opens the `github` workspace, with that row already unfolded.
+A workspace and a mod are loaded the same way and can share a name (`jira` works the same): the `github` mod is the summary in the side panel (what needs you now), and its **Open GitHub workspace** button, or pressing one of its PRs or runs, opens the `github` workspace, with that row already unfolded.
 
 ## What Titan ships
 
@@ -21,6 +21,7 @@ Official plugins ship their workspaces, and they load while the plugin is enable
 | Workspace | Plugin | Shows |
 |---|---|---|
 | `github` | github | The repo's pull requests (search, review, approve, merge, conflicts, check diagnosis), the merge queue and the latest workflow runs, in two columns that stack into one when the window is narrow |
+| `jira` | jira | Jira issues narrowed by project, status, components, starred filters or a search, with the open issue's description, comments, AI summary, Move, Fix version, Plan and Take, in two columns that stack when the window is narrow |
 
 ## Turning a workspace off
 

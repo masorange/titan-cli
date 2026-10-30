@@ -392,6 +392,7 @@ def test_transition_issue_delegates(jira_client):
         comment="Completed",
         fields=fields,
         update=update,
+        resolution="Done",
     )
 
     assert isinstance(result, ClientSuccess)
@@ -401,6 +402,7 @@ def test_transition_issue_delegates(jira_client):
         comment="Completed",
         fields=fields,
         update=update,
+        resolution="Done",
     )
 
 

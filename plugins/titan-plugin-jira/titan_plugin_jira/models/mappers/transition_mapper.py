@@ -4,9 +4,27 @@ Transition Mapper
 Converts Jira REST API transition models to UI view models.
 """
 
-from ..network.rest import NetworkJiraTransition
-from ..view import UIJiraTransition
+from ..network.rest import NetworkJiraTransition, NetworkJiraTransitionField
+from ..view import UIJiraFieldOption, UIJiraTransition, UIJiraTransitionField
 from ..formatting import get_status_icon
+
+
+def _option_label(option: dict) -> str:
+    """Jira names an option `name` (resolution, priority) or `value` (select lists)."""
+    return str(option.get("name") or option.get("value") or option.get("id") or "")
+
+
+def from_network_transition_field(field: NetworkJiraTransitionField) -> UIJiraTransitionField:
+    """Convert one field of a transition's screen to its UI model."""
+    return UIJiraTransitionField(
+        key=field.key,
+        name=field.name or field.key,
+        required=field.required,
+        options=[
+            UIJiraFieldOption(id=str(o["id"]), label=_option_label(o))
+            for o in field.allowedValues if o.get("id") is not None
+        ],
+    )
 
 
 def from_network_transition(transition: NetworkJiraTransition) -> UIJiraTransition:
@@ -18,14 +36,6 @@ def from_network_transition(transition: NetworkJiraTransition) -> UIJiraTransiti
 
     Returns:
         UIJiraTransition ready for rendering
-
-    Example:
-        >>> from ..network.rest import NetworkJiraTransition, NetworkJiraStatus, NetworkJiraStatusCategory
-        >>> status = NetworkJiraStatus(id="1", name="In Progress", statusCategory=NetworkJiraStatusCategory(id="2", name="In Progress", key="indeterminate"))
-        >>> rest_transition = NetworkJiraTransition(id="1", name="Start Progress", to=status)
-        >>> ui_transition = from_network_transition(rest_transition)
-        >>> ui_transition.to_status_icon
-        '🔵'
     """
     to_status_name = "Unknown"
     to_status_category_key = ""
@@ -40,4 +50,5 @@ def from_network_transition(transition: NetworkJiraTransition) -> UIJiraTransiti
         name=transition.name,
         to_status=to_status_name,
         to_status_icon=get_status_icon(to_status_category_key),
+        required_fields=[from_network_transition_field(f) for f in transition.fields if f.required and not f.hasDefaultValue],
     )
