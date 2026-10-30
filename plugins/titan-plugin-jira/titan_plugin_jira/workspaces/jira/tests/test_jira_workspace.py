@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 from titan_cli.core.mods import WORKSPACES, AIAnswer, ModBus, import_mod
 from titan_cli.ui.components import AIResult
-from titan_cli.ui.elements import Box, Button
+from titan_cli.ui.elements import Box, Button, Columns
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.readers import issues as reader, models
 from titan_plugin_jira.models import (
@@ -18,7 +18,9 @@ from titan_plugin_jira.models import (
     UIJiraIssue,
     UIJiraProject,
     UIJiraStatus,
+    UIJiraFieldOption,
     UIJiraTransition,
+    UIJiraTransitionField,
     UIJiraVersion,
 )
 
@@ -481,21 +483,73 @@ def test_closed_drop_downs_say_what_is_picked():
     assert len(status_line.children) == 1  # closed: no options
 
 
+def _rows(box):
+    """What an open drop-down holds under its line: a text, or a row of checkboxes (as their labels)."""
+    return [[b.label.strip() for b in c.children if isinstance(b, Button)] if isinstance(c, (Columns, Box)) and not hasattr(c, "parts")
+            else c.parts[0] for c in box.children[1].children if c]
+
+
 def test_the_open_status_drop_down_offers_jiras_statuses_as_checkboxes():
     toggle = Mock()
-    box = draw.status_control(["Done"], CHOICES, True, Mock(), toggle)
+    box = draw.status_control(["Done"], CHOICES, True, Mock(), toggle, width=120)
 
-    options = box.children[1].children
-    assert [o.label for o in options if isinstance(o, Button)] == ["☐ 🟡 Ready to Dev", "☑ 🟡 Done"]
-    options[0].on_press()
+    assert _rows(box) == [["☐ 🟡 Ready to Dev", "☑ 🟡 Done"]]
+    next(b for b in _buttons(box) if "Ready to Dev" in b.label).on_press()
     toggle.assert_called_once_with("Ready to Dev")
 
 
 def test_the_open_filters_drop_down_groups_components_and_starred_filters():
-    box = draw.filters_control([], CHOICES, True, Mock(), Mock())
+    box = draw.filters_control([], CHOICES, True, Mock(), Mock(), width=120)
 
-    lines = [c.label if isinstance(c, Button) else c.parts[0] for c in box.children[1].children if c]
-    assert lines == ["☐ Mine", "Components", "☐ Android", "☐ iOS", "Starred filters", "☐ Sprint"]
+    assert _rows(box) == [["☐ Mine"], "Components", ["☐ Android", "☐ iOS"], "Starred filters", ["☐ Sprint"]]
+
+
+def test_checkboxes_fill_rows_as_wide_as_the_window_allows_and_stack_when_narrow():
+    boxes = [(f"☐ Component {i}", Mock(), True) for i in range(7)]
+
+    wide = draw.checkbox_grid(boxes, 100)
+    narrow = draw.checkbox_grid(boxes, 20)
+
+    per_row = len(wide[0].children)
+    assert per_row > 1 and sum(len(_pressables(r)) for r in wide) == 7
+    assert narrow[0].children[0].label == "☐ Component 0"  # a plain list: one column
+    assert len(narrow) == 1 and len(_pressables(narrow[0])) == 7 and not isinstance(narrow[0], Columns)
+
+
+def test_every_row_of_a_grid_has_the_same_number_of_equal_columns_even_the_short_last_one():
+    boxes = [(f"☐ Component {i}", Mock(), True) for i in range(7)]
+
+    rows = draw.checkbox_grid(boxes, 100)
+
+    assert len(rows) > 1 and all(isinstance(r, Columns) for r in rows)
+    assert len({len(r.children) for r in rows}) == 1
+    assert len({r.ratio for r in rows}) == 1 and set(rows[0].ratio) == {1}
+    assert len(_pressables(rows[-1])) < len(rows[-1].children)  # padded with empty cells
+
+
+def _pressables(element):
+    return [c for c in element.children if isinstance(c, Button)]
+
+
+def test_the_screen_gives_the_open_drop_downs_more_columns_the_wider_it_is():
+    bus, w = register_workspace(_host(None, []))
+    many = models.Choices(components=[UIJiraComponent(str(i), f"Component {i}", "") for i in range(20)])
+    w.state.set("choices", many)
+    w.state.set("open_control", "filters")
+
+    def widest_row(width):
+        return max((len(r.children) for r in _all_rows(render(bus, width))), default=0)
+
+    assert widest_row(160) > widest_row(60) > 0
+    assert widest_row(24) == 0  # too narrow for two cells: a plain list, no grid rows
+
+
+def _all_rows(element):
+    if isinstance(element, Columns) and any(isinstance(c, Button) for c in element.children):
+        yield element
+    for child in getattr(element, "children", ()) or ():
+        if child:
+            yield from _all_rows(child)
 
 
 # -- description preview, comments, AI summary ---------------------------------
@@ -865,3 +919,92 @@ def test_a_failed_read_inside_the_open_issue_offers_a_retry_that_reads_it_again(
 
     jira.get_comments.assert_called_once_with("PROJ-1")
     assert w.state.get("comments")["PROJ-1"].status == "done"
+
+
+def _closing():
+    t = UIJiraTransition(
+        id="31", name="Close", to_status="Closed", to_status_icon="⚪",
+        required_fields=[UIJiraTransitionField("resolution", "Resolution", True,
+                                               [UIJiraFieldOption("1", "Done"), UIJiraFieldOption("2", "Won't Do")])],
+    )
+    return t, transition("In Progress")
+
+
+def _move_world(jira):
+    runs, toasts = [], []
+    host = _host(jira, runs)
+    host.toast = lambda mod, text, severity: toasts.append((text, severity))
+    bus, w = register_workspace(host)
+    w.state.set("ready", models.Ready("q", [issue()], "PROJ"))
+    w.state.set("selected", "PROJ-1")
+    w.state.set("move_open", "PROJ-1")
+    w.state.set("transitions", {"PROJ-1": models.Transitions("done", list(_closing()))})
+    return bus, w, runs, toasts
+
+
+def test_moving_to_a_status_that_requires_a_resolution_offers_the_ones_jira_allows():
+    jira = Mock(project_key="PROJ")
+    bus, w, runs, _ = _move_world(jira)
+    runs.clear()
+
+    next(b for b in _buttons(render(bus)) if b.label == "⚪ Closed").on_press()
+
+    assert runs == [] and w.state.get("resolving") == {"key": "PROJ-1", "status": "Closed"}
+    labels = [b.label for b in _buttons(render(bus))]
+    assert "Done" in labels and "Won't Do" in labels
+    jira.transition_issue.assert_not_called()
+
+
+def test_pressing_a_resolution_transitions_with_it_and_closes_both_pickers():
+    jira = Mock(project_key="PROJ")
+    jira.issue_url.return_value = "u"
+    jira.get_parent_link_field_id.return_value = ClientSuccess(data=None)
+    jira.search_issues.return_value = ClientSuccess(data=[])
+    jira.transition_issue.return_value = ClientSuccess(data=None, message="Transitioned PROJ-1 to Closed")
+    bus, w, runs, toasts = _move_world(jira)
+    next(b for b in _buttons(render(bus)) if b.label == "⚪ Closed").on_press()
+    runs.clear()
+
+    next(b for b in _buttons(render(bus)) if b.label == "Won't Do").on_press()
+    runs.pop()()
+
+    jira.transition_issue.assert_called_once_with("PROJ-1", "Closed", resolution="Won't Do")
+    assert toasts == [("Transitioned PROJ-1 to Closed", "information")]
+    assert w.state.get("resolving") is None and w.state.get("move_open") is None
+
+
+def test_a_status_that_needs_no_resolution_still_moves_at_once():
+    jira = Mock(project_key="PROJ")
+    jira.issue_url.return_value = "u"
+    jira.get_parent_link_field_id.return_value = ClientSuccess(data=None)
+    jira.search_issues.return_value = ClientSuccess(data=[])
+    jira.transition_issue.return_value = ClientSuccess(data=None, message="ok")
+    bus, w, runs, _ = _move_world(jira)
+    w.state.set("transitions", {"PROJ-1": models.Transitions("done", [transition("Testing")])})
+    runs.clear()
+
+    next(b for b in _buttons(render(bus)) if b.label.endswith("Testing")).on_press()
+    runs.pop()()
+
+    jira.transition_issue.assert_called_once_with("PROJ-1", "Testing")
+    assert w.state.get("resolving") is None
+
+
+def test_an_issue_moved_out_of_the_picked_status_leaves_the_list_even_if_jiras_index_still_lists_it():
+    jira = Mock(project_key="PROJ")
+    jira.issue_url.return_value = "u"
+    moved = issue(status="Closed")
+    jira.search_issues.return_value = ClientSuccess(data=[issue(status="In progress"), moved])
+
+    ready = reader.read_ready(jira, {"project": "", "shown": 10}, ["In Progress"], [], CHOICES, ["PROJ"])
+
+    assert [i.status for i in ready.issues] == ["In progress"] and not ready.more
+
+
+def test_without_a_picked_status_every_status_stays_and_a_search_ignores_the_pick():
+    jira = Mock(project_key="PROJ")
+    jira.issue_url.return_value = "u"
+    jira.search_issues.return_value = ClientSuccess(data=[issue(status="Closed"), issue(status="Open")])
+
+    assert len(reader.read_ready(jira, {"project": "", "shown": 10}, [], [], CHOICES, ["PROJ"]).issues) == 2
+    assert len(reader.read_ready(jira, {"project": "", "shown": 10}, ["Done"], [], CHOICES, ["PROJ"], "text").issues) == 2

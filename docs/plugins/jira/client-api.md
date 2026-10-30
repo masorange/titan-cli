@@ -217,7 +217,7 @@ client.add_comment("APP-123", "The API contract has been updated.")
 
 ### Get available transitions
 
-Returns the transitions available for a Jira issue.
+Returns the transitions available for a Jira issue. Each `UIJiraTransition` carries `required_fields`: the fields its screen requires and has no default for (a `UIJiraTransitionField` with `key`, `name` and, when Jira lists the allowed values, `options` of `id` and `label`). Closing transitions usually require `resolution`.
 
 **Call:**
 
@@ -238,8 +238,9 @@ Moves an issue to another Jira status.
 ```python
 client.transition_issue(
     issue_key="APP-123",
-    new_status="In Progress",
-    comment="Starting implementation.",
+    new_status="Closed",
+    comment="Shipped.",
+    resolution="Done",
 )
 ```
 
@@ -248,6 +249,11 @@ client.transition_issue(
 - `issue_key`: Required. Issue key.
 - `new_status`: Required. Target status name.
 - `comment`: Optional. Comment to add while transitioning.
+- `fields`: Optional. Jira fields payload to send with the transition.
+- `update`: Optional. Jira update payload merged into the transition.
+- `resolution`: Optional. Resolution name (e.g. `"Done"`) sent as the `resolution` field, for transitions that require one.
+
+If the transition requires a field that is not sent (`fields` or `resolution`), nothing is sent to Jira and the result is a `ClientError` with code `TRANSITION_FIELDS_REQUIRED` naming the missing fields; read `get_transitions` first to know them and their allowed values.
 
 ---
 

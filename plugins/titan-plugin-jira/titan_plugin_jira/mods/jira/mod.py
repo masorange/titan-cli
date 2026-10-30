@@ -1,5 +1,5 @@
 """
-jira_ready: a side pane answering "what needs me in Jira?": the unfinished issues assigned to you,
+jira: a side pane answering "what needs me in Jira?": the unfinished issues assigned to you,
 latest touched first. Pressing one opens the `jira` workspace on it, where the whole of Jira is
 (search, filters, comments, AI summary, move, fix version, plan, take).
 
@@ -12,7 +12,7 @@ from titan_cli.ui.elements import Box, Button, Text
 from titan_plugin_jira.readers import issues as reader
 from titan_plugin_jira.readers.models import Ready
 
-PANE = "jira-ready"
+PANE = "jira"
 TITLE = "Jira"
 # Rows listed before "…and N more": the pane is narrow, the workspace has the rest.
 SHOWN = 5

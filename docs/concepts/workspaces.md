@@ -12,7 +12,7 @@ This page is for people who **use** workspaces. To write one, see [Writing a Wor
 | **Workspace** | The whole service on its own screen | A dock tile that opens a full screen |
 | **Plugin** | Clients, steps and workflows | Inside workflows |
 
-A workspace and a mod are loaded the same way and can share a name (`jira` works the same with its `jira_ready` mod): the `github` mod is the summary in the side panel (what needs you now), and its **Open GitHub workspace** button, or pressing one of its PRs or runs, opens the `github` workspace, with that row already unfolded.
+A workspace and a mod are loaded the same way and can share a name (`jira` works the same): the `github` mod is the summary in the side panel (what needs you now), and its **Open GitHub workspace** button, or pressing one of its PRs or runs, opens the `github` workspace, with that row already unfolded.
 
 ## What Titan ships
 

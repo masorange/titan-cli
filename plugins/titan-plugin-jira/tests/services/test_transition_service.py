@@ -83,7 +83,7 @@ class TestTransitionServiceGetTransitions:
         assert isinstance(result, ClientSuccess)
         assert len(result.data) == 3
         mock_jira_network.make_request.assert_called_once_with(
-            "GET", "issue/TEST-123/transitions"
+            "GET", "issue/TEST-123/transitions", params={"expand": "transitions.fields"}
         )
 
     def test_ui_transitions_have_correct_status_names(self, service, mock_jira_network, sample_transitions_response):
@@ -239,3 +239,60 @@ class TestTransitionServiceTransitionIssue:
 
         assert isinstance(result, ClientError)
         assert result.error_code == "TRANSITION_ERROR"
+
+
+class TestTransitionFields:
+    """Required fields of a transition's screen: read with get_transitions, enforced by transition_issue"""
+
+    @pytest.fixture
+    def closing_response(self):
+        return {"transitions": [{
+            "id": "31", "name": "Close", "hasScreen": True,
+            "to": {"id": "6", "name": "Closed", "statusCategory": {"id": 3, "name": "Done", "key": "done"}},
+            "fields": {
+                "resolution": {"name": "Resolution", "required": True, "hasDefaultValue": False,
+                               "allowedValues": [{"id": "10000", "name": "Done"}, {"id": "10001", "name": "Won't Do"}]},
+                "comment": {"name": "Comment", "required": False},
+                "assignee": {"name": "Assignee", "required": True, "hasDefaultValue": True},
+            },
+        }]}
+
+    def test_required_fields_without_a_default_come_with_their_allowed_values(self, service, mock_jira_network, closing_response):
+        mock_jira_network.make_request.return_value = closing_response
+
+        [transition] = service.get_transitions("TEST-1").data
+
+        assert [f.key for f in transition.required_fields] == ["resolution"]
+        field = transition.required_fields[0]
+        assert field.name == "Resolution"
+        assert [(o.id, o.label) for o in field.options] == [("10000", "Done"), ("10001", "Won't Do")]
+
+    def test_a_transition_without_a_screen_requires_nothing(self, service, mock_jira_network, sample_transitions_response):
+        mock_jira_network.make_request.return_value = sample_transitions_response
+
+        assert all(t.required_fields == [] for t in service.get_transitions("TEST-1").data)
+
+    def test_a_missing_required_field_is_reported_and_nothing_is_sent(self, service, mock_jira_network, closing_response):
+        mock_jira_network.make_request.return_value = closing_response
+
+        result = service.transition_issue("TEST-1", "Closed")
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "TRANSITION_FIELDS_REQUIRED" and "Resolution" in result.error_message
+        assert mock_jira_network.make_request.call_count == 1  # only the read of the transitions
+
+    def test_the_resolution_is_sent_by_name_with_the_transition(self, service, mock_jira_network, closing_response):
+        mock_jira_network.make_request.side_effect = [closing_response, {}]
+
+        result = service.transition_issue("TEST-1", "Closed", resolution="Done")
+
+        assert isinstance(result, ClientSuccess)
+        _, kwargs = mock_jira_network.make_request.call_args
+        assert kwargs["json"] == {"transition": {"id": "31"}, "fields": {"resolution": {"name": "Done"}}}
+
+    def test_fields_given_by_the_caller_satisfy_a_required_field(self, service, mock_jira_network, closing_response):
+        mock_jira_network.make_request.side_effect = [closing_response, {}]
+
+        result = service.transition_issue("TEST-1", "Closed", fields={"resolution": {"id": "10001"}})
+
+        assert isinstance(result, ClientSuccess)

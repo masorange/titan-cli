@@ -22,7 +22,7 @@ Official plugins ship their own mods, and they load while the plugin is enabled:
 |---|---|---|
 | `git` | git | Branch, upstream, recent commits; a switcher for the branches you use most (switch, or merge another branch into one); the repository's worktrees, each folding into its removal |
 | `github` | github | What needs you now: reviews asked of you, your PRs that need action, failing CI runs; pressing one opens the GitHub [workspace](workspaces.md) on it |
-| `jira_ready` | jira | Issues narrowed by status and filters read from Jira, with description, comments and an AI summary |
+| `jira` | jira | The Jira issues assigned to you, each one opening the `jira` workspace on it |
 
 ## Where you see a mod
 

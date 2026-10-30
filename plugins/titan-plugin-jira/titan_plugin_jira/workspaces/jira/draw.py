@@ -15,9 +15,9 @@ from titan_cli.ui.components import (
     choice_card,
     error_card,
 )
-from titan_cli.ui.elements import Box, Button, Input, Link, Text, responsive_columns
-from titan_plugin_jira.models import UIJiraIssue, UIJiraProject, UIJiraVersion, UIJiraTransition
-from titan_plugin_jira.operations import display_lines, format_person_name, issue_description_lines
+from titan_cli.ui.elements import Box, Button, Columns, Input, Link, Text, responsive_columns
+from titan_plugin_jira.models import UIJiraIssue, UIJiraProject, UIJiraTransition, UIJiraVersion
+from titan_plugin_jira.operations import display_lines, format_person_name, issue_description_lines, resolution_field
 from titan_plugin_jira.readers.issues import MINE, SHOW_ALL, component_id, filter_id, project_key
 from titan_plugin_jira.readers.models import (
     Choices, Comments, Parent, Ready, Transitions, Versions,
@@ -47,6 +47,7 @@ class CardActions:
     set_fix: Callable[[UIJiraIssue, Optional[UIJiraVersion]], None]
     toggle_released: Callable[[], None]
     retry: Optional[Callable[[str, str], None]] = None  # (what, key): read it again
+    resolve: Optional[Callable[[UIJiraIssue, str, str], None]] = None  # (issue, status, resolution name)
 
 
 def issue_line(issue: UIJiraIssue, selected: bool, select) -> Button:
@@ -149,7 +150,8 @@ def move_options(issue: UIJiraIssue, transitions: List[UIJiraTransition]) -> Lis
 
 
 def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open: bool,
-                 moving: Optional[str], act: CardActions, width: int = 40) -> Optional[Box]:
+                 moving: Optional[str], act: CardActions, width: int = 40,
+                 resolving: Optional[str] = None) -> Optional[Box]:
     """The statuses the open issue can move to; pressing one moves it. Nothing while the picker is closed."""
     if not is_open:
         return None
@@ -158,10 +160,18 @@ def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open
     if transitions.status == "error":
         return error_card(transitions.error or "unknown error", copy=act.copy, title="Statuses", what="error",
                           actions=retry_actions(act.retry, "transitions", issue.key))
+    busy = moving == issue.key
+    field = resolution_field(transitions.items, resolving) if resolving else None
+    if field:
+        return choice_card(
+            [Option(o.label, lambda label=o.label: None if busy else act.resolve(issue, resolving, label))
+             for o in field.options],
+            width=width - CARD_INSET,
+            title=f"{field.name} for {resolving}",
+        )
     options = move_options(issue, transitions.items)
     if not options:
         return Box(Text("Jira offers no other status from here", dim=True), border="subtle")
-    busy = moving == issue.key
     return choice_card(
         [Option(f"{t.to_status_icon} {t.to_status}", lambda status=t.to_status: None if busy else act.move(issue, status))
          for t in options],
@@ -228,7 +238,7 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
                act: CardActions, transitions: Optional[Transitions] = None,
                move_open: bool = False, moving: Optional[str] = None, versions: Optional[Versions] = None,
                fix_open: bool = False, fixing: Optional[str] = None, fix_released: bool = False,
-               parent: Optional[Parent] = None, width: int = 40) -> Box:
+               parent: Optional[Parent] = None, width: int = 40, resolving: Optional[str] = None) -> Box:
     """
     The open issue: its line, summary, who has it, status, description, comments,
     the AI summary, the statuses it can move to once asked; the actions always last.
@@ -248,7 +258,7 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
             description(issue, unfolded, act.fold),
             comments_section(issue.key, comments, comments_open, act.toggle_comments, act.copy, act.retry),
             act.summary(issue),
-            move_section(issue, transitions, move_open, moving, act, width),
+            move_section(issue, transitions, move_open, moving, act, width, resolving),
             fix_version_section(issue, versions, fix_open, fixing, act, fix_released),
             actions(issue, url, options, taking, moving, move_open, fix_open, act.plan, act.take,
                     act.toggle_move, act.toggle_fix, width),
@@ -284,15 +294,43 @@ def dropdown(label: str, summary: str, is_open: bool, toggle, *options) -> Box:
     )
 
 
-def status_control(statuses: List[str], choices: Optional[Choices], is_open: bool, toggle, toggle_status) -> Box:
-    def option(name: str, label: str) -> Button:
+# What a section's border and padding, and a dropdown's indent, take off the screen's width.
+CONTROL_INSET = 4 + 11
+# A checkbox cell is at least this wide: "☐ " and a short label.
+CELL_MIN = 12
+
+
+def checkbox_grid(buttons: List[tuple], width: int) -> List[Columns]:
+    """
+    `(label, on_press, dim)` checkboxes in rows of equal columns for `width` columns: as many
+    as the longest label allows, down to a single one (a plain list) on a narrow window.
+    Each row is `Columns` of the same ratio, so the cells line up from one row to the next
+    (a short last row is padded with empty cells to keep them as wide as the others).
+    """
+    if not buttons:
+        return []
+    cell = max(CELL_MIN, max(len(label) for label, _, _ in buttons) + 2)
+    columns = max(1, width // cell)
+    if columns == 1:
+        return [Box(*(Button(label, press, dim=dim) for label, press, dim in buttons))]
+    rows = []
+    for i in range(0, len(buttons), columns):
+        row = [Button(label, press, dim=dim) for label, press, dim in buttons[i:i + columns]]
+        row += [Text("")] * (columns - len(row))
+        rows.append(Columns(*row, ratio=(1,) * columns, gap=0))
+    return rows
+
+
+def status_control(statuses: List[str], choices: Optional[Choices], is_open: bool, toggle, toggle_status,
+                   width: int = 120) -> Box:
+    def option(name: str, label: str) -> tuple:
         on = name in statuses
-        return Button(f"{'☑' if on else '☐'} {label}", lambda: toggle_status(name), dim=not on)
+        return (f"{'☑' if on else '☐'} {label}", lambda: toggle_status(name), not on)
 
     available = choices.statuses if choices else []
     return dropdown(
         "Status", ", ".join(statuses) if statuses else "Any", is_open, toggle,
-        *(option(s.name, f"{s.icon} {s.name}") for s in available),
+        *checkbox_grid([option(s.name, f"{s.icon} {s.name}") for s in available], width - CONTROL_INSET),
         choices is not None and not available and Text("No statuses: pick at least one project", dim=True),
     )
 
@@ -337,35 +375,33 @@ def projects_control(projects: List[str], choices: Optional[Choices], is_open: b
     )
 
 
-def filters_control(filters: List[str], choices: Optional[Choices], is_open: bool, toggle, toggle_filter) -> Box:
-    def option(fid: str, label: str) -> Button:
+def filters_control(filters: List[str], choices: Optional[Choices], is_open: bool, toggle, toggle_filter,
+                    width: int = 120) -> Box:
+    def option(fid: str, label: str) -> tuple:
         on = fid in filters
-        return Button(f"{'☑' if on else '☐'} {label}", lambda: toggle_filter(fid), dim=not on)
+        return (f"{'☑' if on else '☐'} {label}", lambda: toggle_filter(fid), not on)
 
     names = filter_names(filters, choices)
     components = choices.components if choices else []
     saved = choices.filters if choices else []
+    room = width - CONTROL_INSET
     return dropdown(
         "Filters", " · ".join(names) if names else "None", is_open, toggle,
-        option(MINE, "Mine"),
+        *checkbox_grid([option(MINE, "Mine")], room),
         components and Text("Components", dim=True),
-        *(option(component_id(c.name), c.name) for c in components),
+        *checkbox_grid([option(component_id(c.name), c.name) for c in components], room),
         saved and Text("Starred filters", dim=True),
-        *(option(filter_id(f), f.name) for f in saved),
+        *checkbox_grid([option(filter_id(f), f.name) for f in saved], room),
         choices is None and Text("Loading…", dim=True),
     )
 
 
 def search_control(draft: str, confirmed: str, change_search, submit_search, clear_search) -> Box:
-    """A one-line search box: typing only updates the shown draft; Enter confirms it
-    and narrows the list alongside Status and Filters."""
+    """The search box, big like GitHub's: typing only updates the shown draft; Enter confirms it
+    and looks through the whole of the chosen projects, ignoring Status and Filters."""
     return Box(
-        Box(
-            Text("🔍"),
-            Input(draft, "Number, key or text…", change_search, submit_search),
-            confirmed and Button("✕ Clear", clear_search, dim=True),
-            row=True,
-        ),
+        Input(draft, "Search issues: key, number or text…", change_search, submit_search, size="normal"),
+        confirmed and Button("✕ Clear search", clear_search, dim=True),
         confirmed and Text("Search ignores Status and Filters", dim=True),
     )
 
@@ -373,12 +409,15 @@ def search_control(draft: str, confirmed: str, change_search, submit_search, cle
 
 def controls(w, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
              toggle_project_browse, change_project_filter, show_more_projects, change_search, submit_search,
-             clear_search, open_control, statuses, filters, projects) -> Box:
-    """Projects, status, filters and the search box: text fields, so they sit outside the columns."""
+             clear_search, open_control, statuses, filters, projects, width: int = 120) -> Box:
+    """The search box, projects, status and filters: text fields, so they sit outside the columns."""
     confirmed = w.store.get("search", "")
     choices: Optional[Choices] = w.state.get("choices")
     shown = w.state.get("open_control")
     return Box(
+        # Air above the screen's top edge, as GitHub's has; the box's own gap separates the rest.
+        Text(" "),
+        search_control(w.state.get("search_draft", confirmed), confirmed, change_search, submit_search, clear_search),
         section(
             "📁 Projects", "info",
             projects_control(projects, choices, shown == "projects", lambda: open_control("projects"),
@@ -389,10 +428,8 @@ def controls(w, toggle_status, toggle_filter, toggle_project, change_projects_dr
         ),
         section(
             "⏚ Filters", "info",
-            status_control(statuses, choices, shown == "status", lambda: open_control("status"), toggle_status),
-            filters_control(filters, choices, shown == "filters", lambda: open_control("filters"), toggle_filter),
-            search_control(w.state.get("search_draft", confirmed), confirmed, change_search, submit_search,
-                           clear_search),
+            status_control(statuses, choices, shown == "status", lambda: open_control("status"), toggle_status, width),
+            filters_control(filters, choices, shown == "filters", lambda: open_control("filters"), toggle_filter, width),
         ),
         gap=1,
     )
@@ -441,13 +478,14 @@ def detail(w, options, act: CardActions, width: int) -> Box:
                       w.state.get("move_open") == issue.key, w.state.get("moving"),
                       versions.get(project_key(issue.key)), w.state.get("fix_open") == issue.key,
                       w.state.get("fixing"), bool(w.state.get("fix_released")),
-                      parents.get(issue.parent_key) if issue.parent_key else None, width)
+                      parents.get(issue.parent_key) if issue.parent_key else None, width,
+                      (w.state.get("resolving") or {}).get("status") if (w.state.get("resolving") or {}).get("key") == issue.key else None)
 
 
 def draw(w, width: int, options, handlers, act: CardActions, statuses, filters, projects) -> Box:
     """The whole screen: the controls on top, then the list and the issue side by side (stacked when narrow)."""
     return Box(
-        controls(w, *handlers[:-1], statuses, filters, projects),
+        controls(w, *handlers[:-1], statuses, filters, projects, width),
         responsive_columns(
             width,
             [lambda cw: issue_list(w, options, statuses, act, handlers[-1], cw),

@@ -60,7 +60,7 @@ subfolder per mod (`mod.toml` + `mod.py`), add that folder to `testpaths` in `py
 describe the mod in `docs/plugins/<plugin>/overview.md`. Existing examples:
 `plugins/titan-plugin-git/titan_plugin_git/mods/git/`,
 `plugins/titan-plugin-github/titan_plugin_github/mods/github/`,
-`plugins/titan-plugin-jira/titan_plugin_jira/mods/jira_ready/` (summary; its full screen is a workspace, `workspaces/jira/`).
+`plugins/titan-plugin-jira/titan_plugin_jira/mods/jira/` (summary; its full screen is a workspace, `workspaces/jira/`).
 
 ## Running
 

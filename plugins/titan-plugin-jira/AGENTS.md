@@ -14,7 +14,7 @@ versions, comments, and AI analysis and planning of issues.
 clients/network/`, with `models/{network,view,mappers}`. Also: `agents/` (`JiraAgent`,
 prompts and contracts, configured by `config/jira_agent.toml`), `formatters/` (markdown
 output), `utils/` (`IssueSorter`, `SavedQueries`), `constants/`, `readers/` (snapshots and readers shared by the mod and the workspace), the
-`jira_ready` mod (`mods/jira_ready/`, the summary pane), the `jira` workspace (`workspaces/jira/`,
+`jira` mod (`mods/jira/`, the summary pane), the `jira` workspace (`workspaces/jira/`,
 the full screen), `messages.py`.
 
 ## Plugin-specific rules

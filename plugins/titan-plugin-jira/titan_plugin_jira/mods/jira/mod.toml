@@ -1,5 +1,5 @@
 [mod]
-name = "jira_ready"
+name = "jira"
 version = "0.6.0"
 icon = "🎫"
 description = "Side panel with the Jira issues assigned to you that are not done; pressing one opens the jira workspace on it"

@@ -127,11 +127,26 @@ def read_ready(jira, options, statuses: List[str], filters: List[str], choices: 
     query = build_issue_jql(list(statuses), list(projects), conditions(filters, choices, search, projects), order_by=ORDER_BY)
     match jira.search_issues(query, max_results=limit + 1, fields=search_fields(jira)):
         case ClientSuccess(data=found):
+            found = matching_status(found, statuses)
             issues = found[:limit]
             return Ready(query, issues, scope, urls={i.key: jira.issue_url(i.key) for i in issues},
                          more=len(found) > limit)
         case ClientError(error_message=message):
             return Ready(query, [], scope, error=message)
+
+
+def matching_status(found: List[UIJiraIssue], statuses: Sequence[str]) -> List[UIJiraIssue]:
+    """
+    The issues whose status is one of `statuses` (all of them when none is picked).
+
+    Jira searches an index that lags a moment behind a change: right after a move it can still
+    list the issue under the old status, with the new one in its fields. Trusting the fields
+    makes a moved issue leave the list at once.
+    """
+    if not statuses:
+        return found
+    wanted = {s.strip().lower() for s in statuses}
+    return [i for i in found if i.status.strip().lower() in wanted]
 
 
 def read_mine(jira, projects: List[str], limit: int) -> Ready:

@@ -1,4 +1,4 @@
-"""The jira_ready pane: the issues assigned to you, each one opening the jira workspace on it."""
+"""The jira pane: the issues assigned to you, each one opening the jira workspace on it."""
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -11,7 +11,7 @@ from titan_plugin_jira.models import UIJiraIssue
 from titan_plugin_jira.readers import issues as reader
 from titan_plugin_jira.readers.models import Ready
 
-mod = import_mod(Path(__file__).parent, "jira_ready")
+mod = import_mod(Path(__file__).parent, "jira")
 OPTIONS = {"project": "", "shown": 20, "refresh_seconds": 300}
 
 
@@ -58,9 +58,9 @@ def test_pressing_an_issue_opens_the_workspace_on_it_and_the_button_opens_it_pla
     bus = ModBus()
     bus.host = SimpleNamespace(open_workspace=lambda mod, name, focus=None: opened.append((name, focus)),
                                repaint=lambda mod: None)
-    m = bus.api("jira_ready")
+    m = bus.api("jira")
     m.state.set("ready", Ready("q", [issue()], "PROJ"))
-    mod.register(bus.on_for("jira_ready"), OPTIONS)
+    mod.register(bus.on_for("jira"), OPTIONS)
 
     tree = bus.dispatch("ui.render", UIRender(component="Pane", pane=mod.PANE, width=40), lambda e: None)
     by_label = {plain(b.label): b for b in buttons(tree)}
@@ -71,7 +71,7 @@ def test_pressing_an_issue_opens_the_workspace_on_it_and_the_button_opens_it_pla
 
 
 def test_a_failed_read_is_an_error_card_and_nothing_assigned_says_all_clear():
-    m = ModBus().api("jira_ready")
+    m = ModBus().api("jira")
     m.state.set("ready", Ready("q", [], error="HTTP 500"))
     assert mod.draw(m, OPTIONS).children[0].border == "error"
 
@@ -86,7 +86,7 @@ def test_the_error_card_retries_the_read_off_the_ui_thread():
     jira.search_issues.return_value = ClientSuccess(data=[issue()])
     bus = ModBus()
     bus.host = SimpleNamespace(run=lambda mod, fn: runs.append(fn), client=lambda name: jira, repaint=lambda mod: None)
-    m = bus.api("jira_ready")
+    m = bus.api("jira")
     m.state.set("ready", Ready("q", [], error="HTTP 500"))
 
     next(b for b in buttons(mod.draw(m, OPTIONS)) if b.label == "↻ Retry").on_press()

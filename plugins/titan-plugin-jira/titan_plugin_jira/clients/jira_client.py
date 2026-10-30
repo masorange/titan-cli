@@ -194,7 +194,7 @@ class JiraClient:
 
     def get_transitions(self, issue_key: str) -> ClientResult[List[UIJiraTransition]]:
         """
-        Get available transitions for an issue.
+        Get available transitions for an issue, with the fields each one requires.
 
         Args:
             issue_key: Issue key
@@ -211,6 +211,7 @@ class JiraClient:
         comment: Optional[str] = None,
         fields: Optional[dict] = None,
         update: Optional[dict] = None,
+        resolution: Optional[str] = None,
     ) -> ClientResult[None]:
         """
         Transition issue to new status.
@@ -221,9 +222,10 @@ class JiraClient:
             comment: Optional comment
             fields: Optional Jira fields payload to send with the transition
             update: Optional Jira update payload to merge into the transition
+            resolution: Optional resolution name (e.g. "Done"), for transitions that require one
 
         Returns:
-            ClientResult[None]
+            ClientResult[None]; error code TRANSITION_FIELDS_REQUIRED names a required field not sent
         """
         return self._transition_service.transition_issue(
             issue_key,
@@ -231,6 +233,7 @@ class JiraClient:
             comment=comment,
             fields=fields,
             update=update,
+            resolution=resolution,
         )
 
     # ==================== CREATION OPERATIONS ====================

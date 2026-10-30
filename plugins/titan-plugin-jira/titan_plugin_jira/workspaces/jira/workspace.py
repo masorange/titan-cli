@@ -4,7 +4,7 @@ jira workspace: a full screen for Jira, opened from its dock tile.
 Issues from one or more projects, narrowed by status, components, starred filters or a search; the
 open issue shows its description, comments, parent and an AI summary, and lets you plan it, take it,
 move it to another status or set its fix version. Everything Jira-specific (the JQL, taking an
-issue, the formatting) comes from the jira plugin and its readers, shared with the `jira_ready` mod
+issue, the formatting) comes from the jira plugin and its readers, shared with the `jira` mod
 that keeps the summary in the side pane; this file wires reads, timers and actions and `draw.py`
 draws from `w.state` only, so it never waits on the network. Picks live in `w.store`.
 """
@@ -12,7 +12,7 @@ from typing import List, Optional
 
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_cli.ui.components import AIResult, refresh_ai_chip
-from titan_plugin_jira.operations import build_issue_summary_prompt, display_lines, take_issue
+from titan_plugin_jira.operations import build_issue_summary_prompt, display_lines, resolution_field, take_issue
 from titan_plugin_jira.readers import issues as reader
 from titan_plugin_jira.readers.models import Choices, Comments, Parent, Transitions, Versions
 
@@ -229,6 +229,7 @@ def register(w, on, options):
     def toggle_move(key):
         opening = w.state.get("move_open") != key
         w.state.set("move_open", key if opening else None)
+        w.state.set("resolving", None)
         if opening:
             w.run(lambda: load("transitions", key, Transitions("loading"), lambda jira: reader.read_transitions(jira, key)))
 
@@ -255,6 +256,18 @@ def register(w, on, options):
         }
         w.run(reads[what])
 
+    def move(issue, status):
+        """Move at once, unless Jira requires a resolution for that status: then offer the ones it allows."""
+        known = (w.state.get("transitions") or {}).get(issue.key)
+        if known is not None and known.status == "done" and resolution_field(known.items, status):
+            w.state.set("resolving", {"key": issue.key, "status": status})
+            return
+        act_on(issue, "moving", lambda jira: jira.transition_issue(issue.key, status), busy_extra=("move_open",))
+
+    def resolve(issue, status, resolution):
+        act_on(issue, "moving", lambda jira: jira.transition_issue(issue.key, status, resolution=resolution),
+               busy_extra=("move_open", "resolving"))
+
     def actions():
         return draw.CardActions(
             select, toggle("unfolded"),
@@ -263,14 +276,14 @@ def register(w, on, options):
             toggle("comments_open"),
             lambda issue: draw.summary_section(w, issue, summary_work(issue)),
             w.ui.copy, toggle_move,
-            lambda issue, status: act_on(issue, "moving", lambda jira: jira.transition_issue(issue.key, status),
-                                         busy_extra=("move_open",)),
+            move,
             toggle_fix,
             lambda issue, version: act_on(issue, "fixing",
                                           lambda jira: jira.set_fix_version(issue.key, version.id if version else None),
                                           busy_extra=("fix_open",)),
             lambda: w.state.set("fix_released", not w.state.get("fix_released")),
             retry,
+            resolve,
         )
 
     def view(width):
