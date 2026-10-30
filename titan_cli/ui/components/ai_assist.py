@@ -1,7 +1,7 @@
 """The button that hands a text to the user's AI CLI, for a mod to put anywhere."""
 from typing import Optional
 
-from titan_cli.core.mods.elements import Button
+from titan_cli.ui.elements import Button
 
 
 def fix_prompt(error: str, context: str = "") -> str:

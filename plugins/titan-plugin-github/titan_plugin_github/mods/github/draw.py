@@ -2,7 +2,8 @@
 import webbrowser
 from typing import Optional
 
-from titan_cli.core.mods import AIResult, Box, Button, Input, Link, Option, Text, ai_assist_button, choice_card, ai_result, error_card, fix_prompt
+from titan_cli.ui.elements import Box, Button, Input, Link, Text
+from titan_cli.ui.components import AIResult, Option, ai_assist_button, ai_result, choice_card, error_card, fix_prompt
 from titan_plugin_github.models.view import UIMergeQueueEntry, UIPullRequest, UIWorkflowRun
 from titan_plugin_github.operations import format_diagnoses_report
 

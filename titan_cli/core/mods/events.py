@@ -92,7 +92,7 @@ class SectionChange:
 class UIRender:
     """
     `ui.render`: draw one slot. Answer with an element tree from
-    `titan_cli.core.mods.elements`, or `next(e)` to leave it to others.
+    `titan_cli.ui.elements`, or `next(e)` to leave it to others.
 
     `component` is the slot (`"Pane"` for now), `pane` the id the mod opened it
     with, `width` the columns the slot has.

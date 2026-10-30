@@ -1,7 +1,8 @@
 """Reading workflow runs and drawing them: the same list for the repo and for the merge queue."""
 from types import SimpleNamespace
 
-from titan_cli.core.mods import AIAnswer, AIResult, ModBus
+from titan_cli.core.mods import AIAnswer, ModBus
+from titan_cli.ui.components import AIResult
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIFailedCheck, UIWorkflowRun
 

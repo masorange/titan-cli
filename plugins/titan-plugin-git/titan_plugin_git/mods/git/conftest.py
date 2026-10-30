@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from titan_cli.core.mods import Box, Button, Link, Text, import_mod
+from titan_cli.core.mods import import_mod
+from titan_cli.ui.elements import Box, Button, Link, Text
 
 MOD_DIR = Path(__file__).resolve().parent
 

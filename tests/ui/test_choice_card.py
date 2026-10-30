@@ -1,6 +1,8 @@
-from titan_cli.core.mods import Box, ModState, Option, Text, choice_card
-from titan_cli.core.mods.choice_card import layout
-from titan_cli.core.mods.elements import plain
+from titan_cli.core.mods import ModState
+from titan_cli.ui.elements import Box, Text
+from titan_cli.ui.components import Option, choice_card
+from titan_cli.ui.components.choice_card import layout
+from titan_cli.ui.elements import plain
 
 
 def opts(*names):

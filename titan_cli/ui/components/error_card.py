@@ -1,7 +1,7 @@
 """The error card for a mod's pane: the error, a button that copies it, and the mod's own actions."""
 from typing import Callable, Iterable, Sequence
 
-from .elements import Box, Button, Text
+from titan_cli.ui.elements import Box, Button, Text
 
 
 def error_card(

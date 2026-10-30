@@ -9,7 +9,7 @@ from the github plugin client on background timers; drawing reads only
 """
 from pathlib import Path
 
-from titan_cli.core.mods import refresh_ai_chip
+from titan_cli.ui.components import refresh_ai_chip
 
 from . import draw
 from .sections.prs.prs import new_review_requests, read_others, read_prs

@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence
 
-from .elements import Box, Button, Text, plain
+from titan_cli.ui.elements import Box, Button, Text, plain
 
 # A button with a variant is drawn with a space of padding at each side and one of margin after it.
 _CHROME = 3

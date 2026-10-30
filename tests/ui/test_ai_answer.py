@@ -1,12 +1,9 @@
 """`ask_ai` and the pieces that draw it: one claim per key, the state it ends in, the button, the box and the chip."""
 import threading
 
-from titan_cli.core.mods import (
-    AIAnswer,
+from titan_cli.core.mods import AIAnswer, ModBus
+from titan_cli.ui.components import (
     AIResult,
-    Box,
-    ModBus,
-    Text,
     ai_answer_box,
     ai_ask_button,
     ai_chip,
@@ -14,7 +11,8 @@ from titan_cli.core.mods import (
     ask_ai,
     refresh_ai_chip,
 )
-from titan_cli.core.mods.elements import plain
+from titan_cli.ui.elements import Box, Text
+from titan_cli.ui.elements import plain
 
 
 class Host:

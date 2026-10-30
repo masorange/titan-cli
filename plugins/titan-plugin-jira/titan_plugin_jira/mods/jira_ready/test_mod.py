@@ -6,7 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from titan_cli.core.mods import AIAnswer, AIResult, AppStart, Box, Button, ModBus, UIRender
+from titan_cli.core.mods import AIAnswer, AppStart, ModBus, UIRender
+from titan_cli.ui.components import AIResult
+from titan_cli.ui.elements import Box, Button
 from titan_cli.core.mods.loader import import_mod
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_jira.models import (

@@ -7,7 +7,7 @@ checks with the mod's AI routing (`ask_ai` keeps the outcome in `m.state`, the j
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Tuple
 
-from titan_cli.core.mods import AIResult, ask_ai
+from titan_cli.ui.components import AIResult, ask_ai
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIFailedCheck, UIJobDiagnosis, UIPullRequest
 from titan_plugin_github.operations import (

@@ -1,7 +1,8 @@
 """The pane's element tree, drawn from `m.state` only: it never waits on the network."""
 from typing import Optional
 
-from titan_cli.core.mods import Box, Button, Input, Option, Text, ai_assist_button, choice_card, error_card, fix_prompt
+from titan_cli.ui.elements import Box, Button, Input, Text
+from titan_cli.ui.components import Option, ai_assist_button, choice_card, error_card, fix_prompt
 from titan_plugin_git.models.formatting import split_squash_pr_suffix
 from titan_plugin_git.operations import filter_branches, graph_lanes, merge_sources
 

@@ -1,6 +1,8 @@
 """The shared help button, `m.ai.assist` behind it, and the spacing of the error card."""
 
-from titan_cli.core.mods import AssistResult, ModBus, Text, ai_assist_button, error_card, fix_prompt
+from titan_cli.core.mods import AssistResult, ModBus
+from titan_cli.ui.elements import Text
+from titan_cli.ui.components import ai_assist_button, error_card, fix_prompt
 
 
 class Host:

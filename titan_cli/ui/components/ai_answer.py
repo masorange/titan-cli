@@ -2,8 +2,8 @@
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Union
 
-from .bus import AIAnswer
-from .elements import Box, Button, Text
+from titan_cli.core.mods.bus import AIAnswer
+from titan_cli.ui.elements import Box, Button, Text
 from .error_card import error_card
 
 WHO = "ai:who"

@@ -8,10 +8,14 @@ changing Titan itself needs. Building a mod: the `titan-mod-builder` skill.
 
 - `titan_cli/core/mods/` — the system, UI-free: `bus.py` (`ModBus`, `ModAPI`, `ModHost` protocol,
   `DockSlot`, `HomeCardSlot`), `loader.py` (sources, manifest, load/reload), `events.py`,
-  `elements.py`, `options.py`, `sections.py`, `settings.py`, `state.py`, `store.py`, `keys.py`,
+  `options.py`, `sections.py`, `settings.py`, `state.py`, `store.py`, `keys.py`,
   `status.py`. Public names are re-exported from `titan_cli/core/mods/__init__.py`.
+  Elements (`Box`, `Button`, `Input`, `Link`, `Text`) live in `titan_cli/ui/elements.py` and the
+  cards (`Option`, `choice_card`, `error_card`, `fix_with_ai_button`) in `titan_cli/ui/components/`:
+  visual pieces any mod, workspace or workflow can use.
 - TUI side: `ui/tui/mods_ui.py` (`TitanModHost`, the `ModHost` implementation),
-  `widgets/mod_side_panel.py`, `widgets/dock.py`, the home card in `screens/main_menu.py`,
+  `widgets/mod_side_panel.py` (the panel) and `widgets/element_widgets.py` (elements as widgets,
+  repainted in place through the `Updatable` contract), `widgets/dock.py`, the home card in `screens/main_menu.py`,
   `screens/mods_screen.py`, `screens/task_ai_picker.py`.
 - Events are dispatched from `app.py` (`app.start`), `textual_workflow_executor.py`
   (`workflow.run`, `step.call`), `mods_ui.py` (`ui.render`) and `ModBus.set_section`

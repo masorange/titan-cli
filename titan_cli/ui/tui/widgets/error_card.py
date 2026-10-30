@@ -4,7 +4,7 @@ ErrorCard Widget
 A bordered container for an error, with the button that copies it to the clipboard
 and any actions of the caller's own next to it ("✦ Ask AI to fix"). Usable anywhere
 a widget can be mounted; `ctx.textual.error_card(...)` does it from a step. Mods draw
-the same card with `titan_cli.core.mods.error_card`.
+the same card with `titan_cli.ui.components.error_card`.
 """
 from typing import Any, Callable, Sequence, Tuple
 

@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from titan_cli.core.mods import AIAnswer, AIResult, refresh_ai_chip, Box, Button, Input, ModBus
+from titan_cli.core.mods import AIAnswer, ModBus
+from titan_cli.ui.components import AIResult, refresh_ai_chip
+from titan_cli.ui.elements import Box, Button, Input
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.models.view import UIMergeQueueEntry
 
