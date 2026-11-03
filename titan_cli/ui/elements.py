@@ -87,17 +87,41 @@ class Columns:
     Children side by side, each as wide as its share of `ratio` (`(3, 2)`: three fifths and two
     fifths), `gap` columns apart. Each child is drawn for the width it gets: see `column_widths`.
     Use `responsive_columns` to fall back to one column on a narrow screen.
+
+    With `on_resize` the border before each column but the first can be dragged with the mouse;
+    on release `on_resize(widths)` gets the cells each column ended up with, to keep as the next
+    `ratio`. The gap then holds that border, so give it at least 1.
     """
 
     children: Tuple[Child, ...]
     ratio: Tuple[int, ...] = ()
     gap: int = 1
+    on_resize: Optional[Callable[[Tuple[int, ...]], None]] = None
 
-    def __init__(self, *children, ratio=(), gap=1):
+    def __init__(self, *children, ratio=(), gap=1, on_resize=None):
         kept = _children(children)
         object.__setattr__(self, "children", kept)
         object.__setattr__(self, "ratio", tuple(ratio) or (1,) * len(kept))
         object.__setattr__(self, "gap", gap)
+        object.__setattr__(self, "on_resize", on_resize)
+
+
+MIN_COLUMN_WIDTH = 20
+
+
+def dragged_widths(widths: Sequence[int], i: int, delta: int, minimum: int = MIN_COLUMN_WIDTH) -> Tuple[int, ...]:
+    """`widths` after the border before column `i` moves `delta` cells right (negative: left).
+
+    Only the two columns it separates change, and neither goes under `minimum` (or under what it
+    already had, when it started narrower).
+    """
+    out = list(widths)
+    lowest = min(out[i - 1], minimum)
+    most = out[i] - min(out[i], minimum)
+    delta = max(lowest - out[i - 1], min(delta, most))
+    out[i - 1] += delta
+    out[i] -= delta
+    return tuple(out)
 
 
 def column_widths(width: int, ratio: Tuple[int, ...], gap: int = 1) -> Tuple[int, ...]:
@@ -112,19 +136,21 @@ def responsive_columns(
     ratio: Tuple[int, ...] = (),
     collapse_below: int = 120,
     gap: int = 1,
+    on_resize: Optional[Callable[[Tuple[int, ...]], None]] = None,
 ) -> Child:
     """
     `Columns` while `width` is at least `collapse_below`, one column otherwise.
 
     Each builder gets the width its column has and answers with its tree, so what it draws
     (a card that lays its buttons out by width, say) fits either way. Narrow, the builders
-    stack top to bottom at the full width, in order.
+    stack top to bottom at the full width, in order. `on_resize` makes the columns' borders
+    draggable (see `Columns`); stacked, there is nothing to drag.
     """
     ratio = tuple(ratio) or (1,) * len(builders)
     if width < collapse_below:
         return Box(*[build(width) for build in builders])
     widths = column_widths(width, ratio, gap)
-    return Columns(*[build(w) for build, w in zip(builders, widths)], ratio=ratio, gap=gap)
+    return Columns(*[build(w) for build, w in zip(builders, widths)], ratio=ratio, gap=gap, on_resize=on_resize)
 
 
 @dataclass(frozen=True)
@@ -161,6 +187,28 @@ class Component:
 
     name: str
     props: Any = None
+
+
+DIFF_COMPONENT = "titan.diff"
+
+
+@dataclass(frozen=True)
+class DiffProps:
+    """What the diff widget draws: the diff and how many lines of code it may show."""
+
+    diff: Any
+    max_lines: int = 400
+
+
+def Diff(diff: Any, max_lines: int = 400) -> Component:
+    """
+    One file's diff drawn as code: line numbers, a bar and a tinted background on added and
+    removed lines, syntax colours by extension. `diff` is shaped like the git plugin's
+    `UIFileDiff` (`path`, `is_binary`, `hunks` of `header` and `lines` of `kind`, `text`,
+    `old_no`, `new_no`). Past `max_lines` lines it says how many more there are: a caller
+    that wants them raises `max_lines`.
+    """
+    return Component(DIFF_COMPONENT, DiffProps(diff, max_lines))
 
 
 def plain(label) -> str:

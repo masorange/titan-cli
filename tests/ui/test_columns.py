@@ -48,3 +48,28 @@ def test_crossing_the_threshold_replaces_the_container_instead_of_patching_it():
     assert kind(wide) is _Columns and kind(narrow) is not _Columns
     assert plan_reconcile([_Columns], [narrow]) == [("replace", 0)]
     assert plan_reconcile([_Columns], [wide]) == [("patch", 0)]
+
+
+def test_dragging_a_border_moves_cells_between_its_two_columns_only():
+    from titan_cli.ui.elements import dragged_widths
+
+    assert dragged_widths((40, 60, 30), 1, 10) == (50, 50, 30)
+    assert dragged_widths((40, 60, 30), 2, -10) == (40, 50, 40)
+
+
+def test_a_drag_never_leaves_a_column_under_the_minimum():
+    from titan_cli.ui.elements import dragged_widths
+
+    assert dragged_widths((40, 60), 1, -100) == (20, 80)
+    assert dragged_widths((40, 60), 1, 100) == (80, 20)
+    assert dragged_widths((10, 90), 1, -5) == (10, 90)  # already under the minimum: not pushed further
+
+
+def test_responsive_columns_hands_on_resize_to_the_columns_but_not_to_the_stack():
+    def on_resize(widths):
+        return None
+
+    wide = responsive_columns(130, [lambda w: Text("a"), lambda w: Text("b")], on_resize=on_resize)
+    narrow = responsive_columns(80, [lambda w: Text("a"), lambda w: Text("b")], on_resize=on_resize)
+
+    assert wide.on_resize is on_resize and not isinstance(narrow, Columns)

@@ -72,7 +72,7 @@ def view(width):
     )
 ```
 
-Each builder gets the width its column has, so a `choice_card` or a wrapped line fits either layout. The elements are in [Writing a Mod](writing-mods.md#elements).
+Each builder gets the width its column has, so a `choice_card` or a wrapped line fits either layout. Pass `on_resize=fn` to let the user drag the border between the columns: `fn(widths)` gets the cells each column ended up with, to keep in `w.state` and `w.store` and pass back as the next `ratio`. The elements are in [Writing a Mod](writing-mods.md#elements).
 
 ### Starting and opening
 

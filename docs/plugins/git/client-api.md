@@ -615,6 +615,73 @@ client.get_uncommitted_numstat(include_untracked=True)
   (honouring `.gitignore`): each one's lines as additions; binary or unreadable
   files as `is_binary=True` with zero counters.
 
+### List the files a commit changed
+
+Returns one `UIFileChange` per file (`path`, `status` as `A`/`M`/`D`, `additions`,
+`deletions`, `is_binary`). A merge commit is compared with its first parent. Renames
+come as a delete plus an add. Returns a `ClientError` (`DIFF_ERROR`) for an unknown ref.
+
+**Call:**
+
+```python
+client.get_commit_files("4a999bc6")
+```
+
+**Parameters:**
+
+- `sha`: Required. Commit hash or any ref that names one.
+
+### Get one file's diff in a commit
+
+Returns a `UIFileDiff`: the file's `hunks`, each with its `@@` header and `UIDiffLine`s
+(`kind` is `add`, `del`, `context` or `no_newline`; `old_no`/`new_no` are the line numbers on
+the side the line exists on), plus `additions`, `deletions` and `is_binary`. A binary file has
+no hunks. Callers draw it directly; they do not parse diff text.
+
+**Call:**
+
+```python
+client.get_commit_file_diff("4a999bc6", "src/search.py", context_lines=3)
+```
+
+**Parameters:**
+
+- `sha`: Required. Commit hash or any ref that names one.
+- `path`: Required. File path as `get_commit_files` reports it.
+- `context_lines`: Optional (default `3`). Unchanged lines around each change.
+
+### List the uncommitted files, staged and unstaged apart
+
+Returns a `UIUncommittedFiles` with `staged` (index against `HEAD`) and `unstaged` (working
+tree against the index), each a list of `UIFileChange`. Untracked files (honouring
+`.gitignore`) are listed with the unstaged ones with status `?` and their lines as
+additions. Read-only and safe to call from a timer: it never marks files with intent-to-add.
+
+**Call:**
+
+```python
+client.get_uncommitted_files()
+```
+
+### Get one uncommitted file's diff
+
+Returns a `UIFileDiff` (see above) for the staged or the unstaged side of a file. An
+untracked file is shown as all additions, without touching the index. Unlike
+`get_file_diff`, which compares the working tree with `HEAD` as raw text, this keeps the two
+sides apart and returns parsed hunks.
+
+**Call:**
+
+```python
+client.get_worktree_file_diff("src/search.py", staged=True, context_lines=3)
+```
+
+**Parameters:**
+
+- `path`: Required. File path as `get_uncommitted_files` reports it.
+- `staged`: Optional (default `False`). Read the index side instead of the working tree's.
+- `context_lines`: Optional (default `3`). Unchanged lines around each change.
+
 ### List files changed between two refs
 
 Returns the paths that differ between two refs (commits, branches or tags),
@@ -885,12 +952,29 @@ Stashes current local changes.
 **Call:**
 
 ```python
-client.stash_push(message="temporary local changes")
+client.stash_push(message="temporary local changes", include_untracked=False)
 ```
 
 **Parameters:**
 
 - `message`: Optional. Stash message.
+- `include_untracked`: Optional. Also stash new, untracked files (not ignored ones), so the tree ends up clean.
+
+### List the stashes
+
+Lists the stashes, newest first.
+
+**Call:**
+
+```python
+client.list_stashes()
+```
+
+**Parameters:**
+
+- No parameters.
+
+**Returns:** `ClientResult[List[UIGitStash]]`, each with `ref` (`stash@{0}`), `branch` it was made on, `message` and `formatted_date` ("2 hours ago"). An empty list when there are none. Error code: `STASH_LIST_ERROR`.
 
 ### Pop a stash
 

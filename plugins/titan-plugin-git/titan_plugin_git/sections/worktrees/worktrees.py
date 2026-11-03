@@ -4,7 +4,7 @@ from pathlib import Path
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_git.operations import main_worktree_path, removal_blocked_by
 
-from ...models import Worktrees
+from titan_plugin_git.readers import Worktrees
 
 
 def read_worktrees(git, root: Path, options) -> Worktrees:

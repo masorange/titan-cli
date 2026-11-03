@@ -6,12 +6,15 @@ Business logic for Git stash operations.
 Uses network layer to execute commands for stash push, pop, and search.
 """
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from titan_cli.core.result import ClientResult, ClientSuccess, ClientError
 from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
+from ...models.mappers import from_network_stash
+from ...models.network import NetworkGitStash
+from ...models.view import UIGitStash
 from ...exceptions import GitCommandError
 from ...messages import msg
 
@@ -33,12 +36,14 @@ class StashService:
         self.git = git_network
 
     @log_client_operation()
-    def stash_push(self, message: Optional[str] = None) -> ClientResult[bool]:
+    def stash_push(self, message: Optional[str] = None, include_untracked: bool = False) -> ClientResult[bool]:
         """
         Stash uncommitted changes.
 
         Args:
             message: Optional stash message
+            include_untracked: Also stash new, untracked files (not ignored ones), so the
+                tree ends up clean
 
         Returns:
             ClientResult[bool] with True if stash was created
@@ -49,7 +54,8 @@ class StashService:
             )
 
         try:
-            self.git.run_command(["git", "stash", "push", "-m", message])
+            args = ["git", "stash", "push", *(["--include-untracked"] if include_untracked else []), "-m", message]
+            self.git.run_command(args)
             return ClientSuccess(data=True, message=f"Stashed with message: {message}")
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STASH_ERROR")
@@ -74,6 +80,27 @@ class StashService:
             return ClientSuccess(data=True, message="Stash popped successfully")
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STASH_POP_ERROR")
+
+    @log_client_operation()
+    def list_stashes(self) -> ClientResult[List[UIGitStash]]:
+        """
+        List the stashes, newest first.
+
+        Returns:
+            ClientResult[List[UIGitStash]]
+        """
+        try:
+            output = self.git.run_command(["git", "stash", "list", "--format=%gd%x1f%gs%x1f%cr"])
+        except GitCommandError as e:
+            return ClientError(error_message=str(e), error_code="STASH_LIST_ERROR")
+
+        stashes = []
+        for line in output.splitlines():
+            ref, _, rest = line.partition("\x1f")
+            subject, _, date = rest.partition("\x1f")
+            if ref:
+                stashes.append(from_network_stash(NetworkGitStash(ref=ref, subject=subject, relative_date=date)))
+        return ClientSuccess(data=stashes, message=f"{len(stashes)} stashes")
 
     @log_client_operation()
     def find_stash_by_message(self, message: str) -> ClientResult[Optional[str]]:

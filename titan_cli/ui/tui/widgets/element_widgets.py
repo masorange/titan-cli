@@ -13,9 +13,10 @@ from rich.text import Text as RichText
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
 
-from titan_cli.ui.elements import Box, Columns, Component, column_widths
+from titan_cli.ui.elements import Box, Columns, Component, column_widths, dragged_widths
 from titan_cli.ui.elements import Button as ButtonElement
 from titan_cli.ui.elements import Input, Link, Text, plain
+from titan_cli.ui.tui.widgets import diff_view  # noqa: F401  (registers the `titan.diff` widget)
 from titan_cli.ui.tui.widgets.button import Button
 from titan_cli.ui.tui.widgets.element_text import COLORS, Line, link_text, to_rich
 from titan_cli.ui.tui.widgets.input_field import InputField
@@ -46,13 +47,57 @@ class _Columns(Horizontal):
     }
     """
 
+    element: Columns
+
 
 class _Column(Vertical):
+    """One column. With `on_resize` on its `Columns`, its left border is a handle: drag it to resize."""
+
     DEFAULT_CSS = """
     _Column {
         height: auto;
     }
     """
+
+    _drag = None  # (index, screen_x at press, widths at press) while a drag is on
+
+    def _owner_and_index(self):
+        owner = self.parent
+        if not isinstance(owner, _Columns) or getattr(owner, "element", None) is None:
+            return None, 0
+        return owner, [c for c in owner.children if isinstance(c, _Column)].index(self)
+
+    def on_mouse_down(self, event) -> None:
+        owner, i = self._owner_and_index()
+        if owner is None or not i or not owner.element.on_resize or event.x != 0:
+            return
+        columns = [c for c in owner.children if isinstance(c, _Column)]
+        self._drag = (i, event.screen_x, tuple(c.region.width for c in columns))
+        self.styles.border_left = ("vkey", COLORS["accent"])
+        self.capture_mouse()
+        event.stop()
+
+    def on_mouse_move(self, event) -> None:
+        if self._drag is None:
+            return
+        owner, _ = self._owner_and_index()
+        i, start, widths = self._drag
+        for column, w in zip([c for c in owner.children if isinstance(c, _Column)], dragged_widths(widths, i, event.screen_x - start)):
+            column.styles.width = f"{w}fr"
+        event.stop()
+
+    def on_mouse_up(self, event) -> None:
+        if self._drag is None:
+            return
+        owner, _ = self._owner_and_index()
+        i, start, widths = self._drag
+        self._drag = None
+        self.styles.border_left = ("vkey", COLORS["subtle"])
+        self.release_mouse()
+        event.stop()
+        resized = dragged_widths(widths, i, event.screen_x - start)
+        if resized != widths and owner.element.on_resize:
+            owner.element.on_resize(resized)
 
 
 class _Row(Horizontal):
@@ -126,7 +171,14 @@ def _column(element: Columns, i: int, width: int) -> tuple:
 
 def _style_column(column: Widget, element: Columns, i: int) -> None:
     column.styles.width = f"{element.ratio[i]}fr"
-    column.styles.margin = (0, 0, 0, element.gap if i else 0)
+    handle = bool(i and element.on_resize)
+    # A draggable column's left border is the gap: a thin line that is the handle.
+    column.styles.margin = (0, 0, 0, element.gap - 1 if handle else element.gap if i else 0)
+    if handle:
+        if column._drag is None:
+            column.styles.border_left = ("vkey", COLORS["subtle"])
+    else:
+        column.styles.clear_rule("border_left")
 
 
 def _inner_width(box: Box, width: int) -> int:
@@ -174,7 +226,9 @@ def build(element: Any, width: int) -> Widget:
             column = _Column(build(child, _column(element, i, width)[0]))
             _style_column(column, element, i)
             columns.append(column)
-        return _Columns(*columns)
+        widget = _Columns(*columns)
+        widget.element = element
+        return widget
     children = [build(child, _inner_width(element, width)) for child in element.children]
     widget = cls(*children)
     _style_box(widget, element, children)
@@ -206,6 +260,7 @@ def patch(widget: Widget, element: Any, width: int) -> bool:
         for i, (column, child) in enumerate(zip(columns, element.children)):
             reconcile(column, [child], _column(element, i, width)[0])
             _style_column(column, element, i)
+        widget.element = element
         widget.refresh(layout=True)
     elif isinstance(element, Component) and cls is not Line:
         widget.apply(element.props)

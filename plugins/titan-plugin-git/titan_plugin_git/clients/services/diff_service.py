@@ -13,10 +13,12 @@ from titan_cli.core.logging import log_client_operation
 
 from ..network import GitNetwork
 from ...exceptions import GitCommandError, GitError
-from ...models.view import UIFileChurn
+from ...models.mappers import from_unified_diff
+from ...models.view import UIFileChange, UIFileChurn, UIFileDiff, UIUncommittedFiles
 
 
 
+_QUIET = ["git", "-c", "core.quotePath=false"]
 _BINARY_CHECK_BYTES = 8000
 _CHURN_CHUNK_SIZE = 65536
 
@@ -330,6 +332,123 @@ class DiffService:
             return ClientError(error_message=str(e), error_code="DIFF_ERROR")
 
     @log_client_operation()
+    def get_commit_files(self, sha: str) -> ClientResult[List[UIFileChange]]:
+        """
+        List the files a commit changed, with state and line counters.
+
+        A merge commit is compared with its first parent. Renames are reported as a
+        delete plus an add (`--no-renames`), the same convention as the numstat reads.
+
+        Args:
+            sha: Commit hash or any ref that names one
+
+        Returns:
+            ClientResult[List[UIFileChange]], one entry per file
+        """
+        try:
+            base = [*_QUIET, "show", "--diff-merges=first-parent", "--format=", "--no-renames"]
+            numstat = self.git.run_command([*base, "--numstat", sha, "--"], check=True)
+            states = self.git.run_command([*base, "--name-status", sha, "--"], check=True)
+            return ClientSuccess(data=_file_changes(numstat, states), message=f"Files of {sha[:7]} retrieved")
+        except (GitError, ValueError) as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+    @log_client_operation()
+    def get_commit_file_diff(self, sha: str, path: str, context_lines: int = 3) -> ClientResult[UIFileDiff]:
+        """
+        One file's diff in a commit, parsed into hunks and lines.
+
+        Args:
+            sha: Commit hash or any ref that names one
+            path: Path of the file, as `get_commit_files` reports it
+            context_lines: Unchanged lines kept around each change
+
+        Returns:
+            ClientResult[UIFileDiff]; a file the commit did not touch gives a diff with no hunks
+        """
+        try:
+            diff = self.git.run_command(
+                [*_QUIET, "show", "--diff-merges=first-parent", "--format=", "--no-renames", "--no-color",
+                 f"-U{context_lines}", sha, "--", path],
+                check=True,
+                strip_output=False,
+            )
+            return ClientSuccess(data=from_unified_diff(diff, path), message=f"Diff of {path} retrieved")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+    @log_client_operation()
+    def get_uncommitted_files(self) -> ClientResult[UIUncommittedFiles]:
+        """
+        List the files that differ from HEAD, the index's apart from the working tree's.
+
+        Read-only and safe to poll: it never marks anything with intent-to-add. Untracked
+        files (honouring .gitignore) come with the unstaged ones, status "?", their lines as additions.
+
+        Returns:
+            ClientResult[UIUncommittedFiles] with `staged` and `unstaged`
+        """
+        try:
+            staged = self._changes_against(["--cached"])
+            unstaged = self._changes_against([])
+            root = Path(self.git.get_repo_path())
+            untracked = self.git.run_command(
+                [*_QUIET, "ls-files", "--others", "--exclude-standard"], check=True
+            )
+            for path in untracked.splitlines():
+                if path:
+                    churn = _untracked_churn(root, path)
+                    unstaged.append(UIFileChange(path, "?", churn.additions, churn.deletions, churn.is_binary))
+            return ClientSuccess(
+                data=UIUncommittedFiles(staged=staged, unstaged=unstaged),
+                message="Uncommitted files retrieved",
+            )
+        except (GitError, ValueError) as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+    @log_client_operation()
+    def get_worktree_file_diff(self, path: str, staged: bool = False, context_lines: int = 3) -> ClientResult[UIFileDiff]:
+        """
+        One file's uncommitted diff, parsed into hunks and lines.
+
+        `staged` reads the index against HEAD; otherwise the working tree against the
+        index. An untracked file is shown as all additions, without touching the index.
+
+        Args:
+            path: Path of the file, as `get_uncommitted_files` reports it
+            staged: Read the staged side instead of the unstaged one
+            context_lines: Unchanged lines kept around each change
+
+        Returns:
+            ClientResult[UIFileDiff]
+        """
+        try:
+            args = [*_QUIET, "diff", "--no-color", f"-U{context_lines}"]
+            if staged:
+                diff = self.git.run_command([*args, "--cached", "--", path], check=True, strip_output=False)
+            else:
+                untracked = self.git.run_command(
+                    [*_QUIET, "ls-files", "--others", "--exclude-standard", "--", path], check=True
+                )
+                if untracked.strip():
+                    # --no-index exits 1 when the files differ, which is the case here.
+                    diff = self.git.run_command(
+                        [*args, "--no-index", "--", "/dev/null", path], check=False, strip_output=False
+                    )
+                else:
+                    diff = self.git.run_command([*args, "--", path], check=True, strip_output=False)
+            return ClientSuccess(data=from_unified_diff(diff, path), message=f"Diff of {path} retrieved")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="DIFF_ERROR")
+
+    def _changes_against(self, extra: List[str]) -> List[UIFileChange]:
+        """Files of `git diff [extra]` with their state and counters."""
+        base = [*_QUIET, "diff", "--no-renames", *extra]
+        numstat = self.git.run_command([*base, "--numstat"], check=True)
+        states = self.git.run_command([*base, "--name-status"], check=True)
+        return _file_changes(numstat, states)
+
+    @log_client_operation()
     def get_changed_files(self, base_ref: str, head_ref: str) -> ClientResult[List[str]]:
         """
         List the paths that differ between two refs (commits, branches or tags).
@@ -392,3 +511,22 @@ def _parse_numstat(output: str) -> List[UIFileChurn]:
             continue
         churns.append(UIFileChurn(path=path, additions=int(added), deletions=int(deleted)))
     return churns
+
+
+def _file_changes(numstat: str, name_status: str) -> List[UIFileChange]:
+    """Join `--numstat` counters with `--name-status` letters, in the numstat's order."""
+    states = {}
+    for line in name_status.splitlines():
+        letter, _, path = line.partition("\t")
+        if letter and path:
+            states[path] = letter[0]
+    return [
+        UIFileChange(
+            path=churn.path,
+            status=states.get(churn.path, "M"),
+            additions=churn.additions,
+            deletions=churn.deletions,
+            is_binary=churn.is_binary,
+        )
+        for churn in _parse_numstat(numstat)
+    ]

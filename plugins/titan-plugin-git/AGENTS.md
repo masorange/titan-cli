@@ -12,7 +12,10 @@ plugins (github) get the repository through its client.
 
 5-layer: `steps/ → operations/ → clients/git_client.py → clients/services/ → clients/network/`,
 with `models/{network,view,mappers}`. User-facing strings in `messages.py`. Also ships the
-`git` mod (`mods/git/`) and the `commit-ai`, `merge-branch`, `switch-branch` workflows.
+`git` mod (`mods/git/`), the `git` workspace (`workspaces/git/`) and the `commit-ai`,
+`merge-branch`, `switch-branch` workflows. Mod and workspace share `readers/` (reads through
+the client), `sections/{branches,worktrees}/` (reads, actions and cards of the branch and worktrees)
+and `drawing.py` (element drawing); neither imports the other.
 
 ## Plugin-specific rules
 
@@ -21,4 +24,4 @@ with `models/{network,view,mappers}`. User-facing strings in `messages.py`. Also
 - Config: `GitPluginConfig` (`main_branch`, `default_remote`) in `titan_cli/core/plugins/models.py`.
 - The repository may be in an unusual state (unborn branch, detached HEAD, rename in the
   index). Return a `ClientError` with a clear message, never assume a branch exists.
-- Tests: `tests/{services,operations,steps,unit}`.
+- Tests: `tests/{services,operations,steps,unit,readers}`.

@@ -22,11 +22,15 @@ from .services import (
     WorktreeService,
 )
 from ..models.view import (
+    UIFileChange,
     UIFileChurn,
+    UIFileDiff,
+    UIUncommittedFiles,
     UIGitBranch,
     UIGitCommit,
     UIGitStatus,
     UIGitTag,
+    UIGitStash,
     UIGitWorktree,
 )
 from ..models.view.merge import UIMergeResult
@@ -347,6 +351,22 @@ class GitClient:
         """Get diff for a specific file."""
         return self.diff_service.get_file_diff(file_path)
 
+    def get_commit_files(self, sha: str) -> ClientResult[List[UIFileChange]]:
+        """List the files a commit changed, with state and line counters."""
+        return self.diff_service.get_commit_files(sha)
+
+    def get_commit_file_diff(self, sha: str, path: str, context_lines: int = 3) -> ClientResult[UIFileDiff]:
+        """Get one file's diff in a commit, parsed into hunks and lines."""
+        return self.diff_service.get_commit_file_diff(sha, path, context_lines)
+
+    def get_uncommitted_files(self) -> ClientResult[UIUncommittedFiles]:
+        """List the uncommitted files, staged and unstaged apart (untracked ones with the unstaged)."""
+        return self.diff_service.get_uncommitted_files()
+
+    def get_worktree_file_diff(self, path: str, staged: bool = False, context_lines: int = 3) -> ClientResult[UIFileDiff]:
+        """Get one file's uncommitted diff, parsed into hunks and lines."""
+        return self.diff_service.get_worktree_file_diff(path, staged, context_lines)
+
     def get_branch_diff(self, base_branch: str, head_branch: str, context_lines: int = 3, use_remote: bool = False) -> ClientResult[str]:
         """
         Get diff between two branches.
@@ -500,9 +520,13 @@ class GitClient:
 
     # ===== Stash Methods =====
 
-    def stash_push(self, message: Optional[str] = None) -> ClientResult[bool]:
-        """Stash uncommitted changes."""
-        return self.stash_service.stash_push(message)
+    def stash_push(self, message: Optional[str] = None, include_untracked: bool = False) -> ClientResult[bool]:
+        """Stash uncommitted changes, new files too with `include_untracked`."""
+        return self.stash_service.stash_push(message, include_untracked)
+
+    def list_stashes(self) -> ClientResult[List[UIGitStash]]:
+        """List the stashes, newest first."""
+        return self.stash_service.list_stashes()
 
     def stash_pop(self, stash_ref: Optional[str] = None) -> ClientResult[bool]:
         """Pop stash (apply and remove)."""

@@ -173,3 +173,49 @@ class TestStashServiceRestoreStash:
 
         assert isinstance(result, ClientError)
         assert result.error_code == "STASH_POP_ERROR"
+
+
+@pytest.mark.unit
+class TestStashServiceList:
+    """Test StashService.list_stashes()"""
+
+    def test_lists_stashes_newest_first_with_branch_message_and_age(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = (
+            "stash@{0}\x1fOn feat/x: half done\x1f2 hours ago\n"
+            "stash@{1}\x1fWIP on main: abc1234 last commit\x1f3 days ago"
+        )
+
+        result = service.list_stashes()
+
+        assert isinstance(result, ClientSuccess)
+        assert [(s.ref, s.branch, s.message, s.formatted_date) for s in result.data] == [
+            ("stash@{0}", "feat/x", "half done", "2 hours ago"),
+            ("stash@{1}", "main", "abc1234 last commit", "3 days ago"),
+        ]
+        mock_git_network.run_command.assert_called_once_with(["git", "stash", "list", "--format=%gd%x1f%gs%x1f%cr"])
+
+    def test_no_stashes_is_an_empty_list(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = ""
+
+        result = service.list_stashes()
+
+        assert isinstance(result, ClientSuccess) and result.data == []
+
+    def test_error_returns_client_error(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("boom")
+
+        result = service.list_stashes()
+
+        assert isinstance(result, ClientError) and result.error_code == "STASH_LIST_ERROR"
+
+
+@pytest.mark.unit
+class TestStashServicePushUntracked:
+    def test_include_untracked_adds_the_flag_before_the_message(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = ""
+
+        service.stash_push("keep", include_untracked=True)
+
+        mock_git_network.run_command.assert_called_once_with(
+            ["git", "stash", "push", "--include-untracked", "-m", "keep"]
+        )
