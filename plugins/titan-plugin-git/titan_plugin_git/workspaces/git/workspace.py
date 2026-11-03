@@ -75,8 +75,9 @@ def register(w, on, options):
         read_history()
         read_cards()
         # A popped or dropped stash leaves nothing to show: back to the uncommitted changes, where it landed.
+        # A failed read carries no stashes, so it says nothing about this one: keep the selection.
         branches = w.state.get("branches")
-        if w.state.get("stash_selected") and branches is not None and not any(
+        if w.state.get("stash_selected") and branches is not None and not branches.error and not any(
             s.hash == w.state.get("selected") for s in branches.stashes
         ):
             w.state.set("stash_selected", False)

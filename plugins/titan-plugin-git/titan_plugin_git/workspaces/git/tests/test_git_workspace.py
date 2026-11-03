@@ -295,6 +295,18 @@ def test_a_stash_that_is_gone_goes_back_to_the_uncommitted_changes():
     assert w.state.get("selected") == "wip"
 
 
+def test_a_failed_branches_read_keeps_the_stash_being_read():
+    git = FakeGit(staged=STAGED, commit_files={"h1": [UIFileChange("old.py", "M", 5, 2)]})
+    bus, w = stash_picker(git)
+    press(bus, "older · main")
+    git.get_status = lambda: ClientError(error_message="index.lock exists")
+
+    w.run(lambda: None)
+    w.state.get("refresh")()
+
+    assert w.state.get("selected") == "h1" and w.state.get("stash_selected")
+
+
 def test_the_last_line_of_the_list_clears_it_but_only_after_a_second_press():
     git = FakeGit(staged=STAGED)
     cleared = []
