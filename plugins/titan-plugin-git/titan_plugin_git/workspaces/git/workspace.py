@@ -9,6 +9,7 @@ and presses and `draw.py` draws from `w.state` only, so it never waits on the ne
 """
 from pathlib import Path
 
+from titan_cli.core.result import ClientError
 from titan_plugin_git.readers import read_repo
 from titan_plugin_git.sections.branches.branches import read_branches, start_stash
 from titan_plugin_git.sections.worktrees.worktrees import read_worktrees
@@ -113,6 +114,32 @@ def register(w, on, options):
         if key in (w.state.get("open") or {}) and (shown is None or shown.status == "error"):
             w.run(lambda: load_diff(selection, side, f.path))
 
+    def change_index(kind, paths):
+        """Stage, unstage or discard these files of the uncommitted changes, then reread what they changed."""
+        w.state.set("discard_confirm", None)
+
+        def run():
+            git = w.client("git")
+            if git is None:
+                w.ui.toast("git plugin not available", "error")
+                return
+            act = {"stage": git.stage_file, "unstage": git.unstage_file, "discard": git.discard_file}[kind]
+            for path in paths:
+                match act(path):
+                    case ClientError(error_message=err):
+                        w.ui.toast(f"Could not {kind} {path}: {err}", "error")
+                        break
+                    case _:
+                        # The card moves to the other group: it stays open where it lands.
+                        moved = {"stage": ("unstaged", "staged"), "unstage": ("staged", "unstaged")}.get(kind)
+                        if moved:
+                            old, new = (card_key(WIP, side, path) for side in moved)
+                            if old in (w.state.get("open") or {}):
+                                w.state.update("open", lambda cards: {**{k: v for k, v in cards.items() if k != old}, new: True}, default={})
+            refresh_wip()
+
+        w.run(run)
+
     def more_commits():
         w.state.set("commit_limit", (w.state.get("commit_limit") or options["commits_shown"]) + options["commits_shown"])
         w.run(read_history)
@@ -132,6 +159,7 @@ def register(w, on, options):
         copy=w.ui.copy,
         resize=resize,
         stash=stash_action,
+        index=change_index,
     )
 
     w.ui.view(lambda width: draw.draw(w, width, options, actions), title=TITLE)

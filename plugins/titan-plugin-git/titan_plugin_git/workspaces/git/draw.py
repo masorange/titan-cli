@@ -32,6 +32,7 @@ class Actions:
     copy: Callable[[str, str], None]
     resize: Callable[[tuple], None]
     stash: Callable[[str, object], None]
+    index: Callable[[str, list], None]
 
 
 def marker(selected: bool) -> Text:
@@ -182,7 +183,24 @@ def diff_body(w, key: str, selection: str, side: str, f, options, actions: Actio
     )
 
 
-def file_card(w, selection: str, side: str, f, options, actions: Actions) -> Box:
+def file_actions(w, key: str, selection: str, side: str, f, actions: Actions, width: int) -> Box:
+    """What can be done with one file: copy its path and, on the uncommitted changes, stage, unstage or discard it (behind a second press)."""
+    card = dict(width=width, state=w.state, key=f"file_actions:{key}", close=False)
+    if w.state.get("discard_confirm") == key:
+        return choice_card([
+            Option("✓ Confirm discard", lambda: actions.index("discard", [f.path]), "error"),
+            Option("Cancel", lambda: w.state.set("discard_confirm", None)),
+        ], title=f"Throws away the changes of {f.path}. This cannot be undone.", border="warning", **card)
+    on_wip = selection == WIP
+    return choice_card([
+        Option("⎘ Copy path", lambda: actions.copy(f.path, "path")),
+        on_wip and side == "staged" and Option("− Unstage", lambda: actions.index("unstage", [f.path])),
+        on_wip and side == "unstaged" and Option("+ Stage", lambda: actions.index("stage", [f.path])),
+        on_wip and side == "unstaged" and Option("✗ Discard…", lambda: w.state.set("discard_confirm", key)),
+    ], **card)
+
+
+def file_card(w, selection: str, side: str, f, options, actions: Actions, width: int = 60) -> Box:
     key = card_key(selection, side, f.path)
     is_open = key in (w.state.get("open") or {})
     head = Button(
@@ -198,25 +216,31 @@ def file_card(w, selection: str, side: str, f, options, actions: Actions) -> Box
     )
     return Box(
         head,
-        is_open and Button("⎘ Copy path", lambda: actions.copy(f.path, "path"), dim=True),
+        is_open and file_actions(w, key, selection, side, f, actions, width - 4),
         is_open and diff_body(w, key, selection, side, f, options, actions),
         border="subtle",
     )
 
 
-def group(w, selection: str, g, files: Files, options, actions: Actions) -> Box:
+def group(w, selection: str, g, files: Files, options, actions: Actions, width: int = 60) -> Box:
     """Staged or Unstaged: a fold on its title when the screen has more than one group to tell apart."""
     if len(files.groups) <= 1 and selection != WIP:
-        return Box(*[file_card(w, selection, g.side, f, options, actions) for f in g.files])
+        return Box(*[file_card(w, selection, g.side, f, options, actions, width) for f in g.files])
     key = f"{selection}|{g.side}"
     is_open = key not in (w.state.get("closed_groups") or {})
 
     def toggle():
         w.state.update("closed_groups", lambda closed: {**(closed or {}), key: True} if is_open else {k: v for k, v in (closed or {}).items() if k != key}, default={})
 
+    paths = [f.path for f in g.files]
+    bulk = {"staged": ("− Unstage all", "unstage"), "unstaged": ("+ Stage all", "stage")}.get(g.side)
     return Box(
-        Button(Text(Text("▾ " if is_open else "▸ ", color="info"), Text(f"{g.title} ({len(g.files)})", bold=True)), toggle),
-        *([file_card(w, selection, g.side, f, options, actions) for f in g.files] if is_open else []),
+        Box(
+            Button(Text(Text("▾ " if is_open else "▸ ", color="info"), Text(f"{g.title} ({len(g.files)})", bold=True)), toggle),
+            selection == WIP and bulk and Button(bulk[0], lambda: actions.index(bulk[1], paths), dim=True),
+            row=True,
+        ),
+        *([file_card(w, selection, g.side, f, options, actions, width) for f in g.files] if is_open else []),
     )
 
 
@@ -233,7 +257,7 @@ def detail(w, options, actions: Actions, width: int = 60) -> Box:
         ), gap=1)
     if not files.groups:
         return Box(header, Text("Working tree clean" if selection == WIP else "No files changed", dim=True), gap=1)
-    groups = [group(w, selection, g, files, options, actions) for g in files.groups]
+    groups = [group(w, selection, g, files, options, actions, width) for g in files.groups]
     return Box(header, *groups, gap=1)
 
 

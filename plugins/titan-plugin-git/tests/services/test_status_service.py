@@ -198,3 +198,51 @@ def test_get_untracked_files_lists_each_file_and_honours_gitignore(mock_git_netw
     assert result.data == ["examples/mods/a/mod.py", "examples/mods/a/mod.toml"]
     args = mock_git_network.run_command.call_args.args[0]
     assert args[-3:] == ["ls-files", "--others", "--exclude-standard"]
+
+
+@pytest.mark.unit
+class TestStatusServiceFileIndex:
+    """Test StatusService.stage_file / unstage_file / discard_file"""
+
+    def test_stage_file_adds_only_that_path(self, mock_git_network):
+        result = StatusService(mock_git_network).stage_file("a.py")
+
+        assert isinstance(result, ClientSuccess)
+        mock_git_network.run_command.assert_called_once_with(["git", "add", "--all", "--", "a.py"])
+
+    def test_unstage_file_resets_only_that_path(self, mock_git_network):
+        result = StatusService(mock_git_network).unstage_file("a.py")
+
+        assert isinstance(result, ClientSuccess)
+        mock_git_network.run_command.assert_called_once_with(["git", "reset", "--quiet", "--", "a.py"])
+
+    def test_discard_restores_a_tracked_file(self, mock_git_network):
+        mock_git_network.run_command.side_effect = ["a.py", ""]
+
+        result = StatusService(mock_git_network).discard_file("a.py")
+
+        assert isinstance(result, ClientSuccess)
+        assert mock_git_network.run_command.call_args_list[-1].args[0] == [
+            "git", "restore", "--worktree", "--", "a.py"
+        ]
+
+    def test_discard_deletes_an_untracked_file(self, mock_git_network):
+        mock_git_network.run_command.side_effect = ["", ""]
+
+        result = StatusService(mock_git_network).discard_file("new.txt")
+
+        assert isinstance(result, ClientSuccess)
+        assert mock_git_network.run_command.call_args_list[-1].args[0] == [
+            "git", "clean", "--force", "--", "new.txt"
+        ]
+
+    @pytest.mark.parametrize("method, code", [
+        ("stage_file", "STAGE_ERROR"), ("unstage_file", "UNSTAGE_ERROR"), ("discard_file", "DISCARD_ERROR"),
+    ])
+    def test_a_git_failure_is_a_client_error(self, mock_git_network, method, code):
+        mock_git_network.run_command.side_effect = GitCommandError("boom")
+
+        result = getattr(StatusService(mock_git_network), method)("a.py")
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == code

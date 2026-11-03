@@ -14,7 +14,7 @@ from ..network import GitNetwork
 from ...models.network.status import NetworkGitStatus
 from ...models.view.status import UIGitStatus
 from ...models.mappers import from_network_status
-from ...exceptions import GitCommandError
+from ...exceptions import GitCommandError, GitError
 
 
 class StatusService:
@@ -126,6 +126,67 @@ class StatusService:
             )
         except GitCommandError as e:
             return ClientError(error_message=str(e), error_code="STATUS_ERROR")
+
+    @log_client_operation()
+    def stage_file(self, path: str) -> ClientResult[None]:
+        """
+        Stage one file: a change, a new file or a deletion (git add --all -- path).
+
+        Args:
+            path: Path relative to the repository root
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            self.git.run_command(["git", "add", "--all", "--", path])
+            return ClientSuccess(data=None, message=f"Staged {path}")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="STAGE_ERROR")
+
+    @log_client_operation()
+    def unstage_file(self, path: str) -> ClientResult[None]:
+        """
+        Take one file out of the index, keeping its changes in the working tree.
+
+        `git reset -- path` also works before the first commit, where `git restore --staged`
+        has no HEAD to restore from.
+
+        Args:
+            path: Path relative to the repository root
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            self.git.run_command(["git", "reset", "--quiet", "--", path])
+            return ClientSuccess(data=None, message=f"Unstaged {path}")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="UNSTAGE_ERROR")
+
+    @log_client_operation()
+    def discard_file(self, path: str) -> ClientResult[None]:
+        """
+        Throw away the unstaged changes of one file. This cannot be undone.
+
+        A tracked file goes back to what the index holds (staged changes stay); an untracked
+        file is deleted.
+
+        Args:
+            path: Path relative to the repository root
+
+        Returns:
+            ClientResult[None]
+        """
+        try:
+            tracked = self.git.run_command(["git", "ls-files", "--", path])
+            if tracked.strip():
+                self.git.run_command(["git", "restore", "--worktree", "--", path])
+            else:
+                self.git.run_command(["git", "clean", "--force", "--", path])
+            return ClientSuccess(data=None, message=f"Discarded {path}")
+        except GitError as e:
+            return ClientError(error_message=str(e), error_code="DISCARD_ERROR")
 
     @log_client_operation()
     def has_uncommitted_changes(self) -> ClientResult[bool]:

@@ -48,6 +48,7 @@ class FakeGit:
         self.commit_files = commit_files or {}
         self.asked = []
         self.fail = None
+        self.fail_index = False
         self.dirty = []
         self.stashes = []
 
@@ -89,6 +90,26 @@ class FakeGit:
         if self.fail:
             return ClientError(error_message=self.fail)
         return ClientSuccess(data=UIUncommittedFiles(staged=self.staged, unstaged=self.unstaged))
+
+    def _move(self, path, source, target):
+        moved = [f for f in source if f.path == path]
+        source[:] = [f for f in source if f.path != path]
+        target.extend(moved)
+
+    def stage_file(self, path):
+        self.asked.append(("stage", path))
+        self._move(path, self.unstaged, self.staged)
+        return ClientError(error_message="index.lock exists") if self.fail_index else ClientSuccess(data=None)
+
+    def unstage_file(self, path):
+        self.asked.append(("unstage", path))
+        self._move(path, self.staged, self.unstaged)
+        return ClientSuccess(data=None)
+
+    def discard_file(self, path):
+        self.asked.append(("discard", path))
+        self.unstaged[:] = [f for f in self.unstaged if f.path != path]
+        return ClientSuccess(data=None)
 
     def get_commit_files(self, sha):
         self.asked.append(("files", sha))
@@ -138,6 +159,10 @@ def texts(bus, width=150):
 
 def press(bus, starting, width=150):
     next(e for e in walk(bus.render_view("git", width)) if isinstance(e, Button) and plain(e.label).startswith(starting)).on_press()
+
+
+def press_exact(bus, label, width=150):
+    next(e for e in walk(bus.render_view("git", width)) if isinstance(e, Button) and plain(e.label) == label).on_press()
 
 
 def diffs_shown(bus, width=150):
@@ -410,3 +435,71 @@ def test_a_failed_log_is_an_error_card_that_rereads_on_retry():
 
     assert not any("fatal: bad object" in t for t in texts(bus))
     assert any("c1 subject" in label for label in labels(bus))
+
+
+def test_stage_moves_a_file_to_the_staged_group_and_keeps_its_card_open():
+    git = FakeGit(staged=STAGED, unstaged=UNSTAGED)
+    bus, w, _ = start(git)
+    press(bus, "▸ b.py")
+
+    press_exact(bus, "+ Stage")
+
+    assert ("stage", "b.py") in git.asked
+    assert "▾ Staged (2)" in labels(bus) and "▾ Unstaged (1)" in labels(bus)
+    assert "▾ b.py" in " ".join(labels(bus)) and "− Unstage" in labels(bus)
+
+
+def test_unstage_moves_a_file_back_to_the_unstaged_group():
+    git = FakeGit(staged=STAGED, unstaged=UNSTAGED)
+    bus, w, _ = start(git)
+
+    press_exact(bus, "− Unstage")
+
+    assert ("unstage", "a.py") in git.asked
+    assert "▾ Unstaged (3)" in labels(bus) and not any(label.startswith("▾ Staged") for label in labels(bus))
+
+
+def test_stage_all_and_unstage_all_act_on_the_whole_group():
+    git = FakeGit(staged=STAGED, unstaged=UNSTAGED)
+    bus, w, _ = start(git)
+
+    press(bus, "+ Stage all")
+
+    assert [a for a in git.asked if a[0] == "stage"] == [("stage", "b.py"), ("stage", "new.txt")]
+    assert "▾ Staged (3)" in labels(bus) and "+ Stage all" not in labels(bus)
+
+
+def test_discard_needs_a_second_press_and_cancel_leaves_the_file_alone():
+    git = FakeGit(unstaged=UNSTAGED)
+    bus, w, _ = start(git)
+
+    press_exact(bus, "✗ Discard…")
+    assert not any(a[0] == "discard" for a in git.asked) and "✓ Confirm discard" in labels(bus)
+    press(bus, "Cancel")
+    assert not any(a[0] == "discard" for a in git.asked) and "✗ Discard…" in labels(bus)
+
+    press_exact(bus, "✗ Discard…")
+    press(bus, "✓ Confirm discard")
+
+    assert ("discard", "b.py") in git.asked
+    assert not any(label.startswith("▾ b.py") or label.startswith("▸ b.py") for label in labels(bus))
+
+
+def test_a_failed_index_change_is_toasted_and_the_files_are_reread():
+    git = FakeGit(unstaged=UNSTAGED)
+    git.fail_index = True
+    bus, w, _ = start(git)
+    toasts = []
+    bus.host.toast = lambda mod, text, severity: toasts.append((text, severity))
+
+    press_exact(bus, "+ Stage")
+
+    assert toasts == [("Could not stage b.py: index.lock exists", "error")]
+
+
+def test_a_commit_has_no_stage_or_discard_buttons():
+    git = FakeGit(commits=[commit("a" * 40)], commit_files={"a" * 40: [UIFileChange("c.py", "M", 1, 0)]})
+    bus, w, _ = start(git)
+    w.state.set("selected", "a" * 40)
+
+    assert not any(label in ("+ Stage", "− Unstage", "✗ Discard…") for label in labels(bus))

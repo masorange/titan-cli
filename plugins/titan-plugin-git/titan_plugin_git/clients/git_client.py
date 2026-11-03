@@ -325,6 +325,18 @@ class GitClient:
         """Check if repository has uncommitted changes."""
         return self.status_service.has_uncommitted_changes()
 
+    def stage_file(self, path: str) -> ClientResult[None]:
+        """Stage one file (a change, a new file or a deletion)."""
+        return self.status_service.stage_file(path)
+
+    def unstage_file(self, path: str) -> ClientResult[None]:
+        """Take one file out of the index, keeping its changes in the working tree."""
+        return self.status_service.unstage_file(path)
+
+    def discard_file(self, path: str) -> ClientResult[None]:
+        """Throw away the unstaged changes of one file (an untracked file is deleted). Irreversible."""
+        return self.status_service.discard_file(path)
+
     # ===== Diff Methods =====
 
     def get_diff(self, base_ref: str, head_ref: str = "HEAD") -> ClientResult[str]:

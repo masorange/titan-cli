@@ -475,6 +475,26 @@ client.has_uncommitted_changes()
 
 - No parameters.
 
+### Stage, unstage or discard one file
+
+Three per-file actions on the index and the working tree. Each returns `ClientResult[None]`
+(`STAGE_ERROR`, `UNSTAGE_ERROR`, `DISCARD_ERROR` on failure).
+
+**Call:**
+
+```python
+client.stage_file("src/app.py")     # git add --all -- path: a change, a new file or a deletion
+client.unstage_file("src/app.py")   # git reset -- path: leaves the changes in the working tree
+client.discard_file("src/app.py")   # throws the unstaged changes away; irreversible
+```
+
+`discard_file` restores a tracked file to what the index holds (staged changes stay) and
+deletes an untracked file. Callers should ask for confirmation first.
+
+**Parameters:**
+
+- `path` (required): path relative to the repository root.
+
 ---
 
 ## Diff operations
