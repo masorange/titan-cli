@@ -219,18 +219,22 @@ class Session:
 
     def start(self, cols: int, rows: int) -> None:
         """Fork the CLI into a PTY. Raises `FileNotFoundError` before forking when it cannot be launched."""
-        if not shutil.which(self.command):
+        executable = shutil.which(self.command)
+        if not executable:
             raise FileNotFoundError(f"'{self.command}' was not found on the PATH")
         if not os.path.isdir(self.cwd):
             raise FileNotFoundError(f"The folder '{self.cwd}' does not exist")
-        argv, self._scoped = wrap_in_scope((self.command,), self.memory_limit_mb)
+        argv, self._scoped = wrap_in_scope((executable,), self.memory_limit_mb)
+        if self._scoped:  # systemd-run is the program; the CLI is its resolved absolute-path argument
+            executable = shutil.which(argv[0]) or argv[0]
+        env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
         self._apply_size(cols, rows)
         pid, fd = pty.fork()
         if pid == 0:
             # Whatever goes wrong here, this forked copy of Titan must never return into the app.
             try:
                 os.chdir(self.cwd)
-                os.execvpe(argv[0], list(argv), {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"})
+                os.execve(executable, list(argv), env)
             except BaseException:
                 pass
             os._exit(127)
