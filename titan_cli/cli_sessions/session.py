@@ -1,7 +1,7 @@
 """
 `Session`: one CLI running in a PTY, kept current by its own threads whether or not a widget shows it.
 
-Memory is bounded on our side: no scrollback (pyte `Screen`, not `HistoryScreen`). The child's own memory
+Memory is bounded on our side: the scrollback keeps at most `SCROLLBACK_LINES` rows. The child's own memory
 is watched (`tree_rss_mb`: /proc, else `ps`) and capped twice: by the cgroup it really runs in (`MemoryMax`,
 `MemorySwapMax=0`, see `ensure_cap`) and by a watchdog that kills the process group past the limit.
 """

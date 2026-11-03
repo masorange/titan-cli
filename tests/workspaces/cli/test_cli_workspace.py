@@ -115,3 +115,9 @@ def test_the_terminal_keeps_the_keys_titan_binds_but_leaves_it_the_function_keys
         assert widget.check_consume_key(key, character), key
     for key in ("f2", "f4", "f6"):
         assert not widget.check_consume_key(key, None), key
+
+
+def test_shift_page_keys_scroll_the_terminal_instead_of_reaching_titan():
+    widget = terminal.CliTerminal.__new__(terminal.CliTerminal)
+    assert widget.check_consume_key("shift+pageup", None)
+    assert widget.check_consume_key("shift+pagedown", None)

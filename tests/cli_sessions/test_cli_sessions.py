@@ -399,3 +399,41 @@ def test_installed_lists_the_registered_clis_that_are_on_the_path(monkeypatch):
     monkeypatch.setattr(CLILauncher, "is_available", lambda self: self.cli_name in ("codex", "claude"))
     assert installed() == [("claude", "Claude CLI"), ("codex", "Codex CLI")]
 
+
+
+def test_rows_leaving_the_top_of_the_screen_go_to_the_scrollback():
+    screen = emulate(b"l1\r\nl2\r\nl3\r\nl4\r\nl5\r\nl6", lines=4)
+    assert [emulation.render_row(row, 10).plain.rstrip() for row in screen.history] == ["l1", "l2"]
+    assert shown(screen) == ["l3", "l4", "l5", "l6"]
+
+
+def test_the_scrollback_is_bounded():
+    screen = emulate(b"x\r\n" * (emulation.SCROLLBACK_LINES + 50), lines=4)
+    assert len(screen.history) == emulation.SCROLLBACK_LINES
+
+
+def test_scrolling_inside_margins_or_on_the_alternate_screen_keeps_no_scrollback():
+    assert not emulate(b"\x1b[2;3r\x1b[3;1Ha\r\nb\r\nc").history
+    assert not emulate(b"\x1b[?1049h" + b"x\r\n" * 10).history
+
+
+def test_erase_display_3_clears_the_scrollback():
+    assert not emulate(b"x\r\n" * 10 + b"\x1b[3J").history
+    assert emulate(b"x\r\n" * 10 + b"\x1b[2J").history
+
+
+def test_the_mouse_modes_the_cli_asked_for_are_read_from_the_screen():
+    screen = emulate(b"\x1b[?1000h\x1b[?1006h")
+    assert screen.mouse_tracking and screen.sgr_mouse
+    assert not emulate(b"").mouse_tracking
+
+
+def test_a_wheel_notch_is_an_sgr_or_x10_mouse_report():
+    assert emulation.wheel_bytes(True, 3, 4, sgr=True) == b"\x1b[<64;3;4M"
+    assert emulation.wheel_bytes(False, 3, 4, sgr=False) == b"\x1b[M" + bytes([97, 35, 36])
+
+
+def test_the_scrollback_window_ends_offset_rows_above_the_live_screen():
+    assert list(emulation.scrollback_window(10, 4, 0)) == [10, 11, 12, 13]
+    assert list(emulation.scrollback_window(10, 4, 3)) == [7, 8, 9, 10]
+    assert list(emulation.scrollback_window(2, 4, 2)) == [0, 1, 2, 3]

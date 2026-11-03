@@ -4,7 +4,7 @@ the queries a program asks a terminal), `TermScreen`/`TermStream` (pyte plus wha
 rely on), the key and paste encoders, and `render_line` (a screen row as Rich text). Pure: no threads,
 no Textual.
 """
-from collections import defaultdict
+from collections import defaultdict, deque
 from functools import lru_cache
 from typing import List, Optional
 
@@ -20,15 +20,45 @@ _KEYS = {
     "delete": "\x1b[3~", "insert": "\x1b[2~", "space": " ",
 }
 _COLORS = {"default": None, "brown": "yellow", "brightblack": "bright_black"}
+SCROLLBACK_LINES = 2000  # rows kept above the screen; bounds the session's memory
+_MOUSE_TRACKING = {1000 << 5, 1002 << 5, 1003 << 5}  # pyte stores private modes shifted by 5 bits
+_SGR_MOUSE = 1006 << 5
 
 class TermScreen(pyte.Screen):
     """pyte's screen plus what full-screen programs rely on and it lacks: scroll up/down (`CSI n S/T`),
-    repeat (`CSI n b`), save/restore cursor (`CSI s/u`) and the alternate screen (`?47/?1047/?1049`)."""
+    repeat (`CSI n b`), save/restore cursor (`CSI s/u`), the alternate screen (`?47/?1047/?1049`) and a
+    bounded scrollback (`history`: the rows that left the top of the main screen, oldest first)."""
 
     def __init__(self, columns: int, lines: int) -> None:
         super().__init__(columns, lines)
         self._last = ""
         self._main: Optional[tuple] = None
+        self.history: deque = deque(maxlen=SCROLLBACK_LINES)
+
+    @property
+    def alternate(self) -> bool:
+        return self._main is not None
+
+    @property
+    def mouse_tracking(self) -> bool:
+        """Whether the program asked for mouse reports (DECSET 1000/1002/1003)."""
+        return bool(_MOUSE_TRACKING & self.mode)
+
+    @property
+    def sgr_mouse(self) -> bool:
+        return _SGR_MOUSE in self.mode
+
+    def index(self) -> None:
+        """A row scrolled off the top of the whole main screen goes to the scrollback."""
+        top, bottom = self.margins or Margins(0, self.lines - 1)
+        if self.cursor.y == bottom and top == 0 and self._main is None:
+            self.history.append(self.buffer[0])
+        super().index()
+
+    def erase_in_display(self, how: int = 0, *args, **kwargs) -> None:
+        if how == 3:  # ED 3: the program clears the scrollback too
+            self.history.clear()
+        super().erase_in_display(how, *args, **kwargs)
 
     def draw(self, data: str) -> None:
         if data:
@@ -307,17 +337,35 @@ def _style(fg: str, bg: str, bold: bool, italics: bool, underscore: bool, revers
                  underline=underscore, reverse=reverse)
 
 
+def wheel_bytes(up: bool, col: int, row: int, sgr: bool) -> bytes:
+    """A wheel notch as a mouse report, `col`/`row` 1-based: SGR (`?1006`) or the classic X10 form."""
+    button = 64 if up else 65
+    if sgr:
+        return f"\x1b[<{button};{col};{row}M".encode()
+    return b"\x1b[M" + bytes([32 + button, 32 + min(col, 223), 32 + min(row, 223)])
+
+
+def scrollback_window(history_len: int, lines: int, offset: int) -> range:
+    """Which rows of history-then-screen fill the view when scrolled `offset` rows back."""
+    end = history_len + lines - offset
+    return range(max(end - lines, 0), end)
+
+
 def render_line(screen: "pyte.Screen", y: int) -> RichText:
     """One screen row as Rich text, runs of equal style joined into one segment."""
-    row = screen.buffer[y]
+    cursor_x = screen.cursor.x if screen.cursor.y == y and not screen.cursor.hidden else None
+    return render_row(screen.buffer[y], screen.columns, cursor_x)
+
+
+def render_row(row, columns: int, cursor_x: Optional[int] = None) -> RichText:
+    """A buffer row (of the screen or the scrollback) as Rich text; `cursor_x` is drawn reversed."""
     text = RichText(no_wrap=True, end="")
     run: List[str] = []
     current = None
-    for x in range(screen.columns):
+    for x in range(columns):
         ch = row[x]
         key = (ch.fg, ch.bg, ch.bold, ch.italics, ch.underscore, ch.reverse)
-        cursor = screen.cursor.y == y and screen.cursor.x == x and not screen.cursor.hidden
-        if cursor:
+        if x == cursor_x:
             key = (ch.fg, ch.bg, ch.bold, ch.italics, ch.underscore, not ch.reverse)
         if key != current and run:
             text.append("".join(run), _style(*current))
