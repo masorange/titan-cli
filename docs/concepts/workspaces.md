@@ -29,6 +29,10 @@ Official plugins ship theirs, and they load while the plugin is enabled:
 | `github` | github | The repo's pull requests (search, review, approve, merge, conflicts, check diagnosis), the merge queue and the latest workflow runs, in two columns that stack into one when the window is narrow |
 | `jira` | jira | Jira issues narrowed by project, status, components, starred filters or a search, with the open issue's description, comments, AI summary, Move, Fix version, Plan and Take, in two columns that stack when the window is narrow |
 
+### Recording a session for debugging
+
+Set `TITAN_CLI_RECORD=<folder>` before starting Titan and every CLI session writes the raw bytes the CLI sent to `<folder>/<command>-<session id>.bin`, closed when the session ends. The folder must exist and be writable. The file contains everything the CLI printed, including your conversation and code, so use it only to debug a screen that renders wrong and delete it afterwards.
+
 ## Turning a workspace off
 
 The Mods screen lists mods only. A workspace is switched by hand in `~/.titan/config.toml`:

@@ -249,14 +249,21 @@ class Session:
             with self.lock:
                 try:
                     self._stream.feed(self._sanitizer.feed(data))
-                except Exception:  # a sequence pyte cannot parse must never take the screen down
-                    logger.warning("cli_terminal_unparsed_output", data=data[:80])
+                except Exception as e:  # a sequence pyte cannot parse must never take the screen down
+                    # never the bytes or the message: both can quote the user's conversation
+                    logger.warning("cli_terminal_unparsed_output", length=len(data), error=type(e).__name__)
                 replies = self._sanitizer.take_replies()
                 self.version += 1
             for reply in replies:
                 self.send(reply)
         self.exited = True
         self._closing.set()
+        if self._record is not None:
+            try:
+                self._record.close()
+            except OSError:
+                pass
+            self._record = None
         with self.lock:
             self.version += 1
         if self.on_exit:
