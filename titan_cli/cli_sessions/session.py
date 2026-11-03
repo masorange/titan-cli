@@ -2,7 +2,7 @@
 `Session`: one CLI running in a PTY, kept current by its own threads whether or not a widget shows it.
 
 Memory is bounded on our side: no scrollback (pyte `Screen`, not `HistoryScreen`). The child's own memory
-is watched (`tree_rss_mb`) and capped twice: by the cgroup it really runs in (`MemoryMax`,
+is watched (`tree_rss_mb`: /proc, else `ps`) and capped twice: by the cgroup it really runs in (`MemoryMax`,
 `MemorySwapMax=0`, see `ensure_cap`) and by a watchdog that kills the process group past the limit.
 """
 import fcntl
@@ -24,33 +24,57 @@ from .emulation import Sanitizer, TermScreen, TermStream
 logger = get_logger(__name__)
 
 
-def tree_rss_mb(pid: int) -> float:
-    """Resident memory of a process and all its descendants, in MB, read from /proc."""
+def _proc_table() -> dict:
+    """`{pid: (ppid, rss_bytes)}` for every process, from /proc (Linux)."""
     page = os.sysconf("SC_PAGE_SIZE")
-    parents = {}
+    table = {}
     for name in os.listdir("/proc"):
         if not name.isdigit():
             continue
         try:
             with open(f"/proc/{name}/stat") as f:
-                parents[int(name)] = int(f.read().rsplit(")", 1)[1].split()[1])
+                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+            with open(f"/proc/{name}/statm") as f:
+                rss = int(f.read().split()[1]) * page
         except (OSError, ValueError, IndexError):
             continue
+        table[int(name)] = (ppid, rss)
+    return table
+
+
+def _ps_table() -> dict:
+    """`{pid: (ppid, rss_bytes)}` for every process, from `ps` (macOS and other systems without /proc)."""
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True, timeout=10).stdout
+    table = {}
+    for line in out.splitlines():
+        try:
+            pid, ppid, rss_kb = (int(x) for x in line.split())
+        except ValueError:
+            continue
+        table[pid] = (ppid, rss_kb * 1024)
+    return table
+
+
+def tree_rss_mb(pid: int) -> Optional[float]:
+    """
+    Resident memory of a process and all its descendants, in MB: from /proc, else from `ps`.
+
+    `None` when neither can be read, so the caller never shows 0 MB as if it were measured.
+    """
+    try:
+        table = _proc_table() if os.path.isdir("/proc") else _ps_table()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not table:
+        return None
     family, grew = {pid}, True
     while grew:
         grew = False
-        for child, parent in parents.items():
+        for child, (parent, _) in table.items():
             if parent in family and child not in family:
                 family.add(child)
                 grew = True
-    total = 0
-    for p in family:
-        try:
-            with open(f"/proc/{p}/statm") as f:
-                total += int(f.read().split()[1]) * page
-        except (OSError, ValueError, IndexError):
-            continue
-    return total / 1024 / 1024
+    return sum(table[p][1] for p in family if p in table) / 1024 / 1024
 
 
 def wrap_in_scope(argv: Tuple[str, ...], memory_limit_mb: int) -> Tuple[Tuple[str, ...], bool]:
@@ -121,6 +145,7 @@ class Session:
         self.on_exit: Optional[Callable[[], None]] = None  # called from the reader thread when the CLI ends
         self.bracketed = False
         self.rss = 0.0
+        self.measured = True  # False once memory cannot be read on this system: no watchdog then
         self.peak = 0.0
         self._stream = TermStream(self.screen)
         self._sanitizer = Sanitizer()
@@ -199,6 +224,9 @@ class Session:
     def status(self) -> str:
         if self.exited:
             return f"{self.label} · exited"
+        if not self.measured:
+            how = "cgroup cap, memory not measured" if self._capped else "memory not measured or capped"
+            return f"{self.label} · {self.memory_limit_mb} MB limit [{how}] · ctrl+] leaves"
         how = "cgroup cap" if self._capped else "watchdog only"
         return f"{self.label} · {self.rss:.0f} MB (peak {self.peak:.0f}) / {self.memory_limit_mb} MB [{how}] · ctrl+] leaves"
 
@@ -247,7 +275,11 @@ class Session:
         while not self._closing.wait(2.0):
             if self._scoped and not self._capped:
                 self._capped = ensure_cap(self._pid, self.memory_limit_mb)
-            self.rss = tree_rss_mb(self._pid)
+            rss = tree_rss_mb(self._pid)
+            self.measured = rss is not None
+            if rss is None:
+                continue
+            self.rss = rss
             self.peak = max(self.peak, self.rss)
             if self.rss > self.memory_limit_mb and not self._killed:
                 self._killed = True

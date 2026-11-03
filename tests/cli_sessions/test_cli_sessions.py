@@ -37,6 +37,18 @@ def test_tree_rss_counts_the_process_and_its_children():
         child.kill()
 
 
+def test_tree_rss_falls_back_to_ps_when_proc_is_missing(monkeypatch):
+    monkeypatch.setattr(session_mod.os.path, "isdir", lambda p: False if p == "/proc" else os.path.isdir(p))
+    assert session_mod.tree_rss_mb(os.getpid()) > 0
+
+
+def test_tree_rss_is_none_when_nothing_can_be_read(monkeypatch):
+    def broken():
+        raise FileNotFoundError("no ps")
+    monkeypatch.setattr(session_mod, "_proc_table", broken)
+    assert session_mod.tree_rss_mb(os.getpid()) is None
+
+
 def test_without_systemd_the_command_runs_unwrapped(monkeypatch):
     monkeypatch.setattr(session_mod.shutil, "which", lambda name: None)
     assert session_mod.wrap_in_scope(("codex",), 512) == (("codex",), False)
