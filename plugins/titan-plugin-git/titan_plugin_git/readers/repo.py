@@ -4,7 +4,7 @@ from pathlib import Path
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_git.operations import build_commit_graph
 
-from ...models import Repo
+from .models import Repo
 
 
 def read_repo(git, root: Path, options) -> Repo:
@@ -24,22 +24,24 @@ def read_repo(git, root: Path, options) -> Repo:
         case ClientError():
             pass
 
-    commits = []
+    standing = {
+        "branch": status.branch, "has_upstream": status.has_upstream, "ahead": status.ahead,
+        "behind": status.behind, "added": added, "removed": removed,
+    }
+    if not options.get("recent_commits"):
+        return Repo(**standing)  # a caller that asks for no history gets the standing alone, with no log read
+
     # Every branch and tag, as gitk draws them, rather than only what HEAD reaches:
     # from `master` the branch you are working on would not be in the graph at all.
     match git.get_commits(str(root), limit=options["recent_commits"], all_branches=options.get("graph_all_branches", True)):
         case ClientSuccess(data=log):
             commits = list(log)
-        case ClientError():
-            pass
+        case ClientError(error_message=err):
+            # A log that failed is not an empty history: say so, so the screen can offer a retry.
+            return Repo(**standing, error=err)
 
     return Repo(
-        branch=status.branch,
-        has_upstream=status.has_upstream,
-        ahead=status.ahead,
-        behind=status.behind,
-        added=added,
-        removed=removed,
+        **standing,
         commits=commits,
         # Laid out here, off the UI thread, so drawing only reads lanes already placed.
         rows=build_commit_graph(commits),

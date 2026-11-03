@@ -214,6 +214,6 @@ button (a fold, a picker). It is what an element `Button` without a `variant` be
 
 ## Columns (element)
 
-Side-by-side layout of elements, for a mod pane or a workspace view (`titan_cli.ui.elements`). `Columns(*children, ratio=(3, 2), gap=1)` shares the width by `ratio`; `responsive_columns(width, builders, ratio, collapse_below=120)` is the usual entry: every builder gets the width of its column and answers with a tree, and below `collapse_below` they stack at full width. Crossing the threshold swaps the container, so a focused field inside it is rebuilt: keep fields outside.
+Side-by-side layout of elements, for a mod pane or a workspace view (`titan_cli.ui.elements`). `Columns(*children, ratio=(3, 2), gap=1)` shares the width by `ratio`; `responsive_columns(width, builders, ratio, collapse_below=120)` is the usual entry: every builder gets the width of its column and answers with a tree, and below `collapse_below` they stack at full width. Crossing the threshold swaps the container, so a focused field inside it is rebuilt: keep fields outside. `on_resize(widths)` turns the border before each column but the first into a drag handle (`_Column` takes the mouse, `dragged_widths` clamps); on release it receives the cells per column for the caller to keep as the next `ratio`.
 
 **Implementation**: `/titan_cli/ui/tui/widgets/element_widgets.py` (`_Columns`, `_Column`); width rule `column_widths` in `/titan_cli/ui/elements.py`; tests `tests/ui/test_columns.py`.

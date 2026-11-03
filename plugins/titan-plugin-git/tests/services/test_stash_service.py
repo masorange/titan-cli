@@ -173,3 +173,100 @@ class TestStashServiceRestoreStash:
 
         assert isinstance(result, ClientError)
         assert result.error_code == "STASH_POP_ERROR"
+
+
+@pytest.mark.unit
+class TestStashServiceList:
+    """Test StashService.list_stashes()"""
+
+    def test_lists_stashes_newest_first_with_branch_message_and_age(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = (
+            "stash@{0}\x1fOn feat/x: half done\x1f2 hours ago\x1fabc\n"
+            "stash@{1}\x1fWIP on main: abc1234 last commit\x1f3 days ago\x1fdef"
+        )
+
+        result = service.list_stashes()
+
+        assert isinstance(result, ClientSuccess)
+        assert [(s.ref, s.branch, s.message, s.formatted_date, s.hash) for s in result.data] == [
+            ("stash@{0}", "feat/x", "half done", "2 hours ago", "abc"),
+            ("stash@{1}", "main", "abc1234 last commit", "3 days ago", "def"),
+        ]
+        mock_git_network.run_command.assert_called_once_with(["git", "stash", "list", "--format=%gd%x1f%gs%x1f%cr%x1f%H"])
+
+    def test_no_stashes_is_an_empty_list(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = ""
+
+        result = service.list_stashes()
+
+        assert isinstance(result, ClientSuccess) and result.data == []
+
+    def test_error_returns_client_error(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("boom")
+
+        result = service.list_stashes()
+
+        assert isinstance(result, ClientError) and result.error_code == "STASH_LIST_ERROR"
+
+
+@pytest.mark.unit
+class TestStashServicePushUntracked:
+    def test_include_untracked_adds_the_flag_before_the_message(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = ""
+
+        service.stash_push("keep", include_untracked=True)
+
+        mock_git_network.run_command.assert_called_once_with(
+            ["git", "stash", "push", "--include-untracked", "-m", "keep"]
+        )
+
+
+@pytest.mark.unit
+class TestStashServiceClear:
+    def test_clear_runs_git_stash_clear(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = ""
+
+        result = service.stash_clear()
+
+        assert isinstance(result, ClientSuccess) and result.data is True
+        mock_git_network.run_command.assert_called_once_with(["git", "stash", "clear"])
+
+    def test_clear_error_returns_client_error(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("boom")
+
+        result = service.stash_clear()
+
+        assert isinstance(result, ClientError) and result.error_code == "STASH_CLEAR_ERROR"
+
+
+@pytest.mark.unit
+class TestStashServiceApplyAndDrop:
+    def test_apply_keeps_the_stash_and_takes_an_optional_ref(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = ""
+
+        assert isinstance(service.stash_apply("stash@{1}"), ClientSuccess)
+        mock_git_network.run_command.assert_called_with(["git", "stash", "apply", "stash@{1}"])
+        service.stash_apply()
+        mock_git_network.run_command.assert_called_with(["git", "stash", "apply"])
+
+    def test_apply_error_returns_client_error(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("conflict")
+
+        result = service.stash_apply("stash@{0}")
+
+        assert isinstance(result, ClientError) and result.error_code == "STASH_APPLY_ERROR"
+
+    def test_drop_names_the_stash(self, service, mock_git_network):
+        mock_git_network.run_command.return_value = ""
+
+        result = service.stash_drop("stash@{2}")
+
+        assert isinstance(result, ClientSuccess)
+        mock_git_network.run_command.assert_called_once_with(["git", "stash", "drop", "stash@{2}"])
+
+    def test_drop_error_returns_client_error(self, service, mock_git_network):
+        mock_git_network.run_command.side_effect = GitCommandError("no such stash")
+
+        result = service.stash_drop("stash@{9}")
+
+        assert isinstance(result, ClientError) and result.error_code == "STASH_DROP_ERROR"

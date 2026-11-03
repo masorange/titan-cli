@@ -1,0 +1,81 @@
+[workspace]
+name = "git"
+version = "0.1.0"
+icon = "⎇"
+description = "A full screen for the repository: its branch with pull, push, pull request and merges, a branch switcher and the worktrees on one side, the commit graph under them and, on the other, the files of the commit you pick or of the uncommitted changes, each folding into its diff as code"
+requires_plugins = ["git"]
+events = ["workflow.run"]
+ai_task = "Branch name suggestion"
+ai_assist_task = "Fix git error with AI"
+
+[options.refresh_seconds]
+type = "int"
+title = "Refresh every (s)"
+default = 30
+min = 1
+
+[options.refresh_key]
+type = "string"
+title = "Refresh key"
+description = "Key that refreshes the history and the uncommitted files now; empty for none."
+default = "f5"
+
+[options.commits_shown]
+type = "int"
+title = "Commits shown"
+description = "How many commits the history starts with; \"Show more\" adds this many again."
+default = 40
+min = 5
+
+[options.graph_max_lanes]
+type = "int"
+title = "Graph lanes shown"
+description = "Draw the commit graph while it fits in this many lanes; beyond it, a plain list."
+default = 8
+min = 1
+
+[options.context_lines]
+type = "int"
+title = "Context lines"
+description = "Unchanged lines shown around each change in a diff."
+default = 3
+min = 0
+
+[options.diff_lines]
+type = "int"
+title = "Diff lines shown"
+description = "How many lines of code a file's diff starts with; its \"Show more lines\" adds this many again."
+default = 200
+min = 20
+
+[options.recent_branches]
+type = "int"
+title = "Branches shown"
+description = "How many of the branches you used most recently the switcher lists."
+default = 8
+min = 1
+
+[options.commit_workflow]
+type = "string"
+title = "Commit workflow"
+description = "Workflow offered when uncommitted changes block a switch; empty for no button."
+default = "commit-ai"
+
+[options.create_pr_workflow]
+type = "string"
+title = "Create PR workflow"
+description = "Workflow the Create PR button runs on the branch you are on; a repo extending it runs instead. Empty for no button."
+default = "create-pr-ai"
+
+[options.merge_workflow]
+type = "string"
+title = "Merge workflow"
+description = "Workflow the merge picker runs, given target_branch and source_branch; empty for no merge action."
+default = "merge-branch"
+
+[options.suggestion_diff_chars]
+type = "int"
+title = "Diff sent for a branch name"
+description = "How much of the uncommitted diff the AI reads to suggest a branch name."
+default = 4000
+min = 200

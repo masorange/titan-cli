@@ -1,8 +1,8 @@
-"""What the pane shows: the snapshots `read_repo` and `read_branches` build from the git plugin's UI models and the drawing reads."""
+"""Snapshots the readers build from the git plugin's UI models; drawing only reads them. The repository's, the branches' and the worktrees'."""
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from titan_plugin_git.models.view import UIGitBranch, UIGitCommit, UIGitGraphRow, UIGitWorktree
+from titan_plugin_git.models.view import UIGitBranch, UIGitCommit, UIGitGraphRow, UIGitStash, UIGitWorktree
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,6 @@ class Repo:
     # `commits`, which is why both are kept.
     rows: List[UIGitGraphRow] = field(default_factory=list)
     error: Optional[str] = None
-
 
 @dataclass(frozen=True)
 class Branches:
@@ -36,6 +35,8 @@ class Branches:
     current: str = ""
     main_branch: str = ""  # the plugin's configured base branch, the usual merge source
     blocked: Optional[str] = None
+    # The stashes, newest first: what the stash list offers to open.
+    stashes: List[UIGitStash] = field(default_factory=list)
     error: Optional[str] = None
 
 

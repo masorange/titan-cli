@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 from titan_cli.core.result import ClientError, ClientSuccess
+from titan_plugin_git.sections.worktrees import worktrees as actions
 
 
 def worktree(path, branch="main"):
@@ -32,63 +33,63 @@ def bus_with(git, toasts):
     return bus.api("git")
 
 
-def test_read_worktrees_marks_the_main_one_and_where_we_are(mod, tmp_path):
+def test_read_worktrees_marks_the_main_one_and_where_we_are(tmp_path):
     git = fake_git([worktree("/repo"), worktree(str(tmp_path), "feature")])
 
-    worktrees = mod.sections.worktrees.worktrees.read_worktrees(git, tmp_path, {})
+    worktrees = actions.read_worktrees(git, tmp_path, {})
 
     assert [w.path for w in worktrees.items] == ["/repo", str(tmp_path)]
     assert worktrees.main_path == "/repo"
     assert worktrees.current_path == str(tmp_path)
 
 
-def test_blocked_removal_names_the_untouchable_ones(mod, tmp_path):
+def test_blocked_removal_names_the_untouchable_ones(tmp_path):
     here, other = worktree(str(tmp_path)), worktree("/repo-review")
     git = fake_git([worktree("/repo"), here, other])
 
-    worktrees = mod.sections.worktrees.worktrees.read_worktrees(git, tmp_path, {})
-    blocked = mod.sections.worktrees.worktrees.blocked_removal
+    worktrees = actions.read_worktrees(git, tmp_path, {})
+    blocked = actions.blocked_removal
 
     assert blocked(worktrees, worktrees.items[0]) == "the main worktree"
     assert blocked(worktrees, here) == "the worktree you are in"
     assert blocked(worktrees, other) == ""
 
 
-def test_read_worktrees_without_git_says_so(mod, tmp_path):
-    assert mod.sections.worktrees.worktrees.read_worktrees(None, tmp_path, {}).error == "git plugin not available"
+def test_read_worktrees_without_git_says_so(tmp_path):
+    assert actions.read_worktrees(None, tmp_path, {}).error == "git plugin not available"
 
 
-def test_removing_a_worktree_clears_the_confirmation_and_refreshes(mod):
+def test_removing_a_worktree_clears_the_confirmation_and_refreshes():
     toasts, refreshed = [], []
     m = bus_with(fake_git(), toasts)
     m.state.set("refresh", lambda: refreshed.append(True))
     m.state.set("worktree_confirm", "/repo-review")
 
-    mod.sections.worktrees.worktrees.remove_worktree(m, "/repo-review")
+    actions.remove_worktree(m, "/repo-review")
 
     assert toasts == [("Worktree removed: /repo-review", "information")]
     assert m.state.get("worktree_confirm") is None and refreshed == [True]
 
 
-def test_a_refused_removal_offers_the_forced_one_on_that_row(mod):
+def test_a_refused_removal_offers_the_forced_one_on_that_row():
     """Git refuses a worktree holding work; the force button appears only then."""
     toasts, refreshed = [], []
     m = bus_with(fake_git(removal=ClientError(error_message="contains modified files")), toasts)
     m.state.set("refresh", lambda: refreshed.append(True))
 
-    mod.sections.worktrees.worktrees.remove_worktree(m, "/repo-review")
+    actions.remove_worktree(m, "/repo-review")
 
     assert toasts == [("Could not remove /repo-review: contains modified files", "error")]
     assert m.state.get("worktree_force") == "/repo-review"
     assert m.state.get("worktree_confirm") is None and refreshed == [True]
 
 
-def test_pruning_reports_what_git_said(mod):
+def test_pruning_reports_what_git_said():
     toasts, refreshed = [], []
     m = bus_with(fake_git(), toasts)
     m.state.set("refresh", lambda: refreshed.append(True))
 
-    mod.sections.worktrees.worktrees.prune_worktrees(m)
+    actions.prune_worktrees(m)
 
     assert toasts == [("Pruned stale worktree metadata", "information")]
     assert refreshed == [True]

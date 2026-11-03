@@ -4,6 +4,7 @@ from .status import NetworkGitStatus
 from .commit import NetworkGitCommit
 from .tag import NetworkGitTag
 from .worktree import NetworkGitWorktree
+from .stash import NetworkGitStash
 
 __all__ = [
     "NetworkGitBranch",
@@ -11,4 +12,5 @@ __all__ = [
     "NetworkGitCommit",
     "NetworkGitTag",
     "NetworkGitWorktree",
+    "NetworkGitStash",
 ]

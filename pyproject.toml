@@ -89,6 +89,8 @@ testpaths = [
     "tests",
     "plugins/titan-plugin-git/tests",
     "plugins/titan-plugin-git/titan_plugin_git/mods",
+    "plugins/titan-plugin-git/titan_plugin_git/sections",
+    "plugins/titan-plugin-git/titan_plugin_git/workspaces",
     "plugins/titan-plugin-github/tests",
     "plugins/titan-plugin-github/titan_plugin_github/mods",
     "plugins/titan-plugin-github/titan_plugin_github/workspaces",
