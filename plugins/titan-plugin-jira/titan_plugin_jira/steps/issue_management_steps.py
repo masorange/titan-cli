@@ -53,6 +53,14 @@ def transition_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     """
     Transition a Jira issue to a target status.
 
+    Inputs (from ctx.data):
+        jira_issue_key (str): Issue key (e.g., "PROJ-123")
+        target_status (str): Status to move the issue to
+        transition_comment (str, optional): Comment added with the transition
+        transition_fields (dict, optional): Fields sent with the transition
+        transition_update (dict, optional): Update operations sent with the transition
+        transition_resolution (str, optional): Resolution name, for transitions that require one
+
     Returns:
         Success: If the issue transitions successfully.
         Error: If required context is missing or the Jira call fails.
@@ -72,6 +80,7 @@ def transition_issue_step(ctx: WorkflowContext) -> WorkflowResult:
     comment = ctx.get("transition_comment")
     fields = ctx.get("transition_fields", ctx.get("fields"))
     update = ctx.get("transition_update", ctx.get("update"))
+    resolution = ctx.get("transition_resolution")
 
     if not issue_key:
         ctx.textual.error_text(msg.Steps.Transitions.ISSUE_KEY_REQUIRED)
@@ -89,6 +98,7 @@ def transition_issue_step(ctx: WorkflowContext) -> WorkflowResult:
             comment=comment,
             fields=fields,
             update=update,
+            resolution=resolution,
         )
 
     match result:
