@@ -9,6 +9,8 @@ Modules:
     issue_formatting_operations: Operations for formatting Jira issues
 """
 
+from .transition_operations import resolution_field
+
 from .jql_operations import (
     substitute_jql_variables,
     format_jql_with_project,
@@ -62,6 +64,7 @@ __all__ = [
     "build_issue_jql",
     "components_condition",
     "jql_string",
+    "resolution_field",
     "search_condition",
     "strip_order_by",
     # Issue formatting operations

@@ -84,6 +84,30 @@ def test_transition_issue_step_passes_fields_and_update():
         comment="Completed",
         fields=fields,
         update=update,
+        resolution=None,
+    )
+
+
+def test_transition_issue_step_passes_resolution():
+    jira = Mock()
+    jira.transition_issue.return_value = ClientSuccess(data=None, message="ok")
+    ctx = make_context(
+        jira,
+        jira_issue_key="TEST-1",
+        target_status="Done",
+        transition_resolution="Fixed",
+    )
+
+    result = transition_issue_step(ctx)
+
+    assert isinstance(result, Success)
+    jira.transition_issue.assert_called_once_with(
+        "TEST-1",
+        "Done",
+        comment=None,
+        fields=None,
+        update=None,
+        resolution="Fixed",
     )
 
 

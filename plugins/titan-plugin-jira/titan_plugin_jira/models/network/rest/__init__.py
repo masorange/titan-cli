@@ -8,7 +8,7 @@ These models contain raw API data without any UI formatting or business logic.
 from .issue import NetworkJiraIssue, NetworkJiraFields
 from .project import NetworkJiraProject
 from .comment import NetworkJiraComment
-from .transition import NetworkJiraTransition
+from .transition import NetworkJiraTransition, NetworkJiraTransitionField
 from .issue_type import NetworkJiraIssueType
 from .user import NetworkJiraUser
 from .status import NetworkJiraStatus, NetworkJiraStatusCategory
@@ -23,6 +23,7 @@ __all__ = [
     "NetworkJiraProject",
     "NetworkJiraComment",
     "NetworkJiraTransition",
+    "NetworkJiraTransitionField",
     "NetworkJiraIssueType",
     "NetworkJiraUser",
     "NetworkJiraStatus",

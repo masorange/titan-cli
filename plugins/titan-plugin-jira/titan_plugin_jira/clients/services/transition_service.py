@@ -13,6 +13,7 @@ from titan_cli.core.logging import log_client_operation
 from ..network import JiraNetwork
 from ...models import (
     NetworkJiraTransition,
+    NetworkJiraTransitionField,
     NetworkJiraStatus,
     NetworkJiraStatusCategory,
     UIJiraTransition,
@@ -34,7 +35,7 @@ class TransitionService:
     @log_client_operation()
     def get_transitions(self, issue_key: str) -> ClientResult[List[UIJiraTransition]]:
         """
-        Get available transitions for an issue.
+        Get available transitions for an issue, each with the fields its screen requires.
 
         Args:
             issue_key: Issue key
@@ -44,7 +45,10 @@ class TransitionService:
         """
         try:
             # 1. Network call
-            data = self.network.make_request("GET", f"issue/{issue_key}/transitions")
+            # `expand` adds each transition's screen fields, so a required one (Resolution) is known up front
+            data = self.network.make_request(
+                "GET", f"issue/{issue_key}/transitions", params={"expand": "transitions.fields"}
+            )
 
             # 2. Parse and map each transition
             ui_transitions = []
@@ -73,6 +77,7 @@ class TransitionService:
         comment: Optional[str] = None,
         fields: Optional[dict] = None,
         update: Optional[dict] = None,
+        resolution: Optional[str] = None,
     ) -> ClientResult[None]:
         """
         Transition issue to new status.
@@ -83,10 +88,12 @@ class TransitionService:
             comment: Optional comment to add
             fields: Optional Jira fields payload to send with the transition
             update: Optional Jira update payload to merge into the transition
+            resolution: Optional resolution name to set (e.g. "Done"), for transitions that require one
 
         Returns:
             ClientResult[None] (operation success/failure)
         """
+        missing = []
         try:
             # 1. Get available transitions
             transitions_result = self.get_transitions(issue_key)
@@ -99,9 +106,11 @@ class TransitionService:
 
             # 2. Find transition to target status
             transition_id = None
+            chosen = None
             for trans in transitions:
                 if trans.to_status.lower() == new_status.lower():
                     transition_id = trans.id
+                    chosen = trans
                     break
 
             if not transition_id:
@@ -117,8 +126,16 @@ class TransitionService:
                 "transition": {"id": transition_id}
             }
 
-            if fields:
-                payload["fields"] = fields
+            sent = dict(fields or {})
+            if resolution:
+                sent["resolution"] = {"name": resolution}
+            # Pre-flight hint only: a field the issue already holds still reads required, so Jira decides
+            missing = []
+            if chosen is not None:
+                supplied = set(sent) | set(update or {})
+                missing = [f for f in chosen.required_fields if f.key not in supplied]
+            if sent:
+                payload["fields"] = sent
 
             # Add comment if provided
             if comment:
@@ -151,6 +168,15 @@ class TransitionService:
             )
 
         except JiraAPIError as e:
+            if missing:
+                return ClientError(
+                    error_message=(
+                        f"Cannot transition {issue_key} to '{new_status}': "
+                        f"it requires {', '.join(f.name for f in missing)} ({e.message})"
+                    ),
+                    error_code="TRANSITION_FIELDS_REQUIRED",
+                    log_level="warning",
+                )
             return ClientError(
                 error_message=f"Failed to transition {issue_key} to {new_status}: {e.message}",
                 error_code="TRANSITION_ERROR"
@@ -185,6 +211,16 @@ class TransitionService:
             name=data["name"],
             to=to_status,
             hasScreen=data.get("hasScreen", False),
+            fields=[
+                NetworkJiraTransitionField(
+                    key=key,
+                    name=f.get("name", ""),
+                    required=f.get("required", False),
+                    hasDefaultValue=f.get("hasDefaultValue", False),
+                    allowedValues=f.get("allowedValues") or [],
+                )
+                for key, f in (data.get("fields") or {}).items()
+            ],
         )
 
 

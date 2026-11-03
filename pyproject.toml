@@ -94,6 +94,7 @@ testpaths = [
     "plugins/titan-plugin-github/titan_plugin_github/workspaces",
     "plugins/titan-plugin-jira/tests",
     "plugins/titan-plugin-jira/titan_plugin_jira/mods",
+    "plugins/titan-plugin-jira/titan_plugin_jira/workspaces",
     "plugins/titan-plugin-slack/tests",
     "plugins/titan-plugin-docker/tests"
 ]

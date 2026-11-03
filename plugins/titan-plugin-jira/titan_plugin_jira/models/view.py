@@ -8,7 +8,7 @@ All formatting, computed fields, and presentation logic lives here.
 Network models contain raw API data; view models contain UI-ready data.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
 
@@ -77,6 +77,22 @@ class UIJiraComment:
 
 
 @dataclass
+class UIJiraFieldOption:
+    """One value a transition field accepts (a resolution, a root cause...)."""
+    id: str
+    label: str                       # "Done", "Won't Do"
+
+
+@dataclass
+class UIJiraTransitionField:
+    """A field the transition's screen asks for, with the values Jira allows for it."""
+    key: str                         # "resolution", "customfield_11281"
+    name: str                        # "Resolution"
+    required: bool
+    options: List[UIJiraFieldOption] = field(default_factory=list)  # empty: free-form, nothing to pick from
+
+
+@dataclass
 class UIJiraTransition:
     """
     UI model for displaying a Jira transition.
@@ -87,6 +103,7 @@ class UIJiraTransition:
     name: str                        # "Start Progress", "Resolve Issue"
     to_status: str                   # Target status name
     to_status_icon: str              # Icon for target status
+    required_fields: List[UIJiraTransitionField] = field(default_factory=list)  # Must be sent for the transition to work
 
 
 @dataclass

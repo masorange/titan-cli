@@ -7,7 +7,7 @@ Pure functions that convert network models (REST API) to view models (UI).
 from .issue_mapper import from_network_issue
 from .project_mapper import from_network_project
 from .comment_mapper import from_network_comment
-from .transition_mapper import from_network_transition
+from .transition_mapper import from_network_transition, from_network_transition_field
 from .priority_mapper import from_network_priority
 from .status_mapper import from_network_status
 from .user_mapper import from_network_user
@@ -21,6 +21,7 @@ __all__ = [
     "from_network_project",
     "from_network_comment",
     "from_network_transition",
+    "from_network_transition_field",
     "from_network_priority",
     "from_network_status",
     "from_network_user",

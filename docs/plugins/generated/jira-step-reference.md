@@ -441,6 +441,17 @@ Transition a Jira issue to a target status.
   step: transition_issue
 ```
 
+**Inputs (from ctx.data)**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `jira_issue_key` | str | Issue key (e.g., "PROJ-123") |
+| `target_status` | str | Status to move the issue to |
+| `transition_comment` | str, optional | Comment added with the transition |
+| `transition_fields` | dict, optional | Fields sent with the transition |
+| `transition_update` | dict, optional | Update operations sent with the transition |
+| `transition_resolution` | str, optional | Resolution name, for transitions that require one |
+
 **Returns**
 
 | Result | Saved for later steps | Description |
