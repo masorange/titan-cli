@@ -208,13 +208,13 @@ class TestStatusServiceFileIndex:
         result = StatusService(mock_git_network).stage_file("a.py")
 
         assert isinstance(result, ClientSuccess)
-        mock_git_network.run_command.assert_called_once_with(["git", "add", "--all", "--", "a.py"])
+        mock_git_network.run_command.assert_called_once_with(["git", "--literal-pathspecs", "add", "--all", "--", "a.py"])
 
     def test_unstage_file_resets_only_that_path(self, mock_git_network):
         result = StatusService(mock_git_network).unstage_file("a.py")
 
         assert isinstance(result, ClientSuccess)
-        mock_git_network.run_command.assert_called_once_with(["git", "reset", "--quiet", "--", "a.py"])
+        mock_git_network.run_command.assert_called_once_with(["git", "--literal-pathspecs", "reset", "--quiet", "--", "a.py"])
 
     def test_discard_restores_a_tracked_file(self, mock_git_network):
         mock_git_network.run_command.side_effect = ["a.py", ""]
@@ -223,7 +223,7 @@ class TestStatusServiceFileIndex:
 
         assert isinstance(result, ClientSuccess)
         assert mock_git_network.run_command.call_args_list[-1].args[0] == [
-            "git", "restore", "--worktree", "--", "a.py"
+            "git", "--literal-pathspecs", "restore", "--worktree", "--", "a.py"
         ]
 
     def test_discard_deletes_an_untracked_file(self, mock_git_network):
@@ -233,7 +233,7 @@ class TestStatusServiceFileIndex:
 
         assert isinstance(result, ClientSuccess)
         assert mock_git_network.run_command.call_args_list[-1].args[0] == [
-            "git", "clean", "--force", "--", "new.txt"
+            "git", "--literal-pathspecs", "clean", "--force", "--", "new.txt"
         ]
 
     @pytest.mark.parametrize("method, code", [
@@ -246,3 +246,26 @@ class TestStatusServiceFileIndex:
 
         assert isinstance(result, ClientError)
         assert result.error_code == code
+
+
+@pytest.mark.unit
+def test_discard_file_with_glob_characters_leaves_siblings_alone(tmp_path):
+    """A file named `*.log` is discarded on its own, not together with `a.log`"""
+    import subprocess
+
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    (tmp_path / "*.log").write_text("x")
+    (tmp_path / "a.log").write_text("y")
+
+    class Network:
+        def run_command(self, args, **kwargs):
+            return subprocess.run(args, cwd=tmp_path, check=True, capture_output=True, text=True).stdout
+
+    result = StatusService(Network()).discard_file("*.log")
+
+    assert isinstance(result, ClientSuccess)
+    assert not (tmp_path / "*.log").exists()
+    assert (tmp_path / "a.log").exists()

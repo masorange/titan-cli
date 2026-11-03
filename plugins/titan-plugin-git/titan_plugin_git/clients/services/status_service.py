@@ -139,7 +139,7 @@ class StatusService:
             ClientResult[None]
         """
         try:
-            self.git.run_command(["git", "add", "--all", "--", path])
+            self.git.run_command(["git", "--literal-pathspecs", "add", "--all", "--", path])
             return ClientSuccess(data=None, message=f"Staged {path}")
         except GitError as e:
             return ClientError(error_message=str(e), error_code="STAGE_ERROR")
@@ -159,7 +159,7 @@ class StatusService:
             ClientResult[None]
         """
         try:
-            self.git.run_command(["git", "reset", "--quiet", "--", path])
+            self.git.run_command(["git", "--literal-pathspecs", "reset", "--quiet", "--", path])
             return ClientSuccess(data=None, message=f"Unstaged {path}")
         except GitError as e:
             return ClientError(error_message=str(e), error_code="UNSTAGE_ERROR")
@@ -179,11 +179,11 @@ class StatusService:
             ClientResult[None]
         """
         try:
-            tracked = self.git.run_command(["git", "ls-files", "--", path])
+            tracked = self.git.run_command(["git", "--literal-pathspecs", "ls-files", "--", path])
             if tracked.strip():
-                self.git.run_command(["git", "restore", "--worktree", "--", path])
+                self.git.run_command(["git", "--literal-pathspecs", "restore", "--worktree", "--", path])
             else:
-                self.git.run_command(["git", "clean", "--force", "--", path])
+                self.git.run_command(["git", "--literal-pathspecs", "clean", "--force", "--", path])
             return ClientSuccess(data=None, message=f"Discarded {path}")
         except GitError as e:
             return ClientError(error_message=str(e), error_code="DISCARD_ERROR")

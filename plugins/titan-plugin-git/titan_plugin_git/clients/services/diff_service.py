@@ -19,6 +19,8 @@ from ...models.view import UIFileChange, UIFileChurn, UIFileDiff, UIUncommittedF
 
 
 _QUIET = ["git", "-c", "core.quotePath=false"]
+# For commands that take one concrete file name: glob characters in it are not expanded.
+_LITERAL = ["git", "--literal-pathspecs", "-c", "core.quotePath=false"]
 _BINARY_CHECK_BYTES = 8000
 _CHURN_CHUNK_SIZE = 65536
 
@@ -368,7 +370,7 @@ class DiffService:
         """
         try:
             diff = self.git.run_command(
-                [*_QUIET, "show", "--diff-merges=first-parent", "--format=", "--no-renames", "--no-color",
+                [*_LITERAL, "show", "--diff-merges=first-parent", "--format=", "--no-renames", "--no-color",
                  f"-U{context_lines}", sha, "--", path],
                 check=True,
                 strip_output=False,
@@ -423,12 +425,12 @@ class DiffService:
             ClientResult[UIFileDiff]
         """
         try:
-            args = [*_QUIET, "diff", "--no-color", f"-U{context_lines}"]
+            args = [*_LITERAL, "diff", "--no-color", f"-U{context_lines}"]
             if staged:
                 diff = self.git.run_command([*args, "--cached", "--", path], check=True, strip_output=False)
             else:
                 untracked = self.git.run_command(
-                    [*_QUIET, "ls-files", "--others", "--exclude-standard", "--", path], check=True
+                    [*_LITERAL, "ls-files", "--others", "--exclude-standard", "--", path], check=True
                 )
                 if untracked.strip():
                     # --no-index exits 1 when the files differ, which is the case here.
