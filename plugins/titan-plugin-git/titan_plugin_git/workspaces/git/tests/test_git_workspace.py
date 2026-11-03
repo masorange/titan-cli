@@ -103,7 +103,7 @@ class FakeGit:
         return ClientSuccess(data=diff(path))
 
 
-def start(git, **options):
+def start(git, history=True, **options):
     """The workspace registered on a bus of its own kind and started, with every read run at once."""
     dock = []
     host = SimpleNamespace(
@@ -116,6 +116,8 @@ def start(git, **options):
     w = bus.api("git")
     ws.register(w, bus.on_for("git"), {**OPTIONS, **options})
     bus.start()
+    if history:  # it starts folded; most tests are about what is inside it
+        w.state.set("history_open", True)
     return bus, w, dock
 
 
@@ -320,12 +322,14 @@ def test_staged_and_unstaged_fold_and_unfold_on_their_title():
     assert any(label.startswith("▸ b.py") for label in labels(bus))
 
 
-def test_the_history_is_a_card_that_folds():
-    bus, w, _ = start(FakeGit(staged=STAGED, commits=[commit("a" * 40)]))
+def test_the_history_starts_folded_and_unfolds_on_its_title():
+    bus, w, _ = start(FakeGit(staged=STAGED, commits=[commit("a" * 40)]), history=False)
 
+    assert "▸ History" in labels(bus) and not any("Uncommitted changes" in label for label in labels(bus))
+    press(bus, "▸ History")
     assert "▾ History" in labels(bus) and any("Uncommitted changes" in label for label in labels(bus))
     press(bus, "▾ History")
-    assert "▸ History" in labels(bus) and not any("Uncommitted changes" in label for label in labels(bus))
+    assert "▸ History" in labels(bus)
 
 
 def test_an_empty_working_tree_says_so():

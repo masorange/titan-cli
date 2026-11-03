@@ -93,7 +93,7 @@ def history(w, options, actions: Actions) -> Box:
         # A full page means there may be more behind it; a short one is the whole history.
         elif len(repo.commits) >= (w.state.get("commit_limit") or options["commits_shown"]):
             rows.append(Button("＋ Show more", actions.more_commits, dim=True))
-    is_open = w.state.get("history_open", True)
+    is_open = w.state.get("history_open", False)
     return Box(
         Button(
             Text(Text("▾ " if is_open else "▸ ", color="info"), Text("History", bold=True, color="info")),
