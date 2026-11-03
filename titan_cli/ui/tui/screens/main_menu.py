@@ -416,8 +416,11 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
 
     def execute_workflow(self, workflow_name: str) -> None:
         """Open the execution screen for a workflow."""
-        from .workflow_execution import WorkflowExecutionScreen
+        from .workflow_execution import RUNNING_REFUSAL, WorkflowExecutionScreen, live_workflow
 
+        if live_workflow(self.app.screen_stack):
+            self.app.notify(RUNNING_REFUSAL, severity="warning")
+            return
         self.app.push_screen(WorkflowExecutionScreen(self.config, workflow_name))
 
     def mark_discovery_stale(self) -> None:
