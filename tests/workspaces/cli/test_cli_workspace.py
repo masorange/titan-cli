@@ -1,5 +1,4 @@
 """The cli workspace: a terminal for the active session, or the CLIs to start one; the widget's key rules."""
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,8 +11,7 @@ from titan_cli.ui.elements import Button, Component, Text, plain
 
 FOLDER = Path(__file__).resolve().parents[3] / "titan_cli" / "workspaces" / "cli"
 ws = import_mod(FOLDER, kind=WORKSPACES)
-sys.path.insert(0, str(FOLDER))
-import terminal  # noqa: E402
+terminal = ws.terminal
 
 
 @pytest.fixture(autouse=True)

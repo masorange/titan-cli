@@ -1,14 +1,10 @@
 """A dock tile that opens a full-screen terminal for the active CLI session; the menu is the `cli` mod's."""
-import sys
-from pathlib import Path
-
 from titan_cli.cli_sessions import SESSIONS, installed
 from titan_cli.ui.components import Option, choice_card
 from titan_cli.ui.elements import Box, Component, Text
 from titan_cli.ui.tui.widgets.registry import register_widget
 
-sys.path.insert(0, str(Path(__file__).parent))
-from terminal import CliProps, CliTerminal  # noqa: E402
+from .terminal import CliProps, CliTerminal
 
 TITLE = "CLI"
 WIDGET = "cli.terminal"
