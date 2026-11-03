@@ -13,6 +13,7 @@ import signal
 import struct
 import subprocess
 import termios
+import queue
 import threading
 import time
 from typing import Callable, Optional, Tuple
@@ -77,13 +78,65 @@ def tree_rss_mb(pid: int) -> Optional[float]:
     return sum(table[p][1] for p in family if p in table) / 1024 / 1024
 
 
+_scope_lock = threading.Lock()
+_scope_state: Optional[bool] = None  # None: not probed yet
+_scope_warming = False
+
+
+def probe_scope() -> bool:
+    """Whether a user systemd scope can be made here. Blocks up to the probe timeout: never call it from the UI thread."""
+    global _scope_state
+    ok = False
+    if shutil.which("systemd-run"):
+        try:
+            ok = subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "true"],
+                                capture_output=True, timeout=5).returncode == 0
+        except (subprocess.TimeoutExpired, OSError):
+            ok = False
+    with _scope_lock:
+        _scope_state = ok
+    return ok
+
+
+def warm_scope_probe() -> None:
+    """Run the probe once in a daemon thread, so the UI thread never waits for it."""
+    global _scope_warming
+    with _scope_lock:
+        if _scope_state is not None or _scope_warming:
+            return
+        _scope_warming = True
+
+    def run() -> None:
+        global _scope_warming
+        try:
+            probe_scope()
+        finally:
+            with _scope_lock:
+                _scope_warming = False
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def reset_scope_probe() -> None:
+    """Forget the cached probe result (tests that change what is installed)."""
+    global _scope_state
+    with _scope_lock:
+        _scope_state = None
+
+
 def wrap_in_scope(argv: Tuple[str, ...], memory_limit_mb: int) -> Tuple[Tuple[str, ...], bool]:
-    """`argv` under a user systemd scope capped at the limit; unchanged when that is unavailable."""
-    if not shutil.which("systemd-run"):
+    """
+    `argv` under a user systemd scope capped at the limit; unchanged when that is unavailable.
+
+    Never blocks: it uses the cached probe, and when the probe has not finished yet the command runs unwrapped
+    (the watchdog still applies).
+    """
+    with _scope_lock:
+        available = _scope_state
+    if available is None:
+        warm_scope_probe()
         return argv, False
-    probe = subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "true"],
-                           capture_output=True, timeout=10)
-    if probe.returncode != 0:
+    if not available:
         return argv, False
     return ("systemd-run", "--user", "--scope", "--quiet", "-p", f"MemoryMax={memory_limit_mb}M",
             "-p", "MemorySwapMax=0", "--", *argv), True
@@ -155,6 +208,7 @@ class Session:
         self._capped = False
         self._killed = False
         self._closing = threading.Event()
+        self._writes: "queue.Queue[Optional[bytes]]" = queue.Queue()  # input for the writer thread
         # TITAN_CLI_RECORD=<folder>: keep the raw bytes each CLI sent, to replay a screen that looks wrong
         folder = os.environ.get("TITAN_CLI_RECORD")
         self._record = open(os.path.join(folder, f"{command}-{sid}.bin"), "wb") if folder else None
@@ -185,6 +239,7 @@ class Session:
         self._winsize(cols, rows)
         threading.Thread(target=self._read, args=(pid, fd), daemon=True).start()
         threading.Thread(target=self._watch, daemon=True).start()
+        threading.Thread(target=self._write, daemon=True).start()
 
     def resize(self, cols: int, rows: int) -> None:
         if (cols, rows) != (self.screen.columns, self.screen.lines):
@@ -195,10 +250,7 @@ class Session:
     def send(self, data: bytes) -> None:
         fd = self._fd
         if data and fd is not None and not self.exited:
-            try:
-                os.write(fd, data)
-            except OSError:
-                pass
+            self._writes.put(data)  # written off the caller's thread: a busy CLI must not freeze the UI
 
     def stop(self, now: bool = False) -> None:
         """Ask the CLI to end; whatever is left after two seconds (or at once, `now`) is killed."""
@@ -258,6 +310,7 @@ class Session:
                 self.send(reply)
         self.exited = True
         self._closing.set()
+        self._writes.put(None)
         if self._record is not None:
             try:
                 self._record.close()
@@ -277,6 +330,19 @@ class Session:
             os.close(fd)
         except OSError:
             pass
+
+    def _write(self) -> None:
+        while True:
+            data = self._writes.get()
+            fd = self._fd
+            if data is None or fd is None or self.exited:
+                return
+            try:
+                view = memoryview(data)
+                while view:
+                    view = view[os.write(fd, view):]
+            except OSError:
+                pass
 
     def _watch(self) -> None:
         while not self._closing.wait(2.0):

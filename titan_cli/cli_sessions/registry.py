@@ -12,7 +12,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from titan_cli.external_cli.configs import CLI_REGISTRY
 from titan_cli.external_cli.launcher import CLILauncher
 
-from .session import Session
+from .session import Session, warm_scope_probe
 
 DEFAULT_MEMORY_LIMIT_MB = 2048
 
@@ -39,6 +39,7 @@ class SessionRegistry:
 
     def launch(self, command: str, label: str) -> Session:
         """A new session of `command`, made the active one. The widget that shows it starts the process."""
+        warm_scope_probe()  # off the UI thread, so the first start finds the answer cached
         same = sum(1 for s in self.sessions if s.command == command)
         session = Session(next(self._ids), command, label if not same else f"{label} #{same + 1}",
                           os.getcwd(), self.memory_limit_mb)

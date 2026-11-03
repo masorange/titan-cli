@@ -49,13 +49,53 @@ def test_tree_rss_is_none_when_nothing_can_be_read(monkeypatch):
     assert session_mod.tree_rss_mb(os.getpid()) is None
 
 
+@pytest.fixture(autouse=True)
+def fresh_scope_probe():
+    session_mod.reset_scope_probe()
+    yield
+    session_mod.reset_scope_probe()
+
+
 def test_without_systemd_the_command_runs_unwrapped(monkeypatch):
     monkeypatch.setattr(session_mod.shutil, "which", lambda name: None)
+    assert session_mod.probe_scope() is False
     assert session_mod.wrap_in_scope(("codex",), 512) == (("codex",), False)
+
+
+def test_a_hung_systemd_probe_means_unwrapped_not_a_crash(monkeypatch):
+    monkeypatch.setattr(session_mod.shutil, "which", lambda name: "/usr/bin/systemd-run")
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired("systemd-run", 5)
+    monkeypatch.setattr(session_mod.subprocess, "run", hang)
+    assert session_mod.probe_scope() is False
+    assert session_mod.wrap_in_scope(("codex",), 512) == (("codex",), False)
+
+
+def test_the_probe_runs_once_and_wrapping_never_waits_for_it(monkeypatch):
+    calls = []
+    monkeypatch.setattr(session_mod.shutil, "which", lambda name: "/usr/bin/systemd-run")
+
+    def slow(*a, **k):
+        calls.append(1)
+        time.sleep(0.3)
+        return subprocess.CompletedProcess(a, 0)
+    monkeypatch.setattr(session_mod.subprocess, "run", slow)
+    started = time.time()
+    assert session_mod.wrap_in_scope(("codex",), 512) == (("codex",), False)  # not ready: unwrapped, at once
+    assert time.time() - started < 0.2
+    deadline = time.time() + 5
+    while time.time() < deadline and session_mod._scope_state is None:
+        time.sleep(0.05)
+    argv, scoped = session_mod.wrap_in_scope(("codex",), 512)
+    assert scoped and argv[-1] == "codex"
+    session_mod.wrap_in_scope(("codex",), 512)
+    assert len(calls) == 1
 
 
 def test_the_scope_caps_memory_and_kills_the_hog():
     hog = ("python3", "-c", "x=[]\nfor _ in range(40):\n x.append(bytearray(100<<20)); x[-1][::4096]=b'1'*len(x[-1][::4096])")
+    session_mod.probe_scope()
     argv, scoped = session_mod.wrap_in_scope(hog, 300)
     if not scoped:
         pytest.skip("no systemd user scope here")
