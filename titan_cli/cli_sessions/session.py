@@ -140,12 +140,22 @@ class Session:
         return self._pid is not None
 
     def start(self, cols: int, rows: int) -> None:
+        """Fork the CLI into a PTY. Raises `FileNotFoundError` before forking when it cannot be launched."""
+        if not shutil.which(self.command):
+            raise FileNotFoundError(f"'{self.command}' was not found on the PATH")
+        if not os.path.isdir(self.cwd):
+            raise FileNotFoundError(f"The folder '{self.cwd}' does not exist")
         argv, self._scoped = wrap_in_scope((self.command,), self.memory_limit_mb)
         self._apply_size(cols, rows)
         pid, fd = pty.fork()
         if pid == 0:
-            os.chdir(self.cwd)
-            os.execvpe(argv[0], list(argv), {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"})
+            # Whatever goes wrong here, this forked copy of Titan must never return into the app.
+            try:
+                os.chdir(self.cwd)
+                os.execvpe(argv[0], list(argv), {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"})
+            except BaseException:
+                pass
+            os._exit(127)
         self._pid, self._fd = pid, fd
         self._winsize(cols, rows)
         threading.Thread(target=self._read, args=(pid, fd), daemon=True).start()

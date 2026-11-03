@@ -72,6 +72,17 @@ def test_a_session_keeps_its_screen_with_no_widget_on_screen():
     assert subprocess.run(["pgrep", "-f", "^sleep 30$"], capture_output=True).returncode == 1  # its children too
 
 
+def test_a_missing_command_or_folder_fails_before_forking():
+    missing = session_mod.Session(1, "titan-no-such-cli", "Nope", "/tmp", 512)
+    with pytest.raises(FileNotFoundError):
+        missing.start(80, 24)
+    assert not missing.started
+    nowhere = session_mod.Session(2, "echo", "Echo", "/titan/no/such/folder", 512)
+    with pytest.raises(FileNotFoundError):
+        nowhere.start(80, 24)
+    assert not nowhere.started
+
+
 def test_a_session_whose_cli_ends_is_marked_exited():
     session = session_mod.Session(1, "true", "True", "/tmp", 512)
     session.start(40, 5)

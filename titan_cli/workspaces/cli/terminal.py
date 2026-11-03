@@ -12,6 +12,7 @@ from textual.events import Key, Paste, Resize
 from textual.widgets import Static
 
 from titan_cli.cli_sessions import Session, key_bytes, paste_bytes, render_line
+from titan_cli.ui.tui.widgets.error_card import ErrorCard
 
 EXIT_KEY = "ctrl+right_square_bracket"
 
@@ -83,8 +84,19 @@ class CliTerminal(Static, can_focus=True):
         if session.started:
             session.resize(cols, rows)
         elif not session.exited:
-            session.start(cols, rows)
+            try:
+                session.start(cols, rows)
+            except OSError as e:
+                self._show_launch_error(session, e)
+                return
         self._lines, self._seen = [], -1
+
+    def _show_launch_error(self, session: Session, error: Exception) -> None:
+        """The CLI could not be launched: mark the session ended and say why in an error card."""
+        session.exited = True
+        self.display = False
+        if self.parent is not None:
+            self.parent.mount(ErrorCard(error, f"Could not start {session.label}"), before=self)
 
     # -- input ----------------------------------------------------------------------------
     def check_consume_key(self, key: str, character: Optional[str]) -> bool:
