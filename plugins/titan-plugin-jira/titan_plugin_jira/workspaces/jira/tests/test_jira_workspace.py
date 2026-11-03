@@ -990,6 +990,25 @@ def test_a_status_that_needs_no_resolution_still_moves_at_once():
     assert w.state.get("resolving") is None
 
 
+def test_a_move_without_known_transitions_is_not_sent_and_reads_them_again_after_an_error():
+    jira = Mock(project_key="PROJ")
+    jira.get_transitions.return_value = ClientSuccess(data=[transition("Testing")])
+    bus, w, runs, _ = _move_world(jira)
+    handler = next(b for b in _buttons(render(bus)) if b.label.endswith("Closed")).on_press
+    issue_ = w.state.get("ready").issues[0]
+
+    for state, reads in ((None, 1), (models.Transitions("loading"), 0), (models.Transitions("error", error="403"), 1)):
+        runs.clear()
+        w.state.set("transitions", {} if state is None else {"PROJ-1": state})
+        handler()
+        assert len(runs) == reads
+        jira.transition_issue.assert_not_called()
+        if reads:
+            runs.pop()()
+            assert w.state.get("transitions")["PROJ-1"].status == "done"
+    assert issue_.key == "PROJ-1"
+
+
 def test_an_issue_moved_out_of_the_picked_status_leaves_the_list_even_if_jiras_index_still_lists_it():
     jira = Mock(project_key="PROJ")
     jira.issue_url.return_value = "u"

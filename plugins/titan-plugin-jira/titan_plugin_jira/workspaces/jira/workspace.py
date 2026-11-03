@@ -259,7 +259,13 @@ def register(w, on, options):
     def move(issue, status):
         """Move at once, unless Jira requires a resolution for that status: then offer the ones it allows."""
         known = (w.state.get("transitions") or {}).get(issue.key)
-        if known is not None and known.status == "done" and resolution_field(known.items, status):
+        if known is None or known.status != "done":
+            # Without the transitions we cannot tell whether a resolution is required: read them again
+            # instead of sending a move Jira would reject.
+            if known is None or known.status == "error":
+                retry("transitions", issue.key)
+            return
+        if resolution_field(known.items, status):
             w.state.set("resolving", {"key": issue.key, "status": status})
             return
         act_on(issue, "moving", lambda jira: jira.transition_issue(issue.key, status), busy_extra=("move_open",))
