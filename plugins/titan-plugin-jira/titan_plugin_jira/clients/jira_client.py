@@ -225,7 +225,7 @@ class JiraClient:
             resolution: Optional resolution name (e.g. "Done"), for transitions that require one
 
         Returns:
-            ClientResult[None]; error code TRANSITION_FIELDS_REQUIRED names a required field not sent
+            ClientResult[None]; error code TRANSITION_FIELDS_REQUIRED when Jira rejects and a screen-required field was not sent (named in the message)
         """
         return self._transition_service.transition_issue(
             issue_key,

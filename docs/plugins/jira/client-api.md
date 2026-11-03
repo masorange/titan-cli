@@ -253,7 +253,7 @@ client.transition_issue(
 - `update`: Optional. Jira update payload merged into the transition.
 - `resolution`: Optional. Resolution name (e.g. `"Done"`) sent as the `resolution` field, for transitions that require one.
 
-If the transition requires a field that is not sent (`fields` or `resolution`), nothing is sent to Jira and the result is a `ClientError` with code `TRANSITION_FIELDS_REQUIRED` naming the missing fields; read `get_transitions` first to know them and their allowed values.
+A field required by the transition's screen and not sent (in `fields`, `update` or `resolution`) does not stop the call, since Jira may already hold a value on the issue: the transition is still sent, and if Jira rejects it the result is a `ClientError` with code `TRANSITION_FIELDS_REQUIRED` naming the missing fields (other rejections are `TRANSITION_ERROR`). Read `get_transitions` first to know them and their allowed values.
 
 ---
 

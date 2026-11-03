@@ -93,6 +93,7 @@ class TransitionService:
         Returns:
             ClientResult[None] (operation success/failure)
         """
+        missing = []
         try:
             # 1. Get available transitions
             transitions_result = self.get_transitions(issue_key)
@@ -128,17 +129,11 @@ class TransitionService:
             sent = dict(fields or {})
             if resolution:
                 sent["resolution"] = {"name": resolution}
+            # Pre-flight hint only: a field the issue already holds still reads required, so Jira decides
+            missing = []
             if chosen is not None:
-                missing = [f for f in chosen.required_fields if f.key not in sent]
-                if missing:
-                    return ClientError(
-                        error_message=(
-                            f"Cannot transition {issue_key} to '{new_status}': "
-                            f"it requires {', '.join(f.name for f in missing)}"
-                        ),
-                        error_code="TRANSITION_FIELDS_REQUIRED",
-                        log_level="warning",
-                    )
+                supplied = set(sent) | set(update or {})
+                missing = [f for f in chosen.required_fields if f.key not in supplied]
             if sent:
                 payload["fields"] = sent
 
@@ -173,6 +168,15 @@ class TransitionService:
             )
 
         except JiraAPIError as e:
+            if missing:
+                return ClientError(
+                    error_message=(
+                        f"Cannot transition {issue_key} to '{new_status}': "
+                        f"it requires {', '.join(f.name for f in missing)} ({e.message})"
+                    ),
+                    error_code="TRANSITION_FIELDS_REQUIRED",
+                    log_level="warning",
+                )
             return ClientError(
                 error_message=f"Failed to transition {issue_key} to {new_status}: {e.message}",
                 error_code="TRANSITION_ERROR"

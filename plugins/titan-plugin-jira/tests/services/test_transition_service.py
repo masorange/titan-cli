@@ -272,14 +272,28 @@ class TestTransitionFields:
 
         assert all(t.required_fields == [] for t in service.get_transitions("TEST-1").data)
 
-    def test_a_missing_required_field_is_reported_and_nothing_is_sent(self, service, mock_jira_network, closing_response):
-        mock_jira_network.make_request.return_value = closing_response
+    def test_a_missing_required_field_still_goes_to_jira_and_is_named_when_it_rejects(self, service, mock_jira_network, closing_response):
+        mock_jira_network.make_request.side_effect = [closing_response, JiraAPIError("bad request", status_code=400)]
 
         result = service.transition_issue("TEST-1", "Closed")
 
         assert isinstance(result, ClientError)
         assert result.error_code == "TRANSITION_FIELDS_REQUIRED" and "Resolution" in result.error_message
-        assert mock_jira_network.make_request.call_count == 1  # only the read of the transitions
+        assert mock_jira_network.make_request.call_count == 2
+
+    def test_a_required_field_already_set_on_the_issue_is_not_blocked(self, service, mock_jira_network, closing_response):
+        mock_jira_network.make_request.side_effect = [closing_response, {}]
+
+        result = service.transition_issue("TEST-1", "Closed")
+
+        assert isinstance(result, ClientSuccess)
+
+    def test_update_given_by_the_caller_satisfies_a_required_field(self, service, mock_jira_network, closing_response):
+        mock_jira_network.make_request.side_effect = [closing_response, JiraAPIError("boom", status_code=500)]
+
+        result = service.transition_issue("TEST-1", "Closed", update={"resolution": [{"set": {"name": "Done"}}]})
+
+        assert result.error_code == "TRANSITION_ERROR"
 
     def test_the_resolution_is_sent_by_name_with_the_transition(self, service, mock_jira_network, closing_response):
         mock_jira_network.make_request.side_effect = [closing_response, {}]
