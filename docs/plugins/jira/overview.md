@@ -41,6 +41,8 @@ The plugin ships the `jira` [workspace](../../concepts/workspaces.md): a full sc
 
 The `jira` [mod](../../concepts/mods.md) is the summary in the side panel: the unfinished issues assigned to you, latest touched first. Pressing one, or **Open Jira workspace**, opens the workspace on it (searching for it when the filters hide it). Options (`[mods.jira.options]`): `project`, `shown`, `refresh_seconds`.
 
+The former `jira_ready` mod is removed, and `jira` replaces it. Its filters, move, fix version and search now live only in the `jira` workspace. Saved `jira_ready` picks and `[mods.jira_ready]` config are no longer read: enable the `jira` mod (`[mods.jira]`) instead.
+
 Both read through `titan_plugin_jira/readers/` (snapshots in `models.py`, readers in `issues.py`), neither imports the other, and either can be switched off alone.
 
 ## Accessing the client
