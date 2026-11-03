@@ -52,6 +52,24 @@ def test_the_pane_is_the_branch_you_are_on_and_a_way_into_the_workspace(mod, fla
     assert opened == ["git"]
 
 
+def test_a_failed_repo_read_is_an_error_card_apart_from_the_branch_line(mod, flatten):
+    from titan_cli.core.mods import ModBus
+
+    copied = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(repaint=lambda mod_: None, copy=lambda mod_, text, what: copied.append((text, what)))
+    m = bus.api("git")
+    m.state.set("repo", Repo(branch="(no git)", error="git plugin not available"))
+
+    tree = mod.draw.draw(m, 44)
+    lines = flatten(tree)
+
+    assert lines[0] == "⎇ (no git) no upstream"
+    assert "git plugin not available" in lines
+    _press(tree, "⧉ Copy error")
+    assert copied[0][1] == "error" and "git plugin not available" in copied[0][0]
+
+
 def test_a_branch_without_upstream_says_so(mod, flatten):
     from titan_cli.core.mods import ModBus
 
