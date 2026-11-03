@@ -139,3 +139,14 @@ def test_a_mod_tile_shows_the_icon_over_the_label_and_its_badge_in_the_severity_
 
     assert text.plain == "🔀\nPRs 2"
     assert colors.ERROR in str(text.spans[-1].style)
+
+
+def test_home_is_as_many_screens_down_as_sit_above_it():
+    from titan_cli.ui.tui.app import pops_to_home
+
+    class Home: ...
+    class Other: ...
+
+    assert pops_to_home([Other(), Home(), Other(), Other()], Home) == 2
+    assert pops_to_home([Other(), Home()], Home) == 0
+    assert pops_to_home([Other(), Other()], Home) is None

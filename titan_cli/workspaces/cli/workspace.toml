@@ -1,0 +1,13 @@
+[workspace]
+name = "cli"
+version = "0.1.0"
+icon = ">_"
+last = true
+description = "Runs a coding CLI (codex, claude, gemini...) inside Titan as an embedded terminal, with its memory measured and capped"
+
+[options.memory_limit_mb]
+type = "int"
+title = "Memory limit (MB)"
+description = "Cap on the CLI and its children together: a systemd scope when available, and a watchdog that kills it."
+default = 2048
+min = 256

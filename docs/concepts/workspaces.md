@@ -16,7 +16,13 @@ A workspace and a mod are loaded the same way and can share a name (`jira` works
 
 ## What Titan ships
 
-Official plugins ship their workspaces, and they load while the plugin is enabled:
+Titan itself ships the `cli` workspace, in every project:
+
+| Workspace | Shows |
+|---|---|
+| `cli` | A full-screen terminal that runs the active CLI session (Claude, Gemini, Codex, OpenCode, Antigravity, Grok) inside Titan; with no session it lists the installed CLIs to start one. The menu to switch, start and close sessions is the `cli` [mod](mods.md)'s, in the side panel. A session keeps running when you leave the workspace (`ctrl+]`) and is the same one when you come back. Each session's memory is measured in the border and capped (`memory_limit_mb`, 2048 by default); every session is stopped when Titan quits |
+
+Official plugins ship theirs, and they load while the plugin is enabled:
 
 | Workspace | Plugin | Shows |
 |---|---|---|

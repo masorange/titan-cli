@@ -1,0 +1,14 @@
+[mod]
+name = "cli"
+version = "0.1.0"
+icon = ">_"
+last = true
+description = "Side panel with your CLI sessions (Claude, Codex, Gemini...): switch between them, start a new one from the CLIs installed, close one. The terminal itself is the cli workspace's"
+events = ["app.start", "ui.render"]
+slots = ["pane"]
+
+[options.installed_refresh_seconds]
+type = "int"
+title = "Look for installed CLIs every (s)"
+default = 30
+min = 5

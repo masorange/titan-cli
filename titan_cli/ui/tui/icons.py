@@ -28,6 +28,9 @@ class Icons:
     FAILED = ERROR  # Alias
     SKIPPED = "⏭ "
 
+    # Navigation
+    HOME = "🏠"
+
     # Workflow & execution
     WORKFLOW = "⚡"
     STEP = "→"

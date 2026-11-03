@@ -479,6 +479,23 @@ class TitanApp(App):
             return
         self.push_screen(make())
 
+    def action_open_home(self) -> None:
+        """Go back to the home screen, closing whatever is open above it."""
+        from titan_cli.ui.tui.screens.main_menu import MainMenuScreen
+
+        refusal = self._launcher_refusal(MainMenuScreen)
+        if refusal == "already here":
+            return
+        if refusal is not None:
+            self.notify(refusal, severity="warning")
+            return
+        pops = pops_to_home(self.screen_stack, MainMenuScreen)
+        if pops is None:  # started on another screen: there is no home under it yet
+            self.push_screen(MainMenuScreen(self.config))
+            return
+        for _ in range(pops):
+            self.pop_screen()
+
     def action_open_workflows(self) -> None:
         """Open the workflow list."""
         from titan_cli.ui.tui.screens.workflows import WorkflowsScreen
@@ -534,6 +551,14 @@ class TitanApp(App):
             # Re-enable mouse
             self._driver._enable_mouse_support()
             self.notify("🖱️  Copy Mode OFF - Mouse interactions restored", timeout=3)
+
+
+def pops_to_home(stack: list, home: type) -> Optional[int]:
+    """How many screens to close from the top of `stack` to show the home one; None when it is not in it."""
+    for depth, screen in enumerate(reversed(stack)):
+        if isinstance(screen, home):
+            return depth
+    return None
 
 
 def _enabled_plugins(config, registry) -> Optional[list]:
