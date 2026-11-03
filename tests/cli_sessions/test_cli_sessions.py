@@ -314,6 +314,18 @@ def test_a_launched_session_is_the_active_one_and_a_repeat_is_numbered():
     assert reg.active() is second and first.memory_limit_mb == 512 and not first.started
 
 
+def test_a_label_freed_by_closing_is_reused_and_never_duplicated():
+    reg = registry()
+    for _ in range(3):
+        reg.launch("claude", "Claude CLI")
+    reg.close(reg.sessions[1].id)
+    reg.launch("claude", "Claude CLI")
+    labels = sorted(s.label for s in reg.sessions)
+    assert labels == ["Claude CLI", "Claude CLI #2", "Claude CLI #3"]
+    reg.launch("claude", "Claude CLI")
+    assert len({s.label for s in reg.sessions}) == len(reg.sessions) == 4
+
+
 def test_selecting_switches_the_active_session():
     reg = registry()
     first = reg.launch("codex", "Codex CLI")

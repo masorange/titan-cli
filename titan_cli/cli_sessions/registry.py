@@ -40,9 +40,10 @@ class SessionRegistry:
     def launch(self, command: str, label: str) -> Session:
         """A new session of `command`, made the active one. The widget that shows it starts the process."""
         warm_scope_probe()  # off the UI thread, so the first start finds the answer cached
-        same = sum(1 for s in self.sessions if s.command == command)
-        session = Session(next(self._ids), command, label if not same else f"{label} #{same + 1}",
-                          os.getcwd(), self.memory_limit_mb)
+        taken = {s.label for s in self.sessions}  # exited-but-not-closed sessions still hold their label
+        unique = label if label not in taken else next(
+            f"{label} #{n}" for n in itertools.count(2) if f"{label} #{n}" not in taken)
+        session = Session(next(self._ids), command, unique, os.getcwd(), self.memory_limit_mb)
         session.on_exit = self._changed
         self.sessions.append(session)
         self.active_id = session.id
