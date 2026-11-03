@@ -110,10 +110,11 @@ def switch_to(m, branch: str) -> None:
 
 # The two remote actions the pane runs on the branch you are on: what it shows
 # while one is in flight, and what the toast says when it ends.
-PROGRESS = {"pull": "pulling", "push": "pushing", "stash": "stashing the uncommitted work", "pop": "popping the stash"}
+PROGRESS = {"pull": "pulling", "push": "pushing", "stash": "stashing the uncommitted work", "pop": "popping the stash", "apply": "applying the stash",
+            "drop": "dropping the stash", "clear": "clearing the stash list"}
 DONE = {"pull": "Pulled origin/{branch}", "push": "Pushed {branch} to origin"}
 FAILED = {"pull": "Could not pull origin/{branch}", "push": "Could not push {branch}"}
-LOCAL = ("stash", "pop")  # act on the tree only: no remote in what the card says while they run
+LOCAL = ("stash", "pop", "apply", "drop", "clear")  # act on the tree only: no remote in what the card says while they run
 
 
 def running(m) -> Optional[str]:
@@ -175,11 +176,20 @@ def run_remote(m, kind: str, branch: str) -> None:
             refresh()
 
 
+def stash_ref(git, commit: str) -> Optional[str]:
+    """Where the stash with this commit hash sits in the list now (`stash@{n}`), None when it is gone."""
+    match git.list_stashes():
+        case ClientSuccess(data=stashes):
+            return next((s.ref for s in stashes if s.hash == commit), None)
+        case _:
+            return None
+
+
 def start_stash(m, kind: str, ref: Optional[str] = None) -> None:
     """
-    Claim the card for `kind` ("stash" or "pop") and run it on a background thread, like a pull or a push.
+    Claim the card for `kind` ("stash", "pop", "apply", "drop" or "clear") and run it on a background thread, like a pull or a push.
 
-    `ref` is the stash a pop brings back (`stash@{1}`); without it, the latest.
+    `ref` is the stash a pop, apply or drop acts on (`stash@{1}` or its hash); a pop or apply without it takes the latest.
     """
     claimed = []
 
@@ -196,7 +206,7 @@ def start_stash(m, kind: str, ref: Optional[str] = None) -> None:
 
 def run_stash(m, kind: str, ref: Optional[str] = None) -> None:
     """
-    Stash everything uncommitted (new files too, so the tree ends up clean) or pop a stash.
+    Stash everything uncommitted (new files too, so the tree ends up clean), pop, apply or drop one, or clear the stash list.
 
     A pop that conflicts is reported as git worded it; git keeps the stash then, so nothing is lost.
     """
@@ -206,12 +216,26 @@ def run_stash(m, kind: str, ref: Optional[str] = None) -> None:
             m.ui.toast("git plugin not available", "error")
             return
 
-        result = git.stash_push(include_untracked=True) if kind == "stash" else git.stash_pop(ref)
+        if kind in ("pop", "apply", "drop") and ref and not ref.startswith("stash@{"):
+            # A hash names a stash whatever place it holds; git acts on its place right now.
+            ref = stash_ref(git, ref)
+            if ref is None:
+                m.ui.toast("That stash is gone", "error")
+                return
+
+        result = {"stash": lambda: git.stash_push(include_untracked=True), "pop": lambda: git.stash_pop(ref),
+                  "apply": lambda: git.stash_apply(ref), "drop": lambda: git.stash_drop(ref),
+                  "clear": lambda: git.stash_clear()}[kind]()
+        which = ref or "the latest stash"
+        done = {"stash": "Stashed the uncommitted work", "pop": f"Popped {which}", "apply": f"Applied {which}",
+                "drop": f"Dropped {which}", "clear": "Cleared the stash list"}
+        failed = {"stash": "Could not stash", "pop": "Could not pop the stash", "apply": "Could not apply the stash",
+                  "drop": "Could not drop the stash", "clear": "Could not clear the stash list"}
         match result:
             case ClientSuccess():
-                m.ui.toast("Stashed the uncommitted work" if kind == "stash" else f"Popped {ref or 'the latest stash'}", "information")
+                m.ui.toast(done[kind], "information")
             case ClientError(error_message=err):
-                m.ui.toast(f"Could not {'stash' if kind == 'stash' else 'pop the stash'}: {err}", "error")
+                m.ui.toast(f"{failed[kind]}: {err}", "error")
     finally:
         m.state.set("remote_action", None)
         refresh = m.state.get("refresh")

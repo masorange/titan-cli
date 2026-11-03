@@ -10,3 +10,4 @@ class UIGitStash:
     branch: str
     message: str
     formatted_date: str = ""
+    hash: str = ""  # names the stash like a commit, whatever place it holds in the list

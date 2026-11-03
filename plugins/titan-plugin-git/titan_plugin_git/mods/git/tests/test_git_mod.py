@@ -720,3 +720,26 @@ def buttons_of(element):
     for child in getattr(element, "children", ()) or ():
         if child:
             yield from buttons_of(child)
+
+
+def test_pressing_a_stash_in_the_pane_opens_the_workspace_on_it(mod, flatten):
+    from titan_cli.core.mods import ModBus
+
+    opened = []
+    bus = ModBus()
+    bus.host = SimpleNamespace(
+        repaint=lambda mod_: None, open_workspace=lambda mod_, name, focus=None: opened.append((name, focus)),
+        resolve_workflow=lambda mod_, name: name,
+    )
+    m = bus.api("git")
+    m.state.set("repo", Repo(branch="feat/x"))
+    stash = SimpleNamespace(ref="stash@{0}", branch="feat/x", message="half done", formatted_date="1 h ago", hash="h0")
+    m.state.set("branches", branches_state(mod, current="feat/x"))
+    m.state.set("branches", Branches(items=m.state.get("branches").items, current="feat/x", stashes=[stash]))
+    m.state.set("open_branch", "feat/x")
+    m.state.set("branch_menu:feat/x:tree", "⤒ Stashes (1)…")
+
+    tree = mod.draw.draw(m, 44, OPTIONS)
+    next(b for b in buttons_of(tree) if b.label == "half done · feat/x · 1 h ago").on_press()
+
+    assert opened == [("git", {"stash": "h0"})]

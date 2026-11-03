@@ -10,7 +10,7 @@ and presses and `draw.py` draws from `w.state` only, so it never waits on the ne
 from pathlib import Path
 
 from titan_plugin_git.readers import read_repo
-from titan_plugin_git.sections.branches.branches import read_branches
+from titan_plugin_git.sections.branches.branches import read_branches, start_stash
 from titan_plugin_git.sections.worktrees.worktrees import read_worktrees
 
 from . import draw
@@ -73,9 +73,25 @@ def register(w, on, options):
     def refresh_all():
         read_history()
         read_cards()
+        # A popped or dropped stash leaves nothing to show: back to the uncommitted changes, where it landed.
+        branches = w.state.get("branches")
+        if w.state.get("stash_selected") and branches is not None and not any(
+            s.hash == w.state.get("selected") for s in branches.stashes
+        ):
+            w.state.set("stash_selected", False)
+            select(WIP)
         refresh_wip()
 
+    def select_stash(stash):
+        select(stash.hash)
+        w.state.set("stash_selected", True)
+
+    def stash_action(kind, stash):
+        w.state.set("stash_drop_confirm", None)
+        start_stash(w, kind, stash.hash)
+
     def select(selection):
+        w.state.set("stash_selected", False)
         w.state.set("selected", selection)
         files = (w.state.get("files") or {}).get(selection)
         if files is None or files.status == "error":
@@ -115,6 +131,7 @@ def register(w, on, options):
         retry_diff=lambda selection, side, f: w.run(lambda: load_diff(selection, side, f.path)),
         copy=w.ui.copy,
         resize=resize,
+        stash=stash_action,
     )
 
     w.ui.view(lambda width: draw.draw(w, width, options, actions), title=TITLE)
@@ -124,6 +141,7 @@ def register(w, on, options):
         # A switch, a pull or a worktree removal changes more than one card, and the press that
         # does it only has `w` to work with: this is how it reaches the refresh.
         w.state.set("refresh", refresh_all)
+        w.state.set("pick_stash", select_stash)
         saved = w.store.get("columns")
         if saved and len(saved) == len(draw.DEFAULT_RATIO) and not w.state.get("columns"):
             w.state.set("columns", tuple(saved))
@@ -138,7 +156,11 @@ def register(w, on, options):
     def focus(w, what):
         """Open on the commit a mod's row pointed at, or on the uncommitted changes."""
         sha = what.get("sha") if isinstance(what, dict) else None
-        if sha:
+        stash = what.get("stash") if isinstance(what, dict) else None
+        if stash:
+            select(stash)
+            w.state.set("stash_selected", True)
+        elif sha:
             select(sha)
         elif not w.state.get("selected"):
             w.state.set("selected", WIP)

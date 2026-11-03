@@ -22,4 +22,5 @@ def from_network_stash(network_stash: NetworkGitStash) -> UIGitStash:
         branch=branch,
         message=message,
         formatted_date=network_stash.relative_date,
+        hash=network_stash.commit,
     )

@@ -186,13 +186,13 @@ def test_uncommitted_work_opens_the_branch_card_on_the_way_out_of_the_block():
     assert any("Commit with AI" in label for label in labels(bus))
 
 
-def test_a_dirty_tree_offers_to_stash_and_a_stash_offers_to_pop():
+def test_a_dirty_tree_offers_to_stash_and_a_stash_offers_its_list():
     git = FakeGit(staged=STAGED)
     git.dirty = ["a.py"]
     git.stashes = [SimpleNamespace(ref="stash@{0}", branch="feat/x", message="m", formatted_date="1 h")]
     bus, w, _ = start(git)
     shown = [label.strip() for label in labels(bus)]
-    assert "⤓ Stash changes" in shown and "▸ ⤒ Pop stash (1)…" in shown
+    assert "⤓ Stash changes" in shown and "▸ ⤒ Stashes (1)…" in shown
 
     clean, cw, _ = start(FakeGit(staged=STAGED))
     cw.state.set("open_branch", "feat/x")
@@ -208,31 +208,67 @@ def test_the_current_branch_groups_its_actions_in_three_cards():
     assert [t for t in shown if t in ("Working tree", "Remote", "Branch")] == ["Working tree", "Remote", "Branch"]
 
 
-def stash_picker(git):
+def stash_picker(git, **kw):
     git.stashes = [
-        SimpleNamespace(ref="stash@{0}", branch="feat/x", message="newest", formatted_date="1 h ago"),
-        SimpleNamespace(ref="stash@{1}", branch="main", message="older", formatted_date="3 d ago"),
+        SimpleNamespace(ref="stash@{0}", branch="feat/x", message="newest", formatted_date="1 h ago", hash="h0"),
+        SimpleNamespace(ref="stash@{1}", branch="main", message="older", formatted_date="3 d ago", hash="h1"),
     ]
-    bus, w, _ = start(git)
+    bus, w, _ = start(git, **kw)
     w.state.set("open_branch", "feat/x")
-    w.state.set("branch_menu:feat/x:tree", "⤒ Pop stash (2)…")
+    w.state.set("branch_menu:feat/x:tree", "⤒ Stashes (2)…")
     return bus, w
 
 
-def test_the_stashes_are_a_picker_and_choosing_one_pops_that_one():
-    git = FakeGit(staged=STAGED)
-    popped = []
-    git.stash_pop = lambda ref=None: (popped.append(ref), ClientSuccess(data=True))[1]
+def test_pressing_a_stash_of_the_list_shows_its_changes_and_a_menu_of_actions():
+    git = FakeGit(staged=STAGED, commit_files={"h1": [UIFileChange("old.py", "M", 5, 2)]})
     bus, w = stash_picker(git)
-    assert "▾ ⤒ Pop stash (2)…" in [label.strip() for label in labels(bus)]
-
     shown = [label.strip() for label in labels(bus)]
     assert "newest · feat/x · 1 h ago" in shown and "older · main · 3 d ago" in shown
+
     press(bus, "older · main")
-    assert popped == ["stash@{1}"]
+
+    assert ("files", "h1") in git.asked
+    assert "Stash stash@{1}" in texts(bus) and "older" in texts(bus)
+    shown = [label.strip() for label in labels(bus)]
+    assert any(label.startswith("▾ old.py") for label in shown)  # its first file opens on its own
+    for action in ("⤴ Apply, keep it", "⤒ Pop: apply and remove", "✗ Drop…"):
+        assert action in shown
 
 
-def test_the_last_line_of_the_picker_clears_the_list_but_only_after_a_second_press():
+def test_the_stash_menu_applies_pops_and_drops_the_stash_where_it_sits_in_the_list_now():
+    git = FakeGit(staged=STAGED, commit_files={"h1": [UIFileChange("old.py", "M", 5, 2)]})
+    calls = []
+    git.stash_apply = lambda ref=None: (calls.append(("apply", ref)), ClientSuccess(data=True))[1]
+    git.stash_pop = lambda ref=None: (calls.append(("pop", ref)), ClientSuccess(data=True))[1]
+    git.stash_drop = lambda ref: (calls.append(("drop", ref)), ClientSuccess(data=True))[1]
+    bus, w = stash_picker(git)
+    press(bus, "older · main")
+
+    press(bus, "⤴ Apply")
+    press(bus, "⤒ Pop")
+    assert calls == [("apply", "stash@{1}"), ("pop", "stash@{1}")]
+
+    press(bus, "✗ Drop…")
+    assert len(calls) == 2  # asks first
+    press(bus, "Cancel")
+    press(bus, "✗ Drop…")
+    press(bus, "✓ Confirm drop")
+    assert calls[-1] == ("drop", "stash@{1}")
+
+
+def test_a_stash_that_is_gone_goes_back_to_the_uncommitted_changes():
+    git = FakeGit(staged=STAGED, commit_files={"h1": [UIFileChange("old.py", "M", 5, 2)]})
+    bus, w = stash_picker(git)
+    press(bus, "older · main")
+    git.stashes = [s for s in git.stashes if s.hash != "h1"]
+
+    w.run(lambda: None)
+    w.state.get("refresh")()
+
+    assert w.state.get("selected") == "wip"
+
+
+def test_the_last_line_of_the_list_clears_it_but_only_after_a_second_press():
     git = FakeGit(staged=STAGED)
     cleared = []
     git.stash_clear = lambda: (cleared.append(True), ClientSuccess(data=True))[1]

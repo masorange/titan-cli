@@ -27,6 +27,7 @@ def fake_git(status=None, branches=(), checkout=None, pull=None, pulled=None, pu
         stash_push=lambda include_untracked=False: (stashed is not None and stashed.append(include_untracked),
                                                     stash or ClientSuccess(data=True))[1],
         stash_pop=lambda ref=None: (popped is not None and popped.append(True), stash or ClientSuccess(data=True))[1],
+        stash_clear=lambda: stash or ClientSuccess(data=True),
         pull=lambda remote, branch: (pulled is not None and pulled.append((remote, branch)),
                                      pull or ClientSuccess(data=None))[1],
         push=lambda remote, branch: (pushed is not None and pushed.append((remote, branch)),
@@ -313,3 +314,11 @@ def test_popping_reports_git_when_it_refuses_and_still_releases_the_card():
     assert popped == [True]
     assert toasts == [("Could not pop the stash: conflict", "error")]
     assert actions.running(m) is None
+
+
+def test_clearing_the_stash_list_tells_the_user():
+    m, toasts = bus_for(fake_git())
+
+    actions.start_stash(m, "clear")
+
+    assert toasts == [("Cleared the stash list", "information")] and actions.running(m) is None

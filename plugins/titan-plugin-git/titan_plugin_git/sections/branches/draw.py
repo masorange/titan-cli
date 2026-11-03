@@ -44,7 +44,7 @@ def remote_actions(m, branch, options):
 
 def stash_options(m, branch, state: Branches) -> list:
     """
-    Put the uncommitted work aside, and bring the latest stash back: the two ways to
+    Put the uncommitted work aside, and the list of what was put aside: the two ways to
     leave a branch's tree clean and to come back to what was left.
 
     Only the current branch (they act on the checked-out tree) and only while there is
@@ -55,21 +55,27 @@ def stash_options(m, branch, state: Branches) -> list:
         return []
     return [
         state.blocked and Option("⤓ Stash changes", lambda: branch_actions_api.start_stash(m, "stash")),
-        pop_option(m, state, f"{new_branch_api.menu_key(branch.name)}:tree"),
+        stash_list_option(m, state, f"{new_branch_api.menu_key(branch.name)}:tree"),
     ]
 
 
-def pop_option(m, state: Branches, menu: str):
+def open_stash(m, stash) -> None:
+    """What pressing a stash does: where a screen of its own shows it (the workspace) it is selected, anywhere else the workspace opens on it."""
+    pick = m.state.get("pick_stash")
+    if pick:
+        pick(stash)
+    else:
+        m.ui.open_workspace("git", focus={"stash": stash.hash})
+
+
+def stash_list_option(m, state: Branches, menu: str):
     """
-    The stashes as a picker, newest first, each by its message, branch and age: the one you press is
-    popped. A line apart, last, is the way to empty the list, behind a second press.
+    The stashes as a list, newest first, each by its message, branch and age: pressing one shows its
+    changes and what can be done with it. A line apart, last, is the way to empty the list, behind a
+    second press.
     """
     if not state.stashes:
         return None
-
-    def pop(ref):
-        m.state.set(menu, None)
-        branch_actions_api.start_stash(m, "pop", ref)
 
     def clear():
         m.state.set(menu, None)
@@ -78,13 +84,13 @@ def pop_option(m, state: Branches, menu: str):
 
     confirming = m.state.get(CLEAR_CONFIRM, False)
     return Option(
-        f"⤒ Pop stash ({len(state.stashes)})…",
+        f"⤒ Stashes ({len(state.stashes)})…",
         on_open=lambda: m.state.set(CLEAR_CONFIRM, False),
         content=Box(
             *[
                 Button(
                     f"{s.message}" + (f" · {s.branch}" if s.branch else "") + (f" · {s.formatted_date}" if s.formatted_date else ""),
-                    lambda ref=s.ref: pop(ref),
+                    lambda s=s: open_stash(m, s),
                 )
                 for s in state.stashes
             ],

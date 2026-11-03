@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from titan_cli.ui.components import error_card
+from titan_cli.ui.components import Option, choice_card, error_card
 from titan_cli.ui.elements import Box, Button, Diff, Text, responsive_columns
 from titan_plugin_git.drawing import commit_title, lane_glyphs
 from titan_plugin_git.operations import graph_lanes
@@ -31,6 +31,7 @@ class Actions:
     retry_diff: Callable[[str, str, object], None]
     copy: Callable[[str, str], None]
     resize: Callable[[tuple], None]
+    stash: Callable[[str, object], None]
 
 
 def marker(selected: bool) -> Text:
@@ -113,12 +114,44 @@ def left(w, width: int, options, actions: Actions) -> Box:
     )
 
 
-def commit_header(w, selection: str, files: Optional[Files], actions: Actions) -> Box:
+def stash_for(w, selection: str):
+    """The stash a selection names, or None when it is a commit or the uncommitted changes."""
+    branches = w.state.get("branches")
+    return next((s for s in (branches.stashes if branches else []) if s.hash == selection), None)
+
+
+def stash_menu(w, stash, actions: Actions, width: int) -> Box:
+    """What can be done with the stash on screen: apply it, pop it or drop it for good (behind a second press)."""
+    confirming = w.state.get("stash_drop_confirm") == stash.hash
+    card = dict(width=width, state=w.state, key="stash_menu", close=False)
+    return Box(
+        not confirming and choice_card([
+            Option("⤴ Apply, keep it", lambda: actions.stash("apply", stash)),
+            Option("⤒ Pop: apply and remove", lambda: actions.stash("pop", stash)),
+            Option("✗ Drop…", lambda: w.state.set("stash_drop_confirm", stash.hash)),
+        ], title="Stash", **card),
+        confirming and choice_card([
+            Option("✓ Confirm drop", lambda: actions.stash("drop", stash), "error"),
+            Option("Cancel", lambda: w.state.set("stash_drop_confirm", None)),
+        ], title="Drops it for good. This cannot be undone.", border="warning", **card),
+    )
+
+
+def commit_header(w, selection: str, files: Optional[Files], actions: Actions, width: int = 60) -> Box:
     totals = files is not None and files.status == "done" and Text(
         f"⎘ {len(files.all)}  ", counts(files.additions, files.deletions)
     )
     if selection == WIP:
         return Box(Text("Uncommitted changes", bold=True, color="warning"), totals)
+    stash = stash_for(w, selection)
+    if stash is not None:
+        return Box(
+            Text(f"Stash {stash.ref}", bold=True, color="warning"),
+            Text(stash.message, bold=True, wrap=True),
+            Text(" · ".join(p for p in (stash.branch, stash.formatted_date) if p), dim=True),
+            totals,
+            stash_menu(w, stash, actions, width),
+        )
     repo: Optional[Repo] = w.state.get("repo")
     commit = next((c for c in (repo.commits if repo else []) if c.hash == selection), None)
     if commit is None:
@@ -187,10 +220,10 @@ def group(w, selection: str, g, files: Files, options, actions: Actions) -> Box:
     )
 
 
-def detail(w, options, actions: Actions) -> Box:
+def detail(w, options, actions: Actions, width: int = 60) -> Box:
     selection = w.state.get("selected") or WIP
     files: Optional[Files] = (w.state.get("files") or {}).get(selection)
-    header = commit_header(w, selection, files, actions)
+    header = commit_header(w, selection, files, actions, width)
     if files is None or files.status == "loading":
         return Box(header, Text("Loading…", dim=True), gap=1)
     if files.status == "error":
@@ -209,7 +242,7 @@ def draw(w, width: int, options, actions: Actions) -> Box:
         top_bar(w),
         responsive_columns(
             width,
-            [lambda cw: left(w, cw, options, actions), lambda _: detail(w, options, actions)],
+            [lambda cw: left(w, cw, options, actions), lambda cw: detail(w, options, actions, cw)],
             ratio=tuple(w.state.get("columns") or DEFAULT_RATIO),
             collapse_below=COLLAPSE_BELOW,
             on_resize=actions.resize,

@@ -524,6 +524,18 @@ class GitClient:
         """Stash uncommitted changes, new files too with `include_untracked`."""
         return self.stash_service.stash_push(message, include_untracked)
 
+    def stash_apply(self, stash_ref: Optional[str] = None) -> ClientResult[bool]:
+        """Apply a stash and keep it in the list."""
+        return self.stash_service.stash_apply(stash_ref)
+
+    def stash_drop(self, stash_ref: str) -> ClientResult[bool]:
+        """Drop one stash."""
+        return self.stash_service.stash_drop(stash_ref)
+
+    def stash_clear(self) -> ClientResult[bool]:
+        """Drop every stash."""
+        return self.stash_service.stash_clear()
+
     def list_stashes(self) -> ClientResult[List[UIGitStash]]:
         """List the stashes, newest first."""
         return self.stash_service.list_stashes()

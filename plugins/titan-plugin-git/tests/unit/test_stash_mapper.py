@@ -3,8 +3,8 @@ from titan_plugin_git.models.network import NetworkGitStash
 
 
 def test_a_stash_made_with_a_message_splits_branch_and_message():
-    ui = from_network_stash(NetworkGitStash("stash@{0}", "On feat/x: half done", "2 hours ago"))
-    assert (ui.ref, ui.branch, ui.message, ui.formatted_date) == ("stash@{0}", "feat/x", "half done", "2 hours ago")
+    ui = from_network_stash(NetworkGitStash("stash@{0}", "On feat/x: half done", "2 hours ago", "abc123"))
+    assert (ui.ref, ui.branch, ui.message, ui.formatted_date, ui.hash) == ("stash@{0}", "feat/x", "half done", "2 hours ago", "abc123")
 
 
 def test_a_wip_stash_keeps_the_commit_it_was_made_on_as_its_message():

@@ -35,7 +35,7 @@ class Branches:
     current: str = ""
     main_branch: str = ""  # the plugin's configured base branch, the usual merge source
     blocked: Optional[str] = None
-    # The stashes, newest first: what "Pop stash" offers to bring back.
+    # The stashes, newest first: what the stash list offers to open.
     stashes: List[UIGitStash] = field(default_factory=list)
     error: Optional[str] = None
 

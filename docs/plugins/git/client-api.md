@@ -960,6 +960,54 @@ client.stash_push(message="temporary local changes", include_untracked=False)
 - `message`: Optional. Stash message.
 - `include_untracked`: Optional. Also stash new, untracked files (not ignored ones), so the tree ends up clean.
 
+### Apply a stash
+
+Applies a stash and keeps it in the list.
+
+**Call:**
+
+```python
+client.stash_apply(stash_ref=None)
+```
+
+**Parameters:**
+
+- `stash_ref`: Optional. Stash reference (`stash@{1}`) or stash commit hash. Defaults to the latest.
+
+**Returns:** `ClientResult[bool]`. Error code: `STASH_APPLY_ERROR` (a conflict, say).
+
+### Drop a stash
+
+Drops one stash. It cannot be undone.
+
+**Call:**
+
+```python
+client.stash_drop("stash@{1}")
+```
+
+**Parameters:**
+
+- `stash_ref`: Required. Stash reference, as `list_stashes` reports it.
+
+**Returns:** `ClientResult[bool]`. Error code: `STASH_DROP_ERROR`.
+
+### Clear the stash list
+
+Drops every stash. It cannot be undone.
+
+**Call:**
+
+```python
+client.stash_clear()
+```
+
+**Parameters:**
+
+- No parameters.
+
+**Returns:** `ClientResult[bool]`, `True` once the list is empty. Error code: `STASH_CLEAR_ERROR`.
+
 ### List the stashes
 
 Lists the stashes, newest first.
@@ -974,7 +1022,7 @@ client.list_stashes()
 
 - No parameters.
 
-**Returns:** `ClientResult[List[UIGitStash]]`, each with `ref` (`stash@{0}`), `branch` it was made on, `message` and `formatted_date` ("2 hours ago"). An empty list when there are none. Error code: `STASH_LIST_ERROR`.
+**Returns:** `ClientResult[List[UIGitStash]]`, each with `ref` (`stash@{0}`), `hash` (its commit, stable while the list shifts), `branch` it was made on, `message` and `formatted_date` ("2 hours ago"). A stash's hash is a merge commit, so `get_commit_files(hash)` and `get_commit_file_diff(hash, path)` give its changes to tracked files; files stashed as untracked are not in them. An empty list when there are none. Error code: `STASH_LIST_ERROR`.
 
 ### Pop a stash
 
