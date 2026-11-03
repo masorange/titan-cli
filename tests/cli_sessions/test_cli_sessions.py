@@ -92,6 +92,28 @@ def test_a_session_whose_cli_ends_is_marked_exited():
     assert session.exited and session.status() == "True · exited"
 
 
+def test_resizing_an_exited_session_resizes_the_screen_but_touches_no_descriptor(monkeypatch):
+    session = session_mod.Session(1, "true", "True", "/tmp", 512)
+    session.start(40, 5)
+    wait_for(session, lambda s: s.exited and s._fd is None)
+    assert session.exited and session._fd is None and session.started
+    calls = []
+    monkeypatch.setattr(session_mod.fcntl, "ioctl", lambda *a: calls.append(a))
+    monkeypatch.setattr(session_mod.os, "killpg", lambda *a: calls.append(a))
+    session.resize(60, 10)
+    assert (session.screen.columns, session.screen.lines) == (60, 10)
+    assert calls == []
+
+
+def test_a_failing_window_size_call_does_not_raise():
+    session = session_mod.Session(1, "sh", "Shell", "/tmp", 512)
+    read_end, write_end = os.pipe()
+    os.close(read_end)
+    os.close(write_end)
+    session._fd = read_end  # closed descriptor: ioctl fails with EBADF
+    session._winsize(80, 24)
+
+
 def test_ensure_cap_never_touches_titans_own_cgroup():
     assert session_mod.ensure_cap(os.getpid(), 512) is False
 

@@ -164,12 +164,14 @@ class Session:
     def resize(self, cols: int, rows: int) -> None:
         if (cols, rows) != (self.screen.columns, self.screen.lines):
             self._apply_size(cols, rows)
-            self._winsize(cols, rows)
+            if not self.exited:
+                self._winsize(cols, rows)
 
     def send(self, data: bytes) -> None:
-        if data and self._fd is not None and not self.exited:
+        fd = self._fd
+        if data and fd is not None and not self.exited:
             try:
-                os.write(self._fd, data)
+                os.write(fd, data)
             except OSError:
                 pass
 
@@ -235,6 +237,7 @@ class Session:
             os.waitpid(pid, 0)
         except OSError:
             pass
+        self._fd = None
         try:
             os.close(fd)
         except OSError:
@@ -258,13 +261,18 @@ class Session:
             self.version += 1
 
     def _winsize(self, cols: int, rows: int) -> None:
-        if self._fd is None:
+        fd = self._fd
+        if fd is None or self.exited:
             return
-        fcntl.ioctl(self._fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        try:
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        except OSError:
+            return
         self._kill(signal.SIGWINCH)
 
     def _kill(self, sig: int) -> None:
-        if self._pid is None:
+        # Once the CLI has ended the pid is reaped and may belong to another process.
+        if self._pid is None or self.exited:
             return
         try:
             os.killpg(os.getpgid(self._pid), sig)
