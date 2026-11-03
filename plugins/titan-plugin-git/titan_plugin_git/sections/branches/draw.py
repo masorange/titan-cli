@@ -9,6 +9,7 @@ from . import branches as branch_actions_api
 from . import new_branch as new_branch_api
 from .branches import SEARCH_ERROR, clear_search, create_pr, merge_into, switch_to, switch_to_typed
 
+CLEAR_CONFIRM = "stash_clear_confirm"  # the clear-list press is waiting for its second
 SEARCH_SHOWN = 12  # matches listed under the search; the rest are counted
 
 
@@ -54,25 +55,48 @@ def stash_options(m, branch, state: Branches) -> list:
         return []
     return [
         state.blocked and Option("⤓ Stash changes", lambda: branch_actions_api.start_stash(m, "stash")),
-        pop_option(m, state),
+        pop_option(m, state, f"{new_branch_api.menu_key(branch.name)}:tree"),
     ]
 
 
-def pop_option(m, state: Branches):
-    """One stash pops on a press; several are a picker of them, newest first, each by where and when it was made."""
+def pop_option(m, state: Branches, menu: str):
+    """
+    The stashes as a picker, newest first, each by its message, branch and age: the one you press is
+    popped. A line apart, last, is the way to empty the list, behind a second press.
+    """
     if not state.stashes:
         return None
-    if len(state.stashes) == 1:
-        return Option("⤒ Pop stash", lambda: branch_actions_api.start_stash(m, "pop", state.stashes[0].ref))
+
+    def pop(ref):
+        m.state.set(menu, None)
+        branch_actions_api.start_stash(m, "pop", ref)
+
+    def clear():
+        m.state.set(menu, None)
+        m.state.set(CLEAR_CONFIRM, False)
+        branch_actions_api.start_stash(m, "clear")
+
+    confirming = m.state.get(CLEAR_CONFIRM, False)
     return Option(
         f"⤒ Pop stash ({len(state.stashes)})…",
-        options=[
-            Option(
-                f"{s.message}" + (f" · {s.branch}" if s.branch else "") + (f" · {s.formatted_date}" if s.formatted_date else ""),
-                lambda ref=s.ref: branch_actions_api.start_stash(m, "pop", ref),
-            )
-            for s in state.stashes
-        ],
+        on_open=lambda: m.state.set(CLEAR_CONFIRM, False),
+        content=Box(
+            *[
+                Button(
+                    f"{s.message}" + (f" · {s.branch}" if s.branch else "") + (f" · {s.formatted_date}" if s.formatted_date else ""),
+                    lambda ref=s.ref: pop(ref),
+                )
+                for s in state.stashes
+            ],
+            Text(" "),
+            not confirming and Button("✗ Clear stash list…", lambda: m.state.set(CLEAR_CONFIRM, True), dim=True),
+            confirming and Text(f"Drops all {len(state.stashes)} stashes. This cannot be undone.", color="warning", wrap=True),
+            confirming and Box(
+                Button("✓ Confirm clear", clear, variant="error"),
+                Button("Cancel", lambda: m.state.set(CLEAR_CONFIRM, False), variant="default"),
+                row=True,
+            ),
+        ),
     )
 
 
@@ -100,6 +124,7 @@ def new_branch_option(m, branch, options):
             Input(
                 value=name,
                 placeholder="feat/short-description",
+                size="normal",
                 on_change=lambda value: new_branch_api.set_name(m, value),
                 on_submit=lambda value: new_branch_api.create(m, branch.name, options),
             ),
@@ -132,56 +157,47 @@ def new_branch_option(m, branch, options):
 
 def branch_actions(m, branch, state: Branches, options, switchable: bool = True, width: int = 40) -> Box:
     """
-    What can be done with a branch, under its unfolded line, in one card. The branch
-    you are already on trades the switch for a pull, a push and a PR.
+    What can be done with a branch, under its unfolded line. The branch you are on gets three
+    small cards - the working tree (commit, stash), the remote (pull, push, PR) and the branch
+    itself (new branch, merge) - and trades the switch for them; any other branch is one card.
+
+    A dirty tree stops a switch and a merge: the header says what it stops, the commit leads the
+    working tree's card, and the new branch stays, since it carries the uncommitted work along.
     """
     remote = remote_actions(m, branch, options)
     running = [r for r in remote if isinstance(r, Text)]
-    card = dict(width=width - 2, state=m.state, key=new_branch_api.menu_key(branch.name), close=False)  # the box's own indent
+    key = new_branch_api.menu_key(branch.name)
+    card = dict(width=width - 2, state=m.state, close=False)  # the box's own indent
+    blocked = bool(state.blocked)
 
-    if state.blocked:
-        # The card's header already says why; this says what it stops. The
-        # remote actions stay: a push only sends commits, and git itself refuses
-        # the pulls that would overwrite the work and says so in the toast.
-        return Box(
-            Text("commit or stash to use this branch", dim=True),
-            running,
-            # The way out of having worked on the wrong branch: the new one
-            # starts here and carries the uncommitted work with it.
-            choice_card(
-                [
-                    # The way out of the block, first among what is left to press.
-                    options.get("commit_workflow") and branch.is_current and Option(
-                        "✦ Commit with AI", lambda: m.workflows.run(options["commit_workflow"]), "primary"),
-                    *(r for r in remote if not isinstance(r, Text)),
-                    *stash_options(m, branch, state),
-                    new_branch_option(m, branch, options),
-                ],
-                **card,
-            ),
-            indent=2,
-        )
-
-    # The base branch leads the picker, so the usual merge is the first press
+    # The base branch leads the merge picker, so the usual merge is the first press
     # rather than a second button saying the same thing.
     sources = merge_sources(state.items, branch.name, state.main_branch)
     merges = bool(options.get("merge_workflow"))
 
+    tree = [
+        # The way out of the block, first among what is left to press.
+        blocked and options.get("commit_workflow") and branch.is_current and Option(
+            "✦ Commit with AI", lambda: m.workflows.run(options["commit_workflow"]), "primary"),
+        *stash_options(m, branch, state),
+    ]
+    remotes = [r for r in remote if not isinstance(r, Text)]
+    own = [
+        switchable and not blocked and Option("⎇ Switch to it", lambda: m.run(lambda: switch_to(m, branch.name))),
+        new_branch_option(m, branch, options),
+        not blocked and merges and sources and Option("Merge a branch into it…", options=[
+            Option(source.name, lambda source=source: merge_into(m, branch.name, source.name, options))
+            for source in sources
+        ]),
+    ]
+    titled = branch.is_current
+
     return Box(
+        blocked and Text("commit or stash to use this branch", dim=True),
         running,
-        choice_card(
-            [
-                switchable and Option("⎇ Switch to it", lambda: m.run(lambda: switch_to(m, branch.name))),
-                *(r for r in remote if not isinstance(r, Text)),
-                *stash_options(m, branch, state),
-                new_branch_option(m, branch, options),
-                merges and sources and Option("Merge a branch into it…", options=[
-                    Option(source.name, lambda source=source: merge_into(m, branch.name, source.name, options))
-                    for source in sources
-                ]),
-            ],
-            **card,
-        ),
+        choice_card(tree, key=f"{key}:tree", title="Working tree" if titled else "", **card),
+        choice_card(remotes, key=f"{key}:remote", title="Remote" if titled else "", **card),
+        choice_card(own, key=key, title="Branch" if titled else "", **card),
         indent=2,
     )
 
@@ -258,16 +274,15 @@ def branches_section(m, options, width: int = 40, switcher: bool = True):
             dim=True,
         ),
         switcher and is_open and Box(
-            Box(
-                Input(
-                    value=query,
-                    placeholder="Search or type a branch, Enter to switch",
-                    on_change=lambda value: (m.state.set("branch_filter", value), m.state.set(SEARCH_ERROR, None)),
-                    on_submit=lambda value: switch_to_typed(m, value),
-                ),
-                query and Button("✕", lambda: clear_search(m), dim=True),
-                row=True,
+            # The search box GitHub's and Jira's workspaces use: three lines with a border.
+            Input(
+                value=query,
+                placeholder="Search or type a branch, Enter to switch",
+                size="normal",
+                on_change=lambda value: (m.state.set("branch_filter", value), m.state.set(SEARCH_ERROR, None)),
+                on_submit=lambda value: switch_to_typed(m, value),
             ),
+            query and Button("✕ Clear search", lambda: clear_search(m), dim=True),
             search_error and Text(f"  {search_error}", color="warning", wrap=True),
             not others and not query.strip() and Text("  No other branch", dim=True),
             query.strip() and not found and Text("  No branch matches", dim=True),
