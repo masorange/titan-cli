@@ -147,8 +147,6 @@ def move_options(issue: UIJiraIssue, transitions: List[UIJiraTransition]) -> Lis
     return options
 
 
-
-
 def move_section(issue: UIJiraIssue, transitions: Optional[Transitions], is_open: bool,
                  moving: Optional[str], act: CardActions, width: int = 40,
                  resolving: Optional[str] = None) -> Optional[Box]:
@@ -404,7 +402,6 @@ def search_control(draft: str, confirmed: str, change_search, submit_search, cle
         confirmed and Button("✕ Clear search", clear_search, dim=True),
         confirmed and Text("Search ignores Status and Filters", dim=True),
     )
-
 
 
 def controls(w, toggle_status, toggle_filter, toggle_project, change_projects_draft, submit_projects,
