@@ -203,6 +203,23 @@ def test_a_paste_is_bracketed_only_when_the_cli_asked_for_it():
     assert emulation.paste_bytes("a\nb", False) == b"a\rb"
 
 
+def _bracketed_after(*chunks: bytes) -> bool:
+    session = session_mod.Session(1, "x", "x", ".", 100)
+    clean = emulation.Sanitizer()
+    for chunk in chunks:
+        session._stream.feed(clean.feed(chunk))
+    return session.bracketed
+
+
+def test_bracketed_paste_is_read_from_the_screen_modes():
+    assert not _bracketed_after(b"hi")
+    assert _bracketed_after(b"\x1b[?2004h")
+    assert _bracketed_after(b"\x1b[?20", b"04h")  # split across two reads
+    assert _bracketed_after(b"\x1b[?1;2004h")  # combined with another mode
+    assert not _bracketed_after(b"\x1b[?2004h\x1b[?2004l")  # the later reset wins
+    assert not _bracketed_after(b"\x1b[?2004h", b"\x1b[?2004l")
+
+
 KITTY = b"a\x1b_Ga=d,d=i,i=1,q=2\x1b\\b\x1b_Gf=100;AAAA\x1b\\c"
 
 

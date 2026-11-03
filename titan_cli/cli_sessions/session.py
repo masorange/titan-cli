@@ -196,7 +196,6 @@ class Session:
         self.version = 0  # bumped on every change of the screen
         self.exited = False
         self.on_exit: Optional[Callable[[], None]] = None  # called from the reader thread when the CLI ends
-        self.bracketed = False
         self.rss = 0.0
         self.measured = True  # False once memory cannot be read on this system: no watchdog then
         self.peak = 0.0
@@ -240,6 +239,12 @@ class Session:
         threading.Thread(target=self._read, args=(pid, fd), daemon=True).start()
         threading.Thread(target=self._watch, daemon=True).start()
         threading.Thread(target=self._write, daemon=True).start()
+
+    @property
+    def bracketed(self) -> bool:
+        """Whether the CLI asked for bracketed paste (DECSET 2004); pyte stores private modes shifted by 5 bits."""
+        with self.lock:
+            return (2004 << 5) in self.screen.mode
 
     def resize(self, cols: int, rows: int) -> None:
         if (cols, rows) != (self.screen.columns, self.screen.lines):
@@ -294,10 +299,6 @@ class Session:
             if self._record is not None:
                 self._record.write(data)
                 self._record.flush()
-            if b"\x1b[?2004h" in data:
-                self.bracketed = True
-            elif b"\x1b[?2004l" in data:
-                self.bracketed = False
             with self.lock:
                 try:
                     self._stream.feed(self._sanitizer.feed(data))
