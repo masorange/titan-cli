@@ -55,8 +55,8 @@ def issue_line(issue: UIJiraIssue, selected: bool, select) -> Button:
     return Button(f"{'▾' if selected else '▸'} {issue.status_icon} {issue.key} {issue.summary}", lambda: select(issue.key))
 
 
-def description(issue: UIJiraIssue, unfolded: bool, fold) -> Optional[Box]:
-    """Folded: its first lines as a preview. Unfolded: all of it in a frame, layout kept."""
+def description(issue: UIJiraIssue, unfolded: bool, fold, copy) -> Optional[Box]:
+    """Folded: its first lines as a preview. Unfolded: all of it in a frame, layout kept, with a copy button."""
     lines = issue_description_lines(issue, DESCRIPTION_LINES)
     if not lines:
         return None
@@ -65,7 +65,12 @@ def description(issue: UIJiraIssue, unfolded: bool, fold) -> Optional[Box]:
         preview = [line for line in lines if line][:PREVIEW_LINES]
         more = len([line for line in lines if line]) > PREVIEW_LINES
         return Box(toggle, Box(*(Text(line.strip(), dim=True) for line in preview), more and Text("…", dim=True), indent=2))
-    return Box(toggle, Box(*(Text(line or " ", wrap=True) for line in lines), border="subtle"))
+    whole = "\n".join(issue_description_lines(issue))
+    return Box(
+        toggle,
+        Box(*(Text(line or " ", wrap=True) for line in lines), border="subtle"),
+        Button("⧉ Copy", lambda: copy(whole, "description"), dim=True),
+    )
 
 
 def retry_actions(retry, what: str, key: str) -> list:
@@ -253,7 +258,7 @@ def issue_card(issue: UIJiraIssue, url: str, options, taking: Optional[str], unf
                 issue.priority and Text(f"Priority: {issue.priority}", dim=True),
             ),
             parent_section(issue.parent_key, parent, act.copy, act.retry),
-            description(issue, unfolded, act.fold),
+            description(issue, unfolded, act.fold, act.copy),
             comments_section(issue.key, comments, comments_open, act.toggle_comments, act.copy, act.retry),
             act.summary(issue),
             move_section(issue, transitions, move_open, moving, act, width, resolving),

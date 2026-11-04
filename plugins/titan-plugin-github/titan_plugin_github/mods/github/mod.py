@@ -9,6 +9,7 @@ See docs/concepts/writing-mods.md.
 """
 from pathlib import Path
 
+from titan_plugin_github.readers import invalidate
 from titan_plugin_github.readers.prs import new_review_requests, read_prs
 from titan_plugin_github.readers.queue import left_queue, read_queue
 from titan_plugin_github.readers.runs import read_runs
@@ -45,6 +46,7 @@ def register(on, options):
         m.state.set("runs", read_runs(m.client("github"), None, SUMMARY_RUNS))
 
     def refresh_all(m):
+        invalidate(m.client("github"))
         refresh_prs(m)
         refresh_queue(m)
         refresh_runs(m)

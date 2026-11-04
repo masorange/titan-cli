@@ -174,6 +174,8 @@ class ModManifest:
     # Loads after every other of its kind, so its pane and dock tile come last. The rest keep
     # their order (Titan's, plugins', project, user).
     last: bool = False
+    # Off until the user's `[<kind>.<name>] enabled = true` turns it on.
+    default_enabled: bool = True
 
     @property
     def entrypoint(self) -> Path:
@@ -198,6 +200,8 @@ def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
         value = mod.get(key, [])
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise ValueError(f"{path}: {key} must be a list of strings")
+    if not isinstance(mod.get("default_enabled", True), bool):
+        raise ValueError(f"{path}: default_enabled must be true or false")
     if not isinstance(mod.get("last", False), bool):
         raise ValueError(f"{path}: last must be true or false")
     for key in ("options", "sections"):
@@ -231,6 +235,7 @@ def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
         icon=mod.get("icon") or None,
         entry_file=kind.entrypoint,
         last=mod.get("last", False),
+        default_enabled=mod.get("default_enabled", True),
     )
 
 
@@ -491,7 +496,7 @@ def _load_one(
     enabled_plugins: Optional[Collection[str]] = None,
     kind: Kind = MODS,
 ) -> bool:
-    if config.get("enabled", True) is False:
+    if config.get("enabled", manifest.default_enabled) is False:
         logger.info(f"{kind.noun}_disabled", mod=name, source=manifest.source)
         bus.statuses[name] = ModStatus(name, DISABLED)
         return False

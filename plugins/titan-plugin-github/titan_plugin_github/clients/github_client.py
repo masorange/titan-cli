@@ -119,6 +119,10 @@ class GitHubClient:
         """Count the repository's open PRs, without listing them."""
         return self._pr_service.count_open_prs()
 
+    def invalidate_reads(self) -> None:
+        """Make the next list reads (PRs, runs, merge queue) go to GitHub instead of the short-lived cache."""
+        self._pr_service.invalidate_reads()
+
     def get_repo_full_name(self) -> str:
         """The repository this client works on, as "owner/name"."""
         return self._gh_network.get_repo_string()

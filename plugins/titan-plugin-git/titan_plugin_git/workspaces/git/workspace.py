@@ -15,6 +15,7 @@ from titan_plugin_git.sections.branches.branches import read_branches, start_sta
 from titan_plugin_git.sections.worktrees.worktrees import read_worktrees
 
 from . import draw
+from .actions import Actions
 from .reading import WIP, FileDiff, Files, card_key, read_file_diff, read_files
 
 TITLE = "Git"
@@ -87,6 +88,7 @@ def register(w, on, options):
     def select_stash(stash):
         select(stash.hash)
         w.state.set("stash_selected", True)
+        w.state.set("tab", "stashes")
 
     def stash_action(kind, stash):
         w.state.set("stash_drop_confirm", None)
@@ -145,14 +147,20 @@ def register(w, on, options):
         w.state.set("commit_limit", (w.state.get("commit_limit") or options["commits_shown"]) + options["commits_shown"])
         w.run(read_history)
 
+    def fewer_commits():
+        page = options["commits_shown"]
+        w.state.set("commit_limit", max(page, (w.state.get("commit_limit") or page) - page))
+        w.run(read_history)
+
     def resize(widths):
         w.state.set("columns", tuple(widths))
         w.store.set("columns", list(widths))
 
-    actions = draw.Actions(
+    actions = Actions(
         select=select,
         toggle=toggle,
         more_commits=more_commits,
+        fewer_commits=fewer_commits,
         more_lines=lambda key, limit: put("limits", key, limit + options["diff_lines"]),
         retry_history=lambda: w.run(read_history),
         retry_files=lambda selection: w.run(lambda: load_files(selection)),
@@ -189,8 +197,10 @@ def register(w, on, options):
         if stash:
             select(stash)
             w.state.set("stash_selected", True)
+            w.state.set("tab", "stashes")
         elif sha:
             select(sha)
+            w.state.set("tab", "history")
         elif not w.state.get("selected"):
             w.state.set("selected", WIP)
         if started:

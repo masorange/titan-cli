@@ -274,7 +274,7 @@ def test_the_unfolded_description_shows_its_lines():
 
 
 def test_an_issue_without_description_has_no_toggle():
-    assert draw.description(issue(description="No description"), False, Mock()) is None
+    assert draw.description(issue(description="No description"), False, Mock(), Mock()) is None
 
 
 # -- status and filters, read from Jira --------------------------------------
@@ -564,9 +564,20 @@ def texts(box):
 
 
 def test_a_folded_description_previews_its_first_lines():
-    folded = draw.description(issue(description="one\n\ntwo\nthree"), False, Mock())
+    folded = draw.description(issue(description="one\n\ntwo\nthree"), False, Mock(), Mock())
 
     assert texts(folded.children[1]) == ["one", "two", "…"]
+
+
+def test_an_unfolded_description_has_a_button_that_copies_all_of_it():
+    copy = Mock()
+    unfolded = draw.description(issue(description="one\n\ntwo"), True, Mock(), copy)
+
+    button = unfolded.children[-1]
+    button.on_press()
+
+    assert button.label == "⧉ Copy"
+    copy.assert_called_once_with("one\n\ntwo", "description")
 
 
 def test_an_issue_without_comments_shows_no_comments_fold():

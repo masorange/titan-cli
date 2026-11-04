@@ -34,6 +34,7 @@ from ...operations.pr_operations import (
 )
 from ...exceptions import GitHubAPIError
 from ...messages import msg
+from .read_cache import ReadCache, cached_read
 
 # Everything any PR listing shows, asked for once so the three of them answer
 # with the same model whichever one the caller picked.
@@ -66,6 +67,13 @@ class PRService:
         self.gh = gh_network
         self.graphql = graphql_network
         self._logger = get_logger(__name__)
+        # What polling repeats; see read_cache.py. The login never changes, so it is kept apart.
+        self._reads = ReadCache()
+        self._login: Optional[str] = None
+
+    def invalidate_reads(self) -> None:
+        """Forget the cached lists: the next read goes to GitHub."""
+        self._reads.invalidate()
 
     @log_client_operation()
     def get_pull_request(self, pr_number: int) -> ClientResult[UIPullRequest]:
@@ -225,8 +233,12 @@ class PRService:
         Returns:
             ClientResult[str]
         """
+        if self._login:
+            return ClientSuccess(data=self._login, message=self._login)
         try:
             login = self.gh.run_command(["api", "user", "--jq", ".login"]).strip()
+            if login:
+                self._login = login
             if not login:
                 return ClientError(error_message="GitHub returned no login for the current user",
                                    error_code="NO_CURRENT_USER")
@@ -291,6 +303,12 @@ class PRService:
         no matching PRs. Listing the repository and filtering here cannot fail
         that way.
         """
+        # One listing per state serves every caller that wants no more than it holds.
+        key = ("repo_prs", state)
+        held = self._reads.get(key)
+        if held is not None and held[0] >= limit:
+            prs = held[1][:limit]
+            return ClientSuccess(data=prs, message=f"Found {len(prs)} PRs")
         try:
             args = [
                 "pr", "list",
@@ -300,6 +318,7 @@ class PRService:
             ] + self.gh.get_repo_arg()
 
             prs = [from_rest_pr(NetworkPullRequest.from_json(data)) for data in json.loads(self.gh.run_command(args))]
+            self._reads.put(key, (limit, prs))
             return ClientSuccess(data=prs, message=f"Found {len(prs)} PRs")
 
         except json.JSONDecodeError as e:
@@ -939,6 +958,7 @@ class PRService:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
+    @cached_read
     def list_workflow_runs(
         self, trigger: Optional[str] = None, limit: int = 10, page: int = 1
     ) -> ClientResult[List[UIWorkflowRun]]:
@@ -1022,6 +1042,7 @@ class PRService:
             return ClientError(error_message=str(e), error_code="API_ERROR")
 
     @log_client_operation()
+    @cached_read
     def get_merge_queue(self, max_entries: int = 10) -> ClientResult[UIMergeQueue]:
         """
         Get the merge queue of the repository's default branch.
@@ -1074,6 +1095,7 @@ class PRService:
             )
 
     @log_client_operation()
+    @cached_read
     def count_open_prs(self) -> ClientResult[int]:
         """
         Count the repository's open pull requests (one GraphQL call, no cap).

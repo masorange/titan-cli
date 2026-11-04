@@ -7,6 +7,7 @@ focused button keeps its focus, a field keeps its cursor). `build`, `patch` and 
 do that for a whole tree and know nothing of any panel: a mod's side panel and a workspace
 both use them.
 """
+import time
 from typing import Any, List
 
 from rich.text import Text as RichText
@@ -39,6 +40,9 @@ class _Group(Vertical):
     """
 
 
+DRAG_THROTTLE = 0.03  # seconds between two layouts while a column border is dragged
+
+
 class _Columns(Horizontal):
     DEFAULT_CSS = """
     _Columns {
@@ -60,6 +64,7 @@ class _Column(Vertical):
     """
 
     _drag = None  # (index, screen_x at press, widths at press) while a drag is on
+    _drag_applied = None  # the widths the drag last laid out, and when: a move that changes nothing costs nothing
 
     def _owner_and_index(self):
         owner = self.parent
@@ -82,9 +87,22 @@ class _Column(Vertical):
             return
         owner, _ = self._owner_and_index()
         i, start, widths = self._drag
-        for column, w in zip([c for c in owner.children if isinstance(c, _Column)], dragged_widths(widths, i, event.screen_x - start)):
-            column.styles.width = f"{w}fr"
+        self._apply_widths(owner, dragged_widths(widths, i, event.screen_x - start))
         event.stop()
+
+    def _apply_widths(self, owner, sizes, final: bool = False) -> None:
+        """
+        Lay the columns out at `sizes` in one repaint. Mouse moves arrive faster than a heavy screen
+        can lay out, so a move inside the throttle window is skipped (the last one is applied on release).
+        """
+        last = _Column._drag_applied
+        now = time.monotonic()
+        if not final and last and (last[0] == sizes or now - last[1] < DRAG_THROTTLE):
+            return
+        _Column._drag_applied = (sizes, now)
+        with self.app.batch_update():
+            for column, w in zip([c for c in owner.children if isinstance(c, _Column)], sizes):
+                column.styles.width = f"{w}fr"
 
     def on_mouse_up(self, event) -> None:
         if self._drag is None:
@@ -96,6 +114,8 @@ class _Column(Vertical):
         self.release_mouse()
         event.stop()
         resized = dragged_widths(widths, i, event.screen_x - start)
+        self._apply_widths(owner, resized, final=True)
+        _Column._drag_applied = None
         if resized != widths and owner.element.on_resize:
             owner.element.on_resize(resized)
 
@@ -113,7 +133,9 @@ class _Row(Horizontal):
         text-align: right;
     }
     _Row.-with-input > Static,
-    _Row.-with-input > Static:last-of-type {
+    _Row.-with-input > Static:last-of-type,
+    _Row.-pack > Static,
+    _Row.-pack > Static:last-of-type {
         width: auto;
         text-align: left;
         margin-right: 1;
@@ -129,6 +151,23 @@ def _spread(texts: List[Text], width: int) -> RichText:
     line = left + RichText(" " * gap) + right
     line.no_wrap, line.overflow = True, "ellipsis"
     return line
+
+
+def fill_height(body: Widget) -> None:
+    """
+    Make the columns inside a scrolling `body` reach its bottom edge, so a draggable border runs the
+    whole screen instead of stopping where the shortest column's content does. Call it after a
+    layout: it reads where the columns start. A column taller than the screen is left as it is.
+    """
+    for columns in body.query(_Columns):
+        top = columns.region.y - body.region.y + body.scroll_y
+        room = max(0, body.scrollable_content_region.height - top)
+        for column in columns.children:
+            if not isinstance(column, _Column):
+                continue
+            shown = column.styles.min_height
+            if shown is None or shown.value != room:
+                column.styles.min_height = room
 
 
 def kind(element: Any) -> type:
@@ -149,7 +188,7 @@ def kind(element: Any) -> type:
 
 
 def _is_spread(box: Box) -> bool:
-    return box.row and bool(box.children) and all(isinstance(c, Text) for c in box.children)
+    return box.row and not box.pack and bool(box.children) and all(isinstance(c, Text) for c in box.children)
 
 
 def _line_text(element: Any, width: int) -> RichText:
@@ -170,7 +209,9 @@ def _column(element: Columns, i: int, width: int) -> tuple:
 
 
 def _style_column(column: Widget, element: Columns, i: int) -> None:
-    column.styles.width = f"{element.ratio[i]}fr"
+    # A repaint that lands mid-drag must not snap the columns back to the old ratio.
+    if _Column._drag_applied is None:
+        column.styles.width = f"{element.ratio[i]}fr"
     handle = bool(i and element.on_resize)
     # A draggable column's left border is the gap: a thin line that is the handle.
     column.styles.margin = (0, 0, 0, element.gap - 1 if handle else element.gap if i else 0)
@@ -190,6 +231,7 @@ def _style_box(widget: Widget, box: Box, children: List[Widget]) -> None:
     if isinstance(widget, _Row):
         # A row with a text field is a label/field line, not a title-and-value spread.
         widget.set_class(any(isinstance(c, Input) for c in box.children), "-with-input")
+        widget.set_class(box.pack, "-pack")
         return
     if box.indent:
         widget.styles.padding = (0, 0, 0, box.indent)

@@ -7,7 +7,7 @@ the github plugin client on background timers; the readers and snapshots are sha
 `github` mod (`titan_plugin_github.readers`), which keeps the summary in the side pane.
 """
 from titan_cli.ui.components import refresh_ai_chip
-from titan_plugin_github.readers import prs as prs_reader, queue as queue_reader, runs as runs_reader
+from titan_plugin_github.readers import invalidate, prs as prs_reader, queue as queue_reader, runs as runs_reader
 
 from . import draw
 from .sections.prs import search, threads
@@ -44,7 +44,15 @@ def register(w, on, options):
         m.state.set("queue_runs", runs_reader.read_runs(
             m.client("github"), "merge_group", runs_reader.limit_of(m, "queue_runs")))
 
+    def forced(read):
+        """`read`, but from GitHub and not from what the mod or the timers just read."""
+        def again(m):
+            invalidate(m.client("github"))
+            read(m)
+        return again
+
     def refresh_all(m):
+        invalidate(m.client("github"))
         if shown["prs"]:
             m.run(lambda: refresh_others(m))
             refresh_prs(m)
@@ -55,11 +63,11 @@ def register(w, on, options):
             refresh_runs(m)
 
     # What the view's own actions (a review, a merge) and an error card's Retry run again.
-    w.state.set("refresh_prs", lambda: refresh_prs(w))
-    w.state.set("refresh_others", lambda: refresh_others(w))
-    w.state.set("refresh_queue", lambda: refresh_queue(w))
-    w.state.set("refresh_runs", lambda: refresh_runs(w))
-    w.state.set("refresh_queue_runs", lambda: refresh_queue_runs(w))
+    w.state.set("refresh_prs", lambda: forced(refresh_prs)(w))
+    w.state.set("refresh_others", lambda: forced(refresh_others)(w))
+    w.state.set("refresh_queue", lambda: forced(refresh_queue)(w))
+    w.state.set("refresh_runs", lambda: forced(refresh_runs)(w))
+    w.state.set("refresh_queue_runs", lambda: forced(refresh_queue_runs)(w))
 
     def view(width):
         return draw.draw(w, width, options, shown)

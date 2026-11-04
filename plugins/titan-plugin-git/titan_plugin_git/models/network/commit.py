@@ -16,4 +16,4 @@ class NetworkGitCommit:
     author: str
     date: str  # Raw git date string
     parents: List[str] = field(default_factory=list)  # %P, oldest-first as git prints it
-    refs: List[str] = field(default_factory=list)  # %D, e.g. ["HEAD -> main", "origin/main"]
+    refs: List[str] = field(default_factory=list)  # %D with --decorate=full, e.g. ["refs/heads/main", "refs/remotes/origin/main", "tag: refs/tags/v1"]
