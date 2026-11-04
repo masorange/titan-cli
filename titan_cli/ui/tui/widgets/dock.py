@@ -3,7 +3,7 @@ Dock Widget
 
 The bar at the bottom of every screen, in two rows:
 
-- Launcher, centred: Titan's own destinations (workflows, plugins, AI), reachable from
+- Launcher, centred: Titan's own destinations (home, workflows, plugins, AI), reachable from
   any screen, followed by one slot per mod that asked for one with `m.ui.dock`.
 - Status: where Titan was started (project, branch) and which AI runs what. The AI
   cells carry the key that changes them, F2 and F3, because this is the only place
@@ -220,6 +220,7 @@ class Dock(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="dock-launcher"):
+            yield DockItem(tile_text(Icons.HOME, "Home"), self._run("open_home"), classes="titan")
             yield DockItem(tile_text(Icons.WORKFLOW, "Workflows"), self._run("open_workflows"), classes="titan")
             yield DockItem(tile_text(Icons.PLUGIN, "Plugins"), self._run("open_plugins"), classes="titan")
             yield DockItem(tile_text(Icons.MOD, "Mods"), self._run("open_mods"), classes="titan")

@@ -461,13 +461,9 @@ class TitanApp(App):
     # -- the dock's launcher: Titan's destinations, from any screen ---------
 
     def _launcher_refusal(self, screen_type: type) -> Optional[str]:
-        from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
-
+        """Opening a screen is pushed over whatever is there, a running workflow included: it keeps running."""
         if isinstance(self.screen, screen_type):
             return "already here"
-        if any(isinstance(screen, WorkflowExecutionScreen) for screen in self.screen_stack):
-            # Leaving would orphan the run; its screen is still under whatever opens.
-            return "a workflow is running; finish it first"
         return None
 
     def _launch(self, screen_type: type, make: Callable[[], Any]) -> None:
@@ -478,6 +474,28 @@ class TitanApp(App):
             self.notify(refusal, severity="warning")
             return
         self.push_screen(make())
+
+    def action_open_home(self) -> None:
+        """Go back to the home screen, closing whatever is open above it."""
+        from titan_cli.ui.tui.screens.main_menu import MainMenuScreen
+        from titan_cli.ui.tui.screens.workflow_execution import RUNNING_REFUSAL, live_workflow
+
+        refusal = self._launcher_refusal(MainMenuScreen)
+        if refusal == "already here":
+            return
+        if refusal is not None:
+            self.notify(refusal, severity="warning")
+            return
+        pops = pops_to_home(self.screen_stack, MainMenuScreen)
+        if pops is not None and live_workflow(self.screen_stack[len(self.screen_stack) - pops:]):
+            # Home closes the screens above it, and closing a running workflow's would orphan the run.
+            self.notify(RUNNING_REFUSAL, severity="warning")
+            return
+        if pops is None:  # started on another screen: there is no home under it yet
+            self.push_screen(MainMenuScreen(self.config))
+            return
+        for _ in range(pops):
+            self.pop_screen()
 
     def action_open_workflows(self) -> None:
         """Open the workflow list."""
@@ -534,6 +552,14 @@ class TitanApp(App):
             # Re-enable mouse
             self._driver._enable_mouse_support()
             self.notify("🖱️  Copy Mode OFF - Mouse interactions restored", timeout=3)
+
+
+def pops_to_home(stack: list, home: type) -> Optional[int]:
+    """How many screens to close from the top of `stack` to show the home one; None when it is not in it."""
+    for depth, screen in enumerate(reversed(stack)):
+        if isinstance(screen, home):
+            return depth
+    return None
 
 
 def _enabled_plugins(config, registry) -> Optional[list]:

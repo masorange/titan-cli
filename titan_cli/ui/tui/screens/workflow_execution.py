@@ -36,6 +36,18 @@ from .base import BaseScreen
 
 logger = get_logger(__name__)
 
+RUNNING_REFUSAL = "a workflow is still running; go back to it to finish or cancel it"
+
+
+def live_workflow(stack) -> Optional["WorkflowExecutionScreen"]:
+    """The execution screen in `stack` whose workflow is still running, if any.
+
+    Only one runs at a time: the executor uses process-wide state (abort check, cancel flag, cwd).
+    A finished or failed run left in the stack blocks nothing.
+    """
+    return next((s for s in stack if isinstance(s, WorkflowExecutionScreen) and s.workflow_running), None)
+
+
 class WorkflowExecutionScreen(BaseScreen):
     """
     Screen for executing a workflow with real-time progress display.
@@ -112,6 +124,17 @@ class WorkflowExecutionScreen(BaseScreen):
         self._executor = None
         self._original_cwd = os.getcwd()
         self._should_auto_back = False  # Flag to trigger auto-back when worker finishes
+        self._load_failed = False  # the workflow never started: not found or not loadable
+
+    @property
+    def workflow_running(self) -> bool:
+        """Whether this screen's workflow is still running: about to start, or its worker not finished."""
+        if getattr(self, "_load_failed", False):
+            return False
+        worker = getattr(self, "_worker", None)
+        if worker is None:
+            return True  # pushed but not mounted yet: it starts on mount
+        return worker.state in (WorkerState.PENDING, WorkerState.RUNNING)
 
     def compose_content(self) -> ComposeResult:
         """Compose the workflow execution screen."""
@@ -138,6 +161,7 @@ class WorkflowExecutionScreen(BaseScreen):
             # Load workflow
             self.workflow = self.config.workflows.get_workflow(self.workflow_name)
             if not self.workflow:
+                self._load_failed = True
                 logger.error("workflow_not_found", workflow_name=self.workflow_name)
                 self._error_card(f"Workflow '{self.workflow_name}' not found.")
                 self._output("[dim]Press ESC or Q to return[/dim]")
@@ -173,9 +197,11 @@ class WorkflowExecutionScreen(BaseScreen):
             )
 
         except (WorkflowNotFoundError, WorkflowExecutionError) as e:
+            self._load_failed = True
             self._error_card(e, "Error loading workflow")
             self._output("[dim]Press ESC or Q to return[/dim]")
         except Exception as e:
+            self._load_failed = True
             import traceback
             error_details = traceback.format_exc()
             logger.exception("workflow_load_unexpected_error", workflow_name=self.workflow_name, error=str(e))

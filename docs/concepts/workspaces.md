@@ -16,12 +16,22 @@ A workspace and a mod are loaded the same way and can share a name (`jira` works
 
 ## What Titan ships
 
-Official plugins ship their workspaces, and they load while the plugin is enabled:
+Titan itself ships the `cli` workspace, in every project:
+
+| Workspace | Shows |
+|---|---|
+| `cli` | A full-screen terminal that runs the active CLI session (Claude, Gemini, Codex, OpenCode, Antigravity, Grok) inside Titan; with no session it lists the installed CLIs to start one. The menu to switch, start and close sessions is the `cli` [mod](mods.md)'s, in the side panel. A session keeps running when you leave the workspace (`ctrl+]`) and is the same one when you come back. The mouse wheel (or `shift+pageup`/`shift+pagedown`) scrolls back through the last 2000 lines and typing returns to the live screen; a CLI that reads the mouse, or runs full-screen, gets the wheel itself. Each session's memory is measured in the border and capped (`memory_limit_mb`, 2048 by default; a watchdog kills it past the limit everywhere, the systemd cgroup cap is Linux-only); every session is stopped when Titan quits |
+
+Official plugins ship theirs, and they load while the plugin is enabled:
 
 | Workspace | Plugin | Shows |
 |---|---|---|
 | `github` | github | The repo's pull requests (search, review, approve, merge, conflicts, check diagnosis), the merge queue and the latest workflow runs, in two columns that stack into one when the window is narrow |
 | `jira` | jira | Jira issues narrowed by project, status, components, starred filters or a search, with the open issue's description, comments, AI summary, Move, Fix version, Plan and Take, in two columns that stack when the window is narrow |
+
+### Recording a session for debugging
+
+Set `TITAN_CLI_RECORD=<folder>` before starting Titan and every CLI session writes the raw bytes the CLI sent to `<folder>/<command>-<session id>.bin`, closed when the session ends. The folder must exist and be writable. The file contains everything the CLI printed, including your conversation and code, so use it only to debug a screen that renders wrong and delete it afterwards.
 
 ## Turning a workspace off
 

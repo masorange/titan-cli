@@ -70,6 +70,7 @@ description = "..."
 requires_plugins = ["github"]
 events = ["app.start", "ui.render"]   # the only events register() may hook
 slots = ["pane"]
+last = false                          # true loads it after every other, so its pane and dock tile come last
 ai_task = "PR check diagnosis"        # label of the AI routing task, if the mod uses m.ai
 ai_assist_task = "Fix with AI"        # label of the help-button task, if it uses ai_assist_button
 

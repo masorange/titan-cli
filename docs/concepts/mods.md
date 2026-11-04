@@ -16,6 +16,8 @@ A mod does not add workflow steps and a plugin does not draw on screen. A mod us
 
 ## What Titan ships
 
+Titan itself ships the `cli` mod, in every project: the sessions of the CLIs you run inside Titan (Claude, Codex, Gemini...), to start, switch to and close, each opening the `cli` [workspace](workspaces.md), where the terminal is.
+
 Official plugins ship their own mods, and they load while the plugin is enabled:
 
 | Mod | Plugin | Shows |

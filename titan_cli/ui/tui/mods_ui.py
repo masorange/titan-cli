@@ -265,7 +265,9 @@ class TitanModHost:
     # -- workflows ----------------------------------------------------------
 
     def run_workflow(self, mod: str, name: str, params: Mapping[str, Any]) -> Optional[str]:
-        from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
+        from titan_cli.ui.tui.screens.workflow_execution import (
+            RUNNING_REFUSAL, WorkflowExecutionScreen, live_workflow,
+        )
 
         config = getattr(self._app, "config", None)
         # What the menu would run for this name: a project workflow extending it
@@ -274,8 +276,8 @@ class TitanModHost:
         refusal = None
         if config is None:
             refusal = "Titan has no configuration loaded"
-        elif any(isinstance(screen, WorkflowExecutionScreen) for screen in self._app.screen_stack):
-            refusal = "another workflow is running; finish it first"
+        elif live_workflow(self._app.screen_stack):
+            refusal = RUNNING_REFUSAL
         elif config.workflows.get_workflow(resolved) is None:
             refusal = f"there is no workflow '{name}'"
         if refusal is not None:

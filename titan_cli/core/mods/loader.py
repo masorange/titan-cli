@@ -171,6 +171,9 @@ class ModManifest:
     icon: Optional[str] = None
     # The file `register` is in, which is the kind's (`mod.py`, `workspace.py`).
     entry_file: str = ENTRYPOINT
+    # Loads after every other of its kind, so its pane and dock tile come last. The rest keep
+    # their order (Titan's, plugins', project, user).
+    last: bool = False
 
     @property
     def entrypoint(self) -> Path:
@@ -195,6 +198,8 @@ def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
         value = mod.get(key, [])
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise ValueError(f"{path}: {key} must be a list of strings")
+    if not isinstance(mod.get("last", False), bool):
+        raise ValueError(f"{path}: last must be true or false")
     for key in ("options", "sections"):
         if not isinstance(data.get(key, {}), dict):
             raise ValueError(f"{path}: [{key}] must be a table")
@@ -225,6 +230,7 @@ def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
         ai_assist_task=mod.get("ai_assist_task") or None,
         icon=mod.get("icon") or None,
         entry_file=kind.entrypoint,
+        last=mod.get("last", False),
     )
 
 
@@ -430,7 +436,7 @@ def load_mods(
     if enabled_plugins is not None:
         bus.enabled_plugins = frozenset(enabled_plugins)
     loaded: List[str] = []
-    for name, manifest in mods.items():
+    for name, manifest in sorted(mods.items(), key=lambda item: item[1].last):  # stable: `last` ones go after
         bus.found[name] = manifest
         if _load_one(bus, name, manifest, mods_config.get(name, {}), bus.enabled_plugins, kind):
             loaded.append(name)

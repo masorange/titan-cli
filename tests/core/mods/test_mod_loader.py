@@ -657,3 +657,18 @@ def test_a_mod_replacing_another_of_the_same_name_is_logged(tmp_path, monkeypatc
 
     assert found["git"].source == "project"
     assert [k["replaces"] for a, k in logged if a == ("mod_overrides_mod",)] == ["titan"]
+
+
+def test_a_mod_that_asks_to_be_last_loads_after_the_others_whatever_its_name(tmp_path):
+    order = tmp_path / "order.txt"
+    source = f"def register(on, options):\n    open({str(order)!r}, 'a').write(__name__.rsplit('_', 1)[-1] + ' ')\n"
+    write_mod(tmp_path, "aaa_last", source=source, manifest='[mod]\nname = "aaa_last"\nlast = true\n')
+    write_mod(tmp_path, "mmm", source=source, manifest='[mod]\nname = "mmm"\n')
+    write_mod(tmp_path, "zzz", source=source, manifest='[mod]\nname = "zzz"\n')
+
+    assert load_mods(ModBus(), discover_mods([("user", tmp_path)])) == ["mmm", "zzz", "aaa_last"]
+
+
+def test_last_must_be_a_boolean(tmp_path):
+    write_mod(tmp_path, "odd", manifest='[mod]\nname = "odd"\nlast = "yes"\n')
+    assert discover_mods([("user", tmp_path)]) == {}

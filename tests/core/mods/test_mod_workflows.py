@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 from titan_cli.core.mods import ModBus
 from titan_cli.ui.tui.mods_ui import TitanModHost
-from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
+from textual.worker import WorkerState
+
+from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen, live_workflow
 
 
 class FakeApp:
@@ -49,7 +51,36 @@ def test_a_workflow_is_not_opened_over_one_that_is_running():
 
     assert workflows_of(app).run("review-pr", {"review_pr_number": 42}) is False
     assert app.pushed == []
-    assert "another workflow is running" in app.notices[0][0]
+    assert "still running" in app.notices[0][0]
+
+
+def finished_screen():
+    screen = object.__new__(WorkflowExecutionScreen)
+    screen._load_failed, screen._worker = False, SimpleNamespace(state=WorkerState.ERROR)
+    return screen
+
+
+def test_a_finished_or_failed_workflow_left_in_the_stack_blocks_nothing():
+    app = FakeApp(screens=[finished_screen()])
+
+    assert workflows_of(app).run("review-pr", {}) is True
+    assert app.notices == []
+
+
+def test_only_a_workflow_whose_worker_has_not_ended_is_live():
+    def screen(state=None, load_failed=False):
+        s = object.__new__(WorkflowExecutionScreen)
+        s._load_failed, s._worker = load_failed, None if state is None else SimpleNamespace(state=state)
+        return s
+
+    assert screen().workflow_running  # pushed, not mounted yet
+    assert screen(WorkerState.PENDING).workflow_running and screen(WorkerState.RUNNING).workflow_running
+    for state in (WorkerState.SUCCESS, WorkerState.ERROR, WorkerState.CANCELLED):
+        assert not screen(state).workflow_running
+    assert not screen(load_failed=True).workflow_running
+    live = screen(WorkerState.RUNNING)
+    assert live_workflow([object(), finished_screen(), live]) is live
+    assert live_workflow([finished_screen()]) is None
 
 
 def test_an_unknown_workflow_is_refused_with_a_toast():
