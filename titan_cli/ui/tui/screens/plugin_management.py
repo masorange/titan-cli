@@ -40,8 +40,7 @@ from titan_cli.core.plugins.community_sources import (
 )
 from titan_cli.core.logging import get_logger
 import asyncio
-import tomli
-import tomli_w
+from titan_cli.core.plugins.models import PluginPinScope
 
 from .plugin_config_resolver import plugin_has_config_ui, resolve_plugin_config_screen
 
@@ -223,7 +222,7 @@ class PluginManagementScreen(BaseScreen):
                 status_text = "Enabled" if is_enabled else "Disabled"
 
             active_rec = self._build_stable_record(plugin_name)
-            badge = " [community]" if active_rec else ""
+            badge = f" [community · {self._pin_scope_label(plugin_name)}]" if active_rec else ""
 
             options.append(
                 Option(
@@ -498,6 +497,11 @@ class PluginManagementScreen(BaseScreen):
                 details.mount(DimText(f"  Repo: {active_rec.repo_url}"))
                 if active_rec.requested_ref:
                     details.mount(DimText(f"  {active_rec.requested_ref} → {active_rec.resolved_commit}"))
+            details.mount(DimText(
+                "  Scope: all projects (~/.titan/config.toml)"
+                if self._pin_scope_label(plugin_name) == PluginPinScope.GLOBAL.value
+                else "  Scope: this project (.titan/config.toml)"
+            ))
             if active_rec.installed_at:
                 details.mount(DimText(f"  Installed: {active_rec.installed_at[:10]}"))
         elif active_channel == PluginChannel.DEV_LOCAL and active_path:
@@ -521,12 +525,15 @@ class PluginManagementScreen(BaseScreen):
         details.mount(Text(""))  # Spacer
         details.mount(BoldText("Actions:"))
         action_verb = "disable" if is_enabled else "enable"
-        details.mount(DimText(f"  Press e to {action_verb} this plugin"))
+        details.mount(DimText(f"  Press e to {action_verb} this plugin in this project"))
         details.mount(DimText("  Press c to configure this plugin"))
         if active_channel == PluginChannel.DEV_LOCAL:
             details.mount(DimText("  Press u to remove the development source"))
         elif active_rec:
-            details.mount(DimText("  Press u to remove this plugin from the current project"))
+            if self._pin_scope_label(plugin_name) == PluginPinScope.GLOBAL.value:
+                details.mount(DimText("  Press u to remove this plugin from all projects"))
+            else:
+                details.mount(DimText("  Press u to remove this plugin from the current project"))
         if is_community_plugin:
             details.mount(DimText("  Press d to configure a local development path"))
 
@@ -576,7 +583,7 @@ class PluginManagementScreen(BaseScreen):
                         severity="warning",
                     )
                     return
-                self.config.set_global_plugin_source(
+                self.config.set_local_plugin_override(
                     self.selected_plugin,
                     PluginChannel.STABLE,
                     str(active_path),
@@ -589,7 +596,7 @@ class PluginManagementScreen(BaseScreen):
                     )
                     return
 
-                self.config.set_global_plugin_source(
+                self.config.set_local_plugin_override(
                     self.selected_plugin,
                     PluginChannel.DEV_LOCAL,
                     str(active_path),
@@ -632,15 +639,15 @@ class PluginManagementScreen(BaseScreen):
         return self._build_stable_record(plugin_name) is not None or self.config.get_plugin_source_path(plugin_name) is not None
 
     def _build_stable_record(self, plugin_name: str) -> CommunityPluginRecord | None:
-        """Build a synthetic stable record from the shared project config."""
-        repo_url = self.config.get_project_plugin_repo_url(plugin_name)
-        resolved_commit = self.config.get_project_plugin_resolved_commit(plugin_name)
-        if not repo_url or not resolved_commit:
+        """Build a synthetic stable record from the plugin's effective pin."""
+        pin = self.config.get_plugin_pin(plugin_name)
+        if pin is None:
             return None
 
-        requested_ref = self.config.get_project_plugin_requested_ref(plugin_name) or resolved_commit
+        requested_ref = pin.requested_ref or pin.resolved_commit
+        resolved_commit = pin.resolved_commit
         return CommunityPluginRecord(
-            repo_url=repo_url,
+            repo_url=pin.repo_url,
             package_name=plugin_name,
             titan_plugin_name=plugin_name,
             installed_at="",
@@ -648,42 +655,28 @@ class PluginManagementScreen(BaseScreen):
             dev_local_path=None,
             requested_ref=requested_ref,
             resolved_commit=resolved_commit,
+            subdirectory=pin.subdirectory,
         )
 
+    def _pin_scope_label(self, plugin_name: str) -> str:
+        """`global` or `project`: where the plugin's stable pin lives."""
+        pin = self.config.get_plugin_pin(plugin_name)
+        return pin.scope.value if pin else PluginPinScope.PROJECT.value
+
     def action_toggle_plugin(self) -> None:
-        """Toggle enable/disable state of selected plugin."""
+        """Toggle enable/disable state of selected plugin.
+
+        Acts on this project only: for a globally installed plugin, disabling it
+        here leaves it enabled everywhere else.
+        """
         if not self.selected_plugin:
             self.app.notify("Please select a plugin", severity="warning")
             return
 
         try:
-           
-            project_cfg_path = self.config.project_config_path
-            if not project_cfg_path or not project_cfg_path.exists():
-                self.app.notify("No project configuration found", severity="error")
-                return
-
-            # Load current config
-            with open(project_cfg_path, "rb") as f:
-                project_cfg_dict = tomli.load(f)
-
-            # Ensure plugin entry exists
-            plugins_table = project_cfg_dict.setdefault("plugins", {})
-            plugin_table = plugins_table.setdefault(self.selected_plugin, {})
-
-            # Toggle enabled state
-            current_state = plugin_table.get("enabled", True)
-            new_state = not current_state
-            plugin_table["enabled"] = new_state
-
-            # Save config
-            with open(project_cfg_path, "wb") as f:
-                tomli_w.dump(project_cfg_dict, f)
-
-            # Reload config
+            new_state = not self.config.is_plugin_enabled(self.selected_plugin)
+            self.config.set_plugin_enabled_in_project(self.selected_plugin, new_state)
             self.config.load()
-
-            # Refresh display
             self._load_plugins()
 
             action = "enabled" if new_state else "disabled"
@@ -769,7 +762,7 @@ class PluginManagementScreen(BaseScreen):
             self.app.notify(error, severity="error")
             return
 
-        self.config.set_global_plugin_source(
+        self.config.set_local_plugin_override(
             self.selected_plugin,
             PluginChannel.STABLE,
             str(repo_path),
@@ -788,18 +781,19 @@ class PluginManagementScreen(BaseScreen):
         )
 
     def action_remove_plugin_from_project(self) -> None:
-        """Remove the selected missing plugin from the current project's config."""
+        """Remove the selected missing plugin where its pin lives (project or global)."""
         plugin_name = self.selected_missing_plugin
         if not plugin_name:
             self.app.notify("Please select a missing plugin", severity="warning")
             return
 
         try:
-            self._remove_plugin_from_project(plugin_name)
+            scope = self._remove_plugin(plugin_name)
+            where = "all projects" if scope is PluginPinScope.GLOBAL else "this project"
             self.selected_missing_plugin = None
             self.config.load()
             self._load_plugins()
-            self.app.notify(f"Plugin '{plugin_name}' removed from this project.", severity="information")
+            self.app.notify(f"Plugin '{plugin_name}' removed from {where}.", severity="information")
         except Exception as e:
             logger.exception("plugin_remove_from_project_failed", plugin=plugin_name)
             self.app.notify(f"Failed to remove plugin from project: {e}", severity="error")
@@ -858,7 +852,8 @@ class PluginManagementScreen(BaseScreen):
             return
 
         incompatibility = await asyncio.to_thread(
-            self._check_candidate_incompatibility, record.repo_url, resolved_sha, host, token
+            self._check_candidate_incompatibility,
+            record.repo_url, resolved_sha, host, token, record.subdirectory
         )
         if incompatibility:
             self.app.notify(
@@ -869,12 +864,15 @@ class PluginManagementScreen(BaseScreen):
             return
 
         try:
+            pin = self.config.get_plugin_pin(record.titan_plugin_name)
             await asyncio.to_thread(
-                self._update_project_stable_source,
+                self.config.set_plugin_pin,
                 record.titan_plugin_name,
+                pin.scope if pin else PluginPinScope.PROJECT,
                 record.repo_url,
                 latest,
                 resolved_sha,
+                record.subdirectory,
             )
         except Exception as e:
             logger.error("plugin_update_failed", plugin=record.titan_plugin_name, error=str(e))
@@ -893,7 +891,12 @@ class PluginManagementScreen(BaseScreen):
         )
 
     def _check_candidate_incompatibility(
-        self, repo_url: str, resolved_sha: str, host, token: str | None
+        self,
+        repo_url: str,
+        resolved_sha: str,
+        host,
+        token: str | None,
+        subdirectory: str | None = None,
     ) -> str | None:
         """Check the candidate version's declared titan-cli requirement before pinning it.
 
@@ -908,7 +911,7 @@ class PluginManagementScreen(BaseScreen):
             parse_plugin_metadata,
         )
 
-        raw_url = build_raw_pyproject_url(repo_url, resolved_sha, host)
+        raw_url = build_raw_pyproject_url(repo_url, resolved_sha, host, subdirectory)
         if raw_url is None:
             return None
         content, error = fetch_pyproject_toml(raw_url, token)
@@ -923,7 +926,7 @@ class PluginManagementScreen(BaseScreen):
             return
 
         if self.config.get_plugin_source_channel(self.selected_plugin) == PluginChannel.DEV_LOCAL:
-            self.config.clear_global_plugin_source(self.selected_plugin)
+            self.config.clear_local_plugin_override(self.selected_plugin)
             self.config.load()
             self.installed_plugins = self.config.registry.list_installed()
             self._show_plugin_details(self.selected_plugin)
@@ -943,14 +946,16 @@ class PluginManagementScreen(BaseScreen):
     async def _run_uninstall(self, titan_plugin_name: str) -> None:
         """Remove a stable community plugin from the current project config."""
         logger.info("plugin_uninstall_started", plugin=titan_plugin_name, channel=PluginChannel.STABLE)
-        self.app.notify(f"Removing '{titan_plugin_name}' from this project…", severity="information", timeout=30)
+        scope = self._pin_scope_label(titan_plugin_name)
+        where = "all projects" if scope == PluginPinScope.GLOBAL.value else "this project"
+        self.app.notify(f"Removing '{titan_plugin_name}' from {where}…", severity="information", timeout=30)
 
         try:
-            await asyncio.to_thread(self._remove_plugin_from_project, titan_plugin_name)
+            await asyncio.to_thread(self._remove_plugin, titan_plugin_name)
         except Exception as e:
             logger.error("plugin_uninstall_failed", plugin=titan_plugin_name, error=str(e))
             self.app.notify(
-                f"Failed to remove '{titan_plugin_name}' from this project: {e}",
+                f"Failed to remove '{titan_plugin_name}' from {where}: {e}",
                 severity="error",
             )
             return
@@ -958,53 +963,20 @@ class PluginManagementScreen(BaseScreen):
         logger.info("plugin_uninstalled", plugin=titan_plugin_name, channel=PluginChannel.STABLE)
         self.config.load()
         self._load_plugins()
-        self.app.notify(f"Plugin '{titan_plugin_name}' removed from this project.", severity="information")
+        self.app.notify(f"Plugin '{titan_plugin_name}' removed from {where}.", severity="information")
 
-    def _update_project_stable_source(
-        self,
-        plugin_name: str,
-        repo_url: str,
-        requested_ref: str,
-        resolved_commit: str,
-    ) -> None:
-        """Update the shared stable pin for a project community plugin."""
-        project_cfg_path = self.config.project_config_path
-        if not project_cfg_path or not project_cfg_path.exists():
-            raise FileNotFoundError("No project configuration found")
+    def _remove_plugin(self, plugin_name: str) -> PluginPinScope:
+        """Remove a plugin where its pin lives, and clear any local source override.
 
-        with open(project_cfg_path, "rb") as f:
-            project_cfg_dict = tomli.load(f)
-
-        plugin_table = project_cfg_dict.setdefault("plugins", {}).setdefault(plugin_name, {})
-        plugin_table["enabled"] = True
-        source_table = plugin_table.setdefault("source", {})
-        source_table["channel"] = PluginChannel.STABLE
-        source_table["repo_url"] = repo_url
-        source_table["requested_ref"] = requested_ref
-        source_table["resolved_commit"] = resolved_commit
-
-        with open(project_cfg_path, "wb") as f:
-            tomli_w.dump(project_cfg_dict, f)
-
-    def _remove_plugin_from_project_config(self, plugin_name: str) -> None:
-        """Remove a plugin block from the current project's config."""
-        project_cfg_path = self.config.project_config_path
-        if not project_cfg_path or not project_cfg_path.exists():
-            raise FileNotFoundError("No project configuration found")
-
-        with open(project_cfg_path, "rb") as f:
-            project_cfg_dict = tomli.load(f)
-
-        plugins_table = project_cfg_dict.get("plugins")
-        if not plugins_table or plugin_name not in plugins_table:
-            raise KeyError(f"Plugin '{plugin_name}' is not configured in this project")
-
-        plugins_table.pop(plugin_name, None)
-
-        with open(project_cfg_path, "wb") as f:
-            tomli_w.dump(project_cfg_dict, f)
-
-    def _remove_plugin_from_project(self, plugin_name: str) -> None:
-        """Remove a plugin from the project and clear any local source override."""
-        self._remove_plugin_from_project_config(plugin_name)
-        self.config.clear_global_plugin_source(plugin_name)
+        A project pin goes with the plugin's whole entry in the project file; a
+        global pin is cleared from the user's file without touching its other
+        per-user settings. Returns the scope that was removed.
+        """
+        pin = self.config.get_plugin_pin(plugin_name)
+        scope = pin.scope if pin else PluginPinScope.PROJECT
+        if scope is PluginPinScope.GLOBAL:
+            self.config.clear_plugin_pin(plugin_name, PluginPinScope.GLOBAL)
+        else:
+            self.config.remove_plugin_from_project(plugin_name)
+        self.config.clear_local_plugin_override(plugin_name)
+        return scope

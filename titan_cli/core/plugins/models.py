@@ -1,4 +1,5 @@
 # titan_cli/core/plugins/models.py
+from enum import Enum
 from typing import Any, Dict, Optional, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -17,6 +18,7 @@ class PluginSourceConfig(BaseModel):
     repo_url: Optional[str] = Field(None, description="Git repository URL when channel is 'stable'.")
     requested_ref: Optional[str] = Field(None, description="User-facing tag/ref requested for a stable plugin source.")
     resolved_commit: Optional[str] = Field(None, description="Resolved commit SHA installed for a stable plugin source.")
+    subdirectory: Optional[str] = Field(None, description="Plugin folder inside the repository when it is not the root.")
 
     @model_validator(mode="after")
     def validate_channel_specific_fields(self) -> "PluginSourceConfig":
@@ -28,6 +30,23 @@ class PluginSourceConfig(BaseModel):
             if self.resolved_commit and not self.repo_url:
                 raise ValueError("stable plugin sources with 'resolved_commit' require 'repo_url'")
         return self
+
+class PluginPinScope(str, Enum):
+    """Where a stable community plugin pin is recorded."""
+
+    PROJECT = "project"
+    GLOBAL = "global"
+
+
+class PluginPin(BaseModel):
+    """A stable community plugin pinned to one commit, and where that pin lives."""
+
+    scope: PluginPinScope
+    repo_url: str
+    resolved_commit: str
+    requested_ref: Optional[str] = None
+    subdirectory: Optional[str] = None
+
 
 class PluginConfig(BaseModel):
     """

@@ -124,7 +124,7 @@ Every hook receives the same `m` for its mod.
 | `w.ui.view`, `w.ui.open_workspace(name, focus)`, `w.on_start`, `w.on_open` | **Workspaces only.** A workspace is a full screen with the same handle; a mod opens one with `m.ui.open_workspace("github", focus={...})`. See [Writing a Workspace](writing-workspaces.md). |
 | `m.ui.widget(name, cls)` | Bring your own widget: `cls` is a Textual widget with `apply(props)` (`Updatable`). A tree draws it with `Component(name, props)`, and a redraw calls `apply` on the mounted widget, so its own state (focus, scroll) survives. `name` is global: prefix it with your mod's (`"git.graph"`). An unregistered name shows a line saying so. Titan removes it when the mod unloads. You accept the Textual coupling: Titan's `Button`, `InputField` and `PressableRow` are the catalog to copy from. |
 | `m.ui.dock(label, badge, severity, on_click)` | A tile in the dock; `None` as label removes it |
-| `m.ui.home_card(title, text, on_click)` | A card on the home screen; `None` removes it |
+| `m.ui.home_card(title, text, on_click, actions)` | A card on the home screen; `None` removes it. `actions` are `Button` elements drawn as buttons under the text, each with its own `on_press` (a press on one never runs `on_click`; slow work goes to `m.run`) |
 | `m.ui.toast(text, severity)` | `information` or `warning`. An `error` is never a toast: it opens an error card (a modal with a copy button), so use `error_card` in your pane when the error belongs there |
 | `m.ui.copy(text, what)` | Copy to the clipboard and say so |
 | `m.state` | `get(key, default)` / `set` / `update(key, fn, default)`: in-memory values (`default` stands in for a missing key); every change repaints the mod's panes |

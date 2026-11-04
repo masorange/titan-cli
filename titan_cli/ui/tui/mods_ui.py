@@ -144,6 +144,16 @@ class TitanModHost:
         except Exception:
             logger.exception("mod_home_card_click_failed", mod=mod)
 
+    def press_home_action(self, mod: str, index: int) -> None:
+        """A button on a mod's home card: the `on_press` of its `index`-th action."""
+        slot = self._home_cards.get(mod)
+        if slot is None or index >= len(slot.actions):
+            return
+        try:
+            slot.actions[index].on_press()
+        except Exception:
+            logger.exception("mod_home_action_failed", mod=mod)
+
     def _paint_home_cards(self) -> None:
         from titan_cli.ui.tui.screens.main_menu import MainMenuScreen
 

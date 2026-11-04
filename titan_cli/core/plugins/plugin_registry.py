@@ -194,7 +194,6 @@ class PluginRegistry:
 
         for name, ep in self._entry_points.items():
             self._plugin_trust[name] = classify_plugin(
-                name,
                 channel=None,
                 dist_name=ep.dist.name if ep.dist else None,
             )
@@ -445,10 +444,11 @@ class PluginRegistry:
                     self._plugins.pop(plugin_name, None)
                 continue
 
-            repo_url = config.get_project_plugin_repo_url(plugin_name)
-            resolved_commit = config.get_project_plugin_resolved_commit(plugin_name)
-            if not repo_url or not resolved_commit:
+            pin = config.get_plugin_pin(plugin_name)
+            if pin is None:
                 continue
+            repo_url = pin.repo_url
+            resolved_commit = pin.resolved_commit
 
             try:
                 runtime = self._runtime_manager.ensure_stable_runtime(
@@ -456,6 +456,7 @@ class PluginRegistry:
                     repo_url=repo_url,
                     resolved_commit=resolved_commit,
                     token=get_github_token(),
+                    subdirectory=pin.subdirectory,
                 )
                 plugin = _load_local_plugin(
                     runtime.paths.source_dir,
@@ -473,9 +474,9 @@ class PluginRegistry:
                     plugin_name, PluginChannel.STABLE, Path(runtime.paths.source_dir)
                 )
                 if runtime.created:
-                    requested_ref = config.get_project_plugin_requested_ref(plugin_name) or resolved_commit[:12]
+                    requested_ref = pin.requested_ref or resolved_commit[:12]
                     self._plugin_sync_events.append(
-                        f"Syncing plugin '{plugin_name}' to project version {requested_ref}."
+                        f"Syncing plugin '{plugin_name}' to {pin.scope.value} version {requested_ref}."
                     )
                 if plugin_name not in self._discovered_plugin_names:
                     self._discovered_plugin_names.append(plugin_name)
@@ -560,7 +561,7 @@ class PluginRegistry:
         `SecretManager`), which the user should know about — but whether to
         keep running it is their call.
         """
-        self._plugin_trust[plugin_name] = classify_plugin(plugin_name, channel)
+        self._plugin_trust[plugin_name] = classify_plugin(channel)
         try:
             findings = scan_plugin_source(source_dir)
         except OSError as e:
