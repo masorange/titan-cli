@@ -208,6 +208,7 @@ class Session:
         self._sanitizer = Sanitizer()
         self._fd: Optional[int] = None
         self._pid: Optional[int] = None
+        self._proc: Optional[subprocess.Popen] = None
         self._scoped = False
         self._capped = False
         self._killed = False
@@ -234,15 +235,21 @@ class Session:
             executable = shutil.which(argv[0]) or argv[0]
         env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
         self._apply_size(cols, rows)
-        pid, fd = pty.fork()
-        if pid == 0:
-            # Whatever goes wrong here, this forked copy of Titan must never return into the app.
-            try:
-                os.chdir(self.cwd)
-                os.execve(executable, list(argv), env)
-            except BaseException:
-                pass
-            os._exit(127)
+        fd, slave = pty.openpty()
+        try:
+            # `executable` is the PATH-resolved CLI (or systemd-run) and argv holds no shell: nothing is interpreted.
+            proc = subprocess.Popen(
+                list(argv), executable=executable, cwd=self.cwd, env=env,
+                stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+                start_new_session=True,
+                preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0),  # the PTY becomes its controlling terminal
+            )
+        except BaseException:
+            os.close(fd)
+            raise
+        finally:
+            os.close(slave)
+        self._proc, pid = proc, proc.pid
         self._pid, self._fd = pid, fd
         self._winsize(cols, rows)
         threading.Thread(target=self._read, args=(pid, fd), daemon=True).start()
