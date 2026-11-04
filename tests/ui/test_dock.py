@@ -150,3 +150,41 @@ def test_home_is_as_many_screens_down_as_sit_above_it():
     assert pops_to_home([Other(), Home(), Other(), Other()], Home) == 2
     assert pops_to_home([Other(), Home()], Home) == 0
     assert pops_to_home([Other(), Other()], Home) is None
+
+
+class TestTilesFitTheWidth:
+    """Tiles that do not fit drop their label, then scroll: none ends past the edge, unpressable."""
+
+    @staticmethod
+    def _widths(labels):
+        from titan_cli.ui.tui.widgets.dock import tile_text, tile_width
+
+        full = [tile_width(tile_text("⚡", label)) for label in labels]
+        compact = [tile_width(tile_text("⚡", label, compact=True), compact=True) for label in labels]
+        return full, compact
+
+    def test_tiles_keep_their_labels_when_they_fit(self):
+        from titan_cli.ui.tui.widgets.dock import dock_mode
+
+        full, compact = self._widths(["Home", "Workflows", "Plugins", "Mods", "AI"])
+        assert dock_mode(200, full, compact) == "full"
+
+    def test_tiles_drop_their_labels_before_any_goes_past_the_edge(self):
+        from titan_cli.ui.tui.widgets.dock import dock_mode
+
+        labels = ["Home", "Workflows", "Plugins", "Mods", "AI", "Git", "GitHub", "Jira", "CLI"]
+        full, compact = self._widths(labels)
+        assert sum(full) > 80
+        assert dock_mode(80, full, compact) == "compact"
+
+    def test_the_launcher_scrolls_when_not_even_icons_fit(self):
+        from titan_cli.ui.tui.widgets.dock import dock_mode
+
+        full, compact = self._widths(["Home", "Workflows", "Plugins", "Mods", "AI", "Git", "GitHub"])
+        assert dock_mode(40, full, compact) == "scroll"
+
+    def test_a_compact_tile_keeps_its_badge_and_drops_its_label(self):
+        from titan_cli.ui.tui.widgets.dock import tile_text
+
+        assert tile_text("🔀", "PRs", [("2", "error")], compact=True).plain == "🔀\n2"
+        assert tile_text("🔀", "PRs", compact=True).plain == "🔀\n"

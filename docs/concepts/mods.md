@@ -16,13 +16,13 @@ A mod does not add workflow steps and a plugin does not draw on screen. A mod us
 
 ## What Titan ships
 
-Titan itself ships the `cli` mod, in every project: the sessions of the CLIs you run inside Titan (Claude, Codex, Gemini...), to start, switch to and close, each opening the `cli` [workspace](workspaces.md), where the terminal is.
+Titan itself ships the `cli` mod, in every project but off by default, like the `cli` [workspace](workspaces.md) it goes with: the sessions of the CLIs you run inside Titan (Claude, Codex, Gemini...), to start, switch to and close, each opening the workspace, where the terminal is. Turn both on with `[mods.cli] enabled = true` and `[workspaces.cli] enabled = true` in `~/.titan/config.toml`. A mod ships off with `default_enabled = false` in the `[mod]` of its `mod.toml`, as a workspace does.
 
 Official plugins ship their own mods, and they load while the plugin is enabled:
 
 | Mod | Plugin | Shows |
 |---|---|---|
-| `git` | git | Branch, upstream, recent commits; a switcher for the branches you use most (switch, or merge another branch into one); the repository's worktrees, each folding into its removal |
+| `git` | git | The branch and how it stands against its upstream; the git workspace's branch toolbar (switch, commit, pull, push, PR, stash, new branch, merge); a way into the workspace for the history, the stashes and the worktrees |
 | `github` | github | What needs you now: reviews asked of you, your PRs that need action, failing CI runs; pressing one opens the GitHub [workspace](workspaces.md) on it |
 | `jira` | jira | The Jira issues assigned to you, each one opening the `jira` workspace on it |
 

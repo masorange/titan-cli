@@ -75,3 +75,33 @@ def test_no_pause_means_calls_go_out():
 def test_rate_limit_text_is_recognised():
     assert rate_limit.is_rate_limit("GraphQL: API rate limit already exceeded for user ID 1.")
     assert not rate_limit.is_rate_limit("not found")
+
+
+def test_simultaneous_reads_cost_one_call():
+    """The mod's and the workspace's timers fire on the same tick: one goes to GitHub, the other waits."""
+    import threading
+
+    class Slow(Service):
+        @cached_read
+        def read(self, n):
+            self.calls += 1
+            time.sleep(0.05)
+            return ClientSuccess(data=n)
+
+    s = Slow()
+    threads = [threading.Thread(target=s.read, args=(1,)) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert s.calls == 1
+
+
+def test_a_call_refused_during_the_pause_is_a_warning_not_an_error():
+    from titan_plugin_github.clients.services.api_errors import api_error
+    from titan_plugin_github.exceptions import GitHubAPIError
+
+    paused = api_error(GitHubAPIError("paused", rate_limited=True))
+    other = api_error(GitHubAPIError("boom"))
+    assert (paused.error_code, paused.log_level) == ("RATE_LIMITED", "warning")
+    assert (other.error_code, other.log_level) == ("API_ERROR", "error")

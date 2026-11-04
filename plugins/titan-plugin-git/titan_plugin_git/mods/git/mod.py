@@ -1,8 +1,8 @@
 """
-git: a side pane with the branch you are on - how it stands against its upstream and what
-can be done with it: commit, pull, push, pull request, stash, merge, a new branch.
+git: a side pane with the branch you are on - how it stands against its upstream - and the git
+workspace's branch toolbar: switch, commit, pull, push, pull request, stash, a new branch, merge.
 
-The history, the branch switcher and the worktrees are the `git` workspace's, one press away.
+The history, the stashes and the worktrees are the `git` workspace's, one press away.
 Pull requests, the merge queue and CI check diagnosis live in the `github` mod shipped by
 titan-plugin-github, since they read the github plugin, not this one. Data comes from the git
 plugin client on a background timer; drawing reads only `m.state`, so it never waits on the

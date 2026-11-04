@@ -8,7 +8,7 @@ from titan_plugin_git.sections.branches.draw import stash_list_box
 from titan_plugin_git.sections.worktrees.draw import worktrees_list
 
 from .actions import Actions
-from .branch import toolbar
+from titan_plugin_git.sections.branches.toolbar import toolbar
 from .detail import detail
 from .history import history
 

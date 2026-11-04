@@ -12,12 +12,18 @@ The bar at the bottom of every screen, in two rows:
 
 F6, or a click on the status row's arrow, folds the launcher away and leaves only
 the status row; the choice belongs to the app, so every screen's dock follows it.
-"""
-from typing import Any, Callable, Optional, Sequence, Tuple
 
+When the tiles do not fit the terminal's width they drop their labels and show only
+the icon (the label stays as a tooltip); when not even that fits, the launcher scrolls
+sideways with the mouse wheel, so no tile ends up past the edge where nobody can press it.
+"""
+from typing import Any, Callable, Literal, Optional, Sequence, Tuple
+
+from rich.cells import cell_len
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, HorizontalScroll
 from textual.widget import Widget
 from textual.widgets import Static
 
@@ -37,21 +43,65 @@ _SEVERITY_COLORS = {
 
 
 Badge = Tuple[str, Optional[str]]  # text, severity
+DockMode = Literal["full", "compact", "scroll"]
 
-def tile_text(icon: Optional[str], label: str, badges: Sequence[Badge] = ()) -> Text:
-    """A tile's two lines: the icon, then the label with each badge in its color."""
+# A tile's frame: border and padding on each side. Keep in step with DockItem's CSS.
+_TILE_FRAME = 4
+_TILE_MARGIN = 1
+_TILE_MIN, _TILE_MAX = 13, 24
+_COMPACT_TILE_MIN = 6
+# The launcher's own padding plus the gap before the mods' tiles (Dock's CSS).
+_LAUNCHER_CHROME = 2 + 2
+
+
+def tile_text(
+    icon: Optional[str], label: str, badges: Sequence[Badge] = (), compact: bool = False
+) -> Text:
+    """
+    A tile's two lines: the icon, then the label with each badge in its color. A compact
+    tile leaves the label out and keeps only the badges, which carry news.
+    """
     text = Text(justify="center", no_wrap=True, overflow="ellipsis")
     text.append(f"{icon or ' '}\n")
-    text.append(label)
-    for badge, severity in badges:
+    if not compact:
+        text.append(label)
+    for index, (badge, severity) in enumerate(badges):
         color = _SEVERITY_COLORS.get(severity or "", severity) or colors.ACCENT
-        text.append(f" {badge}", style=f"bold {color}")
+        gap = "" if compact and index == 0 else " "
+        text.append(f"{gap}{badge}", style=f"bold {color}")
     return text
+
+
+def slot_badges(slot: DockSlot) -> Tuple[Badge, ...]:
+    return ((slot.badge, slot.severity),) if slot.badge else ()
 
 
 def slot_text(slot: DockSlot) -> Text:
     """How a mod's slot reads on its tile."""
-    return tile_text(slot.icon, slot.label, [(slot.badge, slot.severity)] if slot.badge else ())
+    return tile_text(slot.icon, slot.label, slot_badges(slot))
+
+
+def tile_width(text: Text, compact: bool = False) -> int:
+    """Columns a tile takes in the launcher, its margin included."""
+    content = max((cell_len(line) for line in text.plain.split("\n")), default=0)
+    width = content + _TILE_FRAME
+    if compact:
+        width = max(width, _COMPACT_TILE_MIN)
+    else:
+        width = min(max(width, _TILE_MIN), _TILE_MAX)
+    return width + _TILE_MARGIN
+
+
+def dock_mode(available: int, full_widths: Sequence[int], compact_widths: Sequence[int]) -> DockMode:
+    """
+    How the launcher shows its tiles in `available` columns: with labels when they all fit,
+    icons only when that is what fits, and scrolling when not even icons do.
+    """
+    if sum(full_widths) + _LAUNCHER_CHROME <= available:
+        return "full"
+    if sum(compact_widths) + _LAUNCHER_CHROME <= available:
+        return "compact"
+    return "scroll"
 
 
 def ai_cells(ai_config: Any, override: Any) -> Tuple[str, str]:
@@ -114,6 +164,10 @@ class DockItem(Static):
         content-align: center middle;
     }
 
+    DockItem.-compact {
+        min-width: 6;
+    }
+
     DockItem.titan {
         border: round $primary 60%;
     }
@@ -131,12 +185,51 @@ class DockItem(Static):
     }
     """
 
-    def __init__(self, content: Text, on_press: Callable[[], None], **kwargs):
-        super().__init__(content, markup=False, **kwargs)
+    def __init__(
+        self,
+        icon: Optional[str],
+        label: str,
+        on_press: Callable[[], None],
+        badges: Sequence[Badge] = (),
+        **kwargs,
+    ):
+        super().__init__(tile_text(icon, label, badges), markup=False, **kwargs)
+        self._icon, self._label, self._badges = icon, label, tuple(badges)
         self._on_press = on_press
+        self.compact = False
+
+    def widths(self) -> Tuple[int, int]:
+        """Columns this tile takes with its label and without."""
+        return (
+            tile_width(tile_text(self._icon, self._label, self._badges)),
+            tile_width(tile_text(self._icon, self._label, self._badges, compact=True), compact=True),
+        )
+
+    def show_compact(self, compact: bool) -> None:
+        """Drop the label (it becomes the tooltip) or bring it back."""
+        if compact == self.compact:
+            return
+        self.compact = compact
+        self.set_class(compact, "-compact")
+        self.update(tile_text(self._icon, self._label, self._badges, compact=compact))
+        self.tooltip = self._label if compact else None
 
     def on_click(self) -> None:
         self._on_press()
+
+
+class DockLauncher(HorizontalScroll):
+    """The launcher row. It only scrolls when not even icon-only tiles fit; the wheel moves it sideways."""
+
+    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        if self.max_scroll_x:
+            self.scroll_right(animate=False)
+            event.stop()
+
+    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        if self.max_scroll_x:
+            self.scroll_left(animate=False)
+            event.stop()
 
 
 class DockToggle(Static):
@@ -189,6 +282,20 @@ class Dock(Widget):
         height: 4;
         padding: 0 1;
         align: center top;
+        overflow-x: hidden;
+        overflow-y: hidden;
+        scrollbar-size-horizontal: 1;
+    }
+
+    /* Not even icons fit: one more row, for the scrollbar that says there is more. */
+    Dock.-scroll {
+        height: 6;
+    }
+
+    Dock.-scroll #dock-launcher {
+        height: 5;
+        align: left top;
+        overflow-x: auto;
     }
 
     Dock #dock-tiles {
@@ -219,12 +326,12 @@ class Dock(Widget):
     """
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="dock-launcher"):
-            yield DockItem(tile_text(Icons.HOME, "Home"), self._run("open_home"), classes="titan")
-            yield DockItem(tile_text(Icons.WORKFLOW, "Workflows"), self._run("open_workflows"), classes="titan")
-            yield DockItem(tile_text(Icons.PLUGIN, "Plugins"), self._run("open_plugins"), classes="titan")
-            yield DockItem(tile_text(Icons.MOD, "Mods"), self._run("open_mods"), classes="titan")
-            yield DockItem(tile_text(Icons.AI_CONFIG, "AI"), self._run("open_ai_config"), classes="titan")
+        with DockLauncher(id="dock-launcher"):
+            yield DockItem(Icons.HOME, "Home", self._run("open_home"), classes="titan")
+            yield DockItem(Icons.WORKFLOW, "Workflows", self._run("open_workflows"), classes="titan")
+            yield DockItem(Icons.PLUGIN, "Plugins", self._run("open_plugins"), classes="titan")
+            yield DockItem(Icons.MOD, "Mods", self._run("open_mods"), classes="titan")
+            yield DockItem(Icons.AI_CONFIG, "AI", self._run("open_ai_config"), classes="titan")
             yield Horizontal(id="dock-tiles")
         with Horizontal(id="dock-status"):
             yield DockToggle("▾", id="dock-toggle")
@@ -234,6 +341,29 @@ class Dock(Widget):
 
     def on_mount(self) -> None:
         self.show_collapsed(getattr(self.app, "dock_collapsed", False))
+        # Ask the screen to paint it every time it is mounted, not just when the screen first
+        # is: a screen that recomposes (Home, after a plugin changed) mounts a fresh, empty
+        # dock, and nothing else would put its tiles and status back.
+        refresh = getattr(self.screen, "refresh_dock", None)
+        if callable(refresh):
+            self.call_after_refresh(refresh)
+        else:
+            self.refresh_tiles()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._fit()
+
+    def _fit(self) -> None:
+        """Show the tiles the way the dock's width allows (see `dock_mode`)."""
+        width = self.size.width
+        if not width:
+            return
+        tiles = list(self.query(DockItem))
+        widths = [tile.widths() for tile in tiles]
+        mode = dock_mode(width, [full for full, _ in widths], [compact for _, compact in widths])
+        for tile in tiles:
+            tile.show_compact(mode != "full")
+        self.set_class(mode == "scroll", "-scroll")
 
     def show_collapsed(self, collapsed: bool) -> None:
         """Fold the launcher away (only the status row stays) or bring it back."""
@@ -266,12 +396,13 @@ class Dock(Widget):
         tiles = []
         slots: Sequence[Tuple[str, DockSlot]] = host.dock_slots() if host is not None else ()
         for mod, slot in slots:
-            tile = DockItem(slot_text(slot), self._press(host, mod))
+            tile = DockItem(slot.icon, slot.label, self._press(host, mod), badges=slot_badges(slot))
             tile.set_class(slot.on_click is None, "-inert")
             tiles.append(tile)
         container = self.query_one("#dock-tiles", Horizontal)
         await container.remove_children()
         await container.mount_all(tiles)
+        self._fit()
 
     @staticmethod
     def _press(host: Any, mod: str) -> Callable[[], None]:

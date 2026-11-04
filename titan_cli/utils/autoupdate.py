@@ -75,25 +75,27 @@ def check_for_updates() -> Dict[str, any]:
     try:
         import requests
 
+        # Read the simple index (the source pip resolves from), not the JSON
+        # API: right after a release the two can disagree, and offering a
+        # version pip cannot see yet makes the upgrade a silent no-op.
         response = requests.get(
-            "https://pypi.org/pypi/titan-cli/json",
-            timeout=3
+            "https://pypi.org/simple/titan-cli/",
+            headers={
+                "Accept": "application/vnd.pypi.simple.v1+json",
+                "Cache-Control": "no-cache",
+            },
+            timeout=3,
         )
 
         if response.status_code != 200:
             result["error"] = f"PyPI returned status {response.status_code}"
             return result
 
-        data = response.json()
-        latest_version = data["info"]["version"]
+        latest_version = latest_installable_version(response.json())
+        if latest_version is None:
+            return result
         result["latest_version"] = latest_version
-
-        # Simple version comparison (assumes semantic versioning)
-        from packaging import version
-        current = version.parse(__version__)
-        latest = version.parse(latest_version)
-
-        result["update_available"] = latest > current
+        result["update_available"] = version.parse(latest_version) > version.parse(__version__)
 
     except ImportError:
         result["error"] = "Missing dependencies (requests, packaging)"
@@ -101,6 +103,25 @@ def check_for_updates() -> Dict[str, any]:
         result["error"] = str(e)
 
     return result
+
+
+def latest_installable_version(simple_index: Dict[str, any]) -> Optional[str]:
+    """Return the newest stable version with a non-yanked file in a PEP 691 simple index."""
+    installable = set()
+    for file in simple_index.get("files", []):
+        if file.get("yanked"):
+            continue
+        filename = file.get("filename", "")
+        match = re.match(r"titan[_-]cli-([^-]+?)(?:-py|\.tar\.gz$|\.zip$)", filename, re.IGNORECASE)
+        if not match:
+            continue
+        try:
+            parsed = version.parse(match.group(1))
+        except version.InvalidVersion:
+            continue
+        if not parsed.is_prerelease:
+            installable.add(parsed)
+    return str(max(installable)) if installable else None
 
 
 def update_core(target_version: Optional[str] = None) -> Dict[str, any]:
@@ -137,10 +158,11 @@ def update_core(target_version: Optional[str] = None) -> Dict[str, any]:
     }
 
     # Try pipx first (without --include-injected to avoid pip resolving plugin
-    # constraints and skipping the core upgrade)
+    # constraints and skipping the core upgrade). pip's HTTP cache can serve a
+    # stale index right after a release, so bypass it.
     try:
         proc = subprocess.run(
-            ["pipx", "upgrade", "--force", "titan-cli"],
+            ["pipx", "upgrade", "--force", "--pip-args=--no-cache-dir", "titan-cli"],
             capture_output=True,
             text=True,
             timeout=60
@@ -168,7 +190,7 @@ def update_core(target_version: Optional[str] = None) -> Dict[str, any]:
     # Fallback to pip
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "titan-cli"],
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", "titan-cli"],
             capture_output=True,
             text=True,
             timeout=60
@@ -255,7 +277,7 @@ def update_plugins() -> Dict[str, any]:
 
     try:
         proc = subprocess.run(
-            ["pipx", "upgrade", "--include-injected", "titan-cli"],
+            ["pipx", "upgrade", "--include-injected", "--pip-args=--no-cache-dir", "titan-cli"],
             capture_output=True,
             text=True,
             timeout=60

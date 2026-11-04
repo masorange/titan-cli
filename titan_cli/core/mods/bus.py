@@ -59,6 +59,10 @@ class ModHost(Protocol):
 
     def badge(self, mod: str, pane: str, text: Optional[str], severity: Optional[str]) -> None: ...
 
+    def pane_shown(self, mod: str, pane: str) -> bool: ...
+
+    def workspace_open(self, mod: str, name: str) -> bool: ...
+
     def repaint(self, mod: str) -> None: ...
 
     def every(self, mod: str, seconds: float, fn: Callable[[], None], immediately: bool) -> None: ...
@@ -154,6 +158,12 @@ class _HeadlessHost:
 
     def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]:
         return "there is no screen to open it on"
+
+    def pane_shown(self, mod: str, pane: str) -> bool:
+        return False
+
+    def workspace_open(self, mod: str, name: str) -> bool:
+        return False
 
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, length=len(text), severity=severity)
@@ -355,6 +365,20 @@ class _ModUI:
         keep it to a count or a mark: the rail has room for three characters.
         """
         self._bus.host.badge(self._mod, pane, text, severity)
+
+    def pane_shown(self, pane: str) -> bool:
+        """
+        Whether this mod's `pane` is on screen now: the panel unfolded and showing it. Ask it
+        from a timer to read only what someone looks at; the badge shows either way.
+        """
+        return bool(self._bus.host.pane_shown(self._mod, pane))
+
+    def is_open(self) -> bool:
+        """
+        Whether this workspace's screen is the one on top now. Ask it from a timer to read
+        only while someone looks; `w.on_open` says when it opens. Workspaces only.
+        """
+        return bool(self._bus.host.workspace_open(self._mod, self._bus.name_of(self._mod)))
 
 
 class _ModClock:

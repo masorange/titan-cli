@@ -17,11 +17,14 @@ class GitHubAPIError(GitHubError):
         stderr: str | None = None,
         stdout: str | None = None,
         exit_code: int | None = None,
+        rate_limited: bool = False,
     ) -> None:
         super().__init__(message)
         self.stderr = stderr
         self.stdout = stdout
         self.exit_code = exit_code
+        # GitHub's rate limit, or a call refused locally while it lasts (see rate_limit.py).
+        self.rate_limited = rate_limited
 
 class PRNotFoundError(GitHubAPIError):
     """Raised when a specified Pull Request is not found."""

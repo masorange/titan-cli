@@ -16,6 +16,7 @@ from ...models.network.rest import NetworkIssue
 from ...models.view import UIIssue
 from ...models.mappers import from_rest_issue
 from ...exceptions import GitHubAPIError
+from .api_errors import api_error
 
 
 class IssueService:
@@ -100,7 +101,7 @@ class IssueService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def list_labels(self) -> ClientResult[List[str]]:
@@ -124,4 +125,4 @@ class IssueService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)

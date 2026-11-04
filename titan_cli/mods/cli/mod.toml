@@ -3,6 +3,7 @@ name = "cli"
 version = "0.1.0"
 icon = ">_"
 last = true
+default_enabled = false
 description = "Side panel with your CLI sessions (Claude, Codex, Gemini...): switch between them, start a new one from the CLIs installed, close one. The terminal itself is the cli workspace's"
 events = ["app.start", "ui.render"]
 slots = ["pane"]

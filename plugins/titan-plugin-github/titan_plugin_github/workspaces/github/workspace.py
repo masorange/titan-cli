@@ -3,16 +3,21 @@ github workspace: a full screen for the repo's GitHub, opened from its dock tile
 
 The pull requests (search, review actions, merge, conflicts, check diagnosis), the merge queue
 and the workflow runs, drawn from `w.state` only so it never waits on the network. Data comes from
-the github plugin client on background timers; the readers and snapshots are shared with the
-`github` mod (`titan_plugin_github.readers`), which keeps the summary in the side pane.
+the plugin's feed (`titan_plugin_github.readers.feed`), shared with the `github` mod that keeps
+the summary in the side pane, and is read only while this screen is open: a closed workspace
+costs GitHub nothing.
 """
 from titan_cli.ui.components import refresh_ai_chip
-from titan_plugin_github.readers import invalidate, prs as prs_reader, queue as queue_reader, runs as runs_reader
+from titan_plugin_github.readers import runs as runs_reader
+from titan_plugin_github.readers.feed import feed_for
 
 from . import draw
 from .sections.prs import search, threads
 
 TITLE = "GitHub"
+# How often a timer asks the feed. Asking is free while the feed's answer is younger than the
+# option's period, or while the screen is closed; this bounds how late a due read is.
+TICK_SECONDS = 5
 
 
 def register(w, on, options):
@@ -21,8 +26,13 @@ def register(w, on, options):
     for name in ("prs", "queue", "runs"):
         shown.setdefault(name, True)
 
+    def feed(m):
+        return feed_for(m.client("github"))
+
     def refresh_prs(m):
-        after = prs_reader.read_prs(m.client("github"))
+        after = feed(m).prs(options["prs_refresh_seconds"])
+        if after is m.state.get("prs"):
+            return
         m.state.set("prs", after)
         # Asked here, off the UI thread: finding out may take a round-trip.
         m.state.set("slack_on", m.client("slack") is not None)
@@ -30,29 +40,40 @@ def register(w, on, options):
             rows = m.state.get("rows_open") or {}
             threads.reread_open(m, after.mine, lambda number: bool(rows.get(str(number))))
 
+    def keep(m, key, snapshot):
+        if snapshot is not m.state.get(key):
+            m.state.set(key, snapshot)
+
     def refresh_others(m):
-        m.state.set("others", prs_reader.read_others(m.client("github")))
+        keep(m, "others", feed(m).others(options["prs_refresh_seconds"]))
 
     def refresh_queue(m):
-        m.state.set("queue", queue_reader.read_queue(m.client("github"), options["queue_shown"]))
+        keep(m, "queue", feed(m).queue(options["queue_shown"], options["queue_refresh_seconds"]))
 
     def refresh_runs(m):
-        m.state.set("runs", runs_reader.read_runs(m.client("github"), None, runs_reader.limit_of(m, "runs")))
+        keep(m, "runs", feed(m).runs(None, runs_reader.limit_of(m, "runs"), options["runs_refresh_seconds"]))
 
     def refresh_queue_runs(m):
         # The merge queue's own runs, apart from the repo's: GitHub tells them by their event.
-        m.state.set("queue_runs", runs_reader.read_runs(
-            m.client("github"), "merge_group", runs_reader.limit_of(m, "queue_runs")))
+        keep(m, "queue_runs", feed(m).runs(
+            "merge_group", runs_reader.limit_of(m, "queue_runs"), options["runs_refresh_seconds"]))
 
-    def forced(read):
+    def forced(read, topic):
         """`read`, but from GitHub and not from what the mod or the timers just read."""
         def again(m):
-            invalidate(m.client("github"))
+            feed(m).refresh(topic)
             read(m)
         return again
 
+    def while_open(section, read):
+        """A timer's read: only while the screen is open and the section is on."""
+        def tick():
+            if shown[section] and w.ui.is_open():
+                read(w)
+        return tick
+
     def refresh_all(m):
-        invalidate(m.client("github"))
+        feed(m).refresh()
         if shown["prs"]:
             m.run(lambda: refresh_others(m))
             refresh_prs(m)
@@ -63,11 +84,11 @@ def register(w, on, options):
             refresh_runs(m)
 
     # What the view's own actions (a review, a merge) and an error card's Retry run again.
-    w.state.set("refresh_prs", lambda: forced(refresh_prs)(w))
-    w.state.set("refresh_others", lambda: forced(refresh_others)(w))
-    w.state.set("refresh_queue", lambda: forced(refresh_queue)(w))
-    w.state.set("refresh_runs", lambda: forced(refresh_runs)(w))
-    w.state.set("refresh_queue_runs", lambda: forced(refresh_queue_runs)(w))
+    w.state.set("refresh_prs", lambda: forced(refresh_prs, "prs")(w))
+    w.state.set("refresh_others", lambda: forced(refresh_others, "others")(w))
+    w.state.set("refresh_queue", lambda: forced(refresh_queue, "queue")(w))
+    w.state.set("refresh_runs", lambda: forced(refresh_runs, ("runs", None))(w))
+    w.state.set("refresh_queue_runs", lambda: forced(refresh_queue_runs, ("runs", "merge_group"))(w))
 
     def view(width):
         return draw.draw(w, width, options, shown)
@@ -77,13 +98,13 @@ def register(w, on, options):
     def start(w):
         started.append(True)
         w.ui.dock(TITLE, on_click=w.ui.open_workspace)
-        w.clock.every(options["prs_refresh_seconds"], lambda: shown["prs"] and refresh_prs(w))
+        w.clock.every(TICK_SECONDS, while_open("prs", refresh_prs))
         # Its own timer, so the slow read of everyone else's PRs runs beside yours, not before them.
-        w.clock.every(options["prs_refresh_seconds"], lambda: shown["prs"] and refresh_others(w))
-        w.clock.every(options["queue_refresh_seconds"], lambda: shown["queue"] and refresh_queue(w))
-        w.clock.every(options["runs_refresh_seconds"], lambda: shown["runs"] and refresh_runs(w))
+        w.clock.every(TICK_SECONDS, while_open("prs", refresh_others))
+        w.clock.every(TICK_SECONDS, while_open("queue", refresh_queue))
+        w.clock.every(TICK_SECONDS, while_open("runs", refresh_runs))
         # Its own timer too: the queue's runs are a second read, and only while the queue is shown.
-        w.clock.every(options["runs_refresh_seconds"], lambda: shown["queue"] and refresh_queue_runs(w))
+        w.clock.every(TICK_SECONDS, while_open("queue", refresh_queue_runs))
         w.run(lambda: refresh_ai_chip(w))
         if options.get("refresh_key"):
             w.keys.bind(options["refresh_key"], "Refresh status", lambda: w.run(lambda: refresh_all(w)))
@@ -109,6 +130,18 @@ def register(w, on, options):
 
     w.on_open(focus)
 
+    def read_on_open(w, what):
+        # At once, not on the next tick: what the feed holds is shared, so this is often free.
+        # Not through `while_open`: the screen is pushed right after this runs.
+        for section, reads in (("prs", (refresh_prs, refresh_others)),
+                               ("queue", (refresh_queue, refresh_queue_runs)),
+                               ("runs", (refresh_runs,))):
+            if shown[section]:
+                for read in reads:
+                    w.run(lambda read=read: read(w))
+
+    w.on_open(read_on_open)
+
     @on("section.change")
     def section_changed(m, e, next):
         # A section just turned on has nothing to show until its first read.
@@ -130,5 +163,6 @@ def register(w, on, options):
         try:
             return next(e)
         finally:
-            if not e.nested and started:
+            # Closed, it has nothing to show: the mod rereads what it shows, and opening reads the rest.
+            if not e.nested and started and w.ui.is_open():
                 m.run(lambda: refresh_all(m))
