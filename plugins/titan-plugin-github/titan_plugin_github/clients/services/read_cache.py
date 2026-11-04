@@ -6,6 +6,10 @@ The github mod and the github workspace poll the same lists on the same client. 
 three PR lists, which all read the same repository listing) cost one GitHub call, not several.
 Only successes are kept. `invalidate()` forgets everything, for the reads that follow a change
 or that the user asked to repeat.
+
+The timers of both views fire on the same tick, so their asks arrive together, before either
+has an answer to keep. `flight(key)` lets only one of them go to GitHub: the others wait for it
+and read what it kept.
 """
 import functools
 import threading
@@ -22,6 +26,7 @@ class ReadCache:
         self._ttl = ttl
         self._lock = threading.Lock()
         self._items: Dict[Hashable, Tuple[float, Any]] = {}
+        self._flights: Dict[Hashable, threading.Lock] = {}
 
     def get(self, key: Hashable) -> Optional[Any]:
         with self._lock:
@@ -33,6 +38,11 @@ class ReadCache:
     def put(self, key: Hashable, value: Any) -> None:
         with self._lock:
             self._items[key] = (time.monotonic(), value)
+
+    def flight(self, key: Hashable) -> threading.Lock:
+        """The lock to hold while reading `key` from GitHub, so a simultaneous ask waits for this one."""
+        with self._lock:
+            return self._flights.setdefault(key, threading.Lock())
 
     def invalidate(self) -> None:
         with self._lock:
@@ -47,8 +57,12 @@ def cached_read(fn: Callable) -> Callable:
         hit = self._reads.get(key)
         if hit is not None:
             return hit
-        result = fn(self, *args, **kwargs)
-        if isinstance(result, ClientSuccess):
-            self._reads.put(key, result)
-        return result
+        with self._reads.flight(key):
+            hit = self._reads.get(key)  # a simultaneous ask may have just kept it
+            if hit is not None:
+                return hit
+            result = fn(self, *args, **kwargs)
+            if isinstance(result, ClientSuccess):
+                self._reads.put(key, result)
+            return result
     return wrapper

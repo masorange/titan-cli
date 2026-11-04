@@ -15,6 +15,7 @@ from titan_cli.core.logging import log_client_operation
 
 from ..network import GHNetwork
 from ...exceptions import GitHubAPIError
+from .api_errors import api_error
 
 
 class ContentsService:
@@ -111,7 +112,7 @@ class ContentsService:
                     error_message=f"Path '{path}' not found",
                     error_code="NOT_FOUND",
                 )
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def path_exists(
@@ -141,4 +142,4 @@ class ContentsService:
         except GitHubAPIError as e:
             if self._is_not_found(e):
                 return ClientSuccess(data=False, message=f"'{path}' does not exist")
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)

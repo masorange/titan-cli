@@ -84,9 +84,6 @@ class BaseScreen(Screen):
         if self.show_dock:
             yield Dock(id="dock")
 
-    def on_mount(self) -> None:
-        self.refresh_dock()
-
     def refresh_dock(self) -> None:
         """Repaint this screen's dock from current state, if it has one.
 
@@ -98,7 +95,7 @@ class BaseScreen(Screen):
         try:
             dock = self.query_one("#dock", Dock)
         except Exception:
-            return  # not mounted yet; on_mount paints it
+            return  # not mounted yet; the dock asks for this itself once it is
         # The fold is toggled on whichever screen is on top; one underneath catches up here.
         dock.show_collapsed(getattr(self.app, "dock_collapsed", False))
 

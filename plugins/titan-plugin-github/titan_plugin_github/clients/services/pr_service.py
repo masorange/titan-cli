@@ -35,6 +35,7 @@ from ...operations.pr_operations import (
 from ...exceptions import GitHubAPIError
 from ...messages import msg
 from .read_cache import ReadCache, cached_read
+from .api_errors import api_error
 
 # Everything any PR listing shows, asked for once so the three of them answer
 # with the same model whichever one the caller picked.
@@ -126,7 +127,7 @@ class PRService:
                     error_code="PR_NOT_FOUND",
                     log_level="warning"
                 )
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def list_pending_review_prs(self, max_results: int = 50) -> ClientResult[List[UIPullRequest]]:
@@ -235,6 +236,13 @@ class PRService:
         """
         if self._login:
             return ClientSuccess(data=self._login, message=self._login)
+        with self._reads.flight("login"):
+            return self._read_login()
+
+    def _read_login(self) -> ClientResult[str]:
+        """`get_current_user` under its flight lock, so simultaneous first asks cost one call."""
+        if self._login:
+            return ClientSuccess(data=self._login, message=self._login)
         try:
             login = self.gh.run_command(["api", "user", "--jq", ".login"]).strip()
             if login:
@@ -244,7 +252,7 @@ class PRService:
                                    error_code="NO_CURRENT_USER")
             return ClientSuccess(data=login, message=login)
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @staticmethod
     def _scan_limit(max_results: int) -> int:
@@ -291,7 +299,7 @@ class PRService:
         except json.JSONDecodeError as e:
             return ClientError(error_message=f"Failed to parse PR search: {e}", error_code="JSON_PARSE_ERROR")
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     def _list_repo_prs(self, state: str, limit: int) -> ClientResult[List[UIPullRequest]]:
         """
@@ -305,6 +313,11 @@ class PRService:
         """
         # One listing per state serves every caller that wants no more than it holds.
         key = ("repo_prs", state)
+        with self._reads.flight(key):
+            return self._read_repo_prs(key, state, limit)
+
+    def _read_repo_prs(self, key: tuple, state: str, limit: int) -> ClientResult[List[UIPullRequest]]:
+        """`_list_repo_prs` under its flight lock: from the kept listing if it is deep enough."""
         held = self._reads.get(key)
         if held is not None and held[0] >= limit:
             prs = held[1][:limit]
@@ -327,7 +340,7 @@ class PRService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_pr_diff(self, pr_number: int, context_lines: int = 3) -> ClientResult[str]:
@@ -357,7 +370,7 @@ class PRService:
                     error_code="PR_NOT_FOUND",
                     log_level="warning"
                 )
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_pr_files(self, pr_number: int) -> ClientResult[List[str]]:
@@ -391,7 +404,7 @@ class PRService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_pr_files_with_stats(self, pr_number: int) -> ClientResult[List[UIFileChange]]:
@@ -443,7 +456,7 @@ class PRService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_pr_file_patches(
@@ -510,7 +523,7 @@ class PRService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def checkout_pr(self, pr_number: int) -> ClientResult[str]:
@@ -549,7 +562,7 @@ class PRService:
                     error_code="PR_NOT_FOUND",
                     log_level="warning"
                 )
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def create_pull_request(
@@ -629,7 +642,7 @@ class PRService:
             )
 
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def merge_pr(
@@ -896,7 +909,7 @@ class PRService:
             )
 
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
         except (ValueError, TypeError) as e:
             return ClientError(
                 error_message=(
@@ -934,7 +947,7 @@ class PRService:
                     error_code="JOB_NOT_FOUND",
                     log_level="warning",
                 )
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def rerun_failed_jobs(self, run_id: int) -> ClientResult[None]:
@@ -955,7 +968,7 @@ class PRService:
             self.gh.run_command(["api", "-X", "POST", f"/repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs"])
             return ClientSuccess(data=None, message=f"Failed jobs of run {run_id} queued to re-run")
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     @cached_read
@@ -982,7 +995,7 @@ class PRService:
             runs = [from_rest_workflow_run(NetworkWorkflowRun.from_json(r)) for r in data.get("workflow_runs") or []]
             return ClientSuccess(data=runs, message=f"{len(runs)} workflow runs retrieved")
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
         except (ValueError, KeyError, TypeError) as e:
             return ClientError(
                 error_message=f"Unexpected workflow runs response: {e}",
@@ -1013,7 +1026,7 @@ class PRService:
             ]
             return ClientSuccess(data=failed, message=f"{len(failed)} failed jobs of run {run_id}")
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
         except (ValueError, KeyError, TypeError) as e:
             return ClientError(
                 error_message=f"Unexpected jobs response: {e}",
@@ -1039,7 +1052,7 @@ class PRService:
             self.gh.run_command(["api", "-X", "POST", f"/repos/{repo}/actions/runs/{run_id}/rerun"])
             return ClientSuccess(data=None, message=f"Run {run_id} queued to re-run")
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     @cached_read
@@ -1086,7 +1099,7 @@ class PRService:
                 message=f"Merge queue of {ui_queue.branch or 'the default branch'} retrieved",
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
         except (ValueError, TypeError) as e:
             return ClientError(
                 error_message=f"Malformed GraphQL merge queue response: {e}",
@@ -1127,7 +1140,7 @@ class PRService:
                 )
             return ClientSuccess(data=int(count), message=f"{count} open PRs")
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def add_comment(self, pr_number: int, body: str) -> ClientResult[None]:
@@ -1157,7 +1170,7 @@ class PRService:
                     error_code="PR_NOT_FOUND",
                     log_level="warning"
                 )
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_pr_commit_sha(self, pr_number: int) -> ClientResult[str]:
@@ -1200,7 +1213,7 @@ class PRService:
                 error_code="PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_commit_review_context(
@@ -1288,7 +1301,7 @@ class PRService:
                 error_code="PARSE_ERROR",
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @staticmethod
     def _truncate_text(text: str, max_chars: int) -> str:

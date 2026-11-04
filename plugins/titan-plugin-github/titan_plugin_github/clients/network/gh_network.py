@@ -94,7 +94,7 @@ class GHNetwork:
         start = time.time()
 
         if (paused := rate_limit.paused_message()) is not None:
-            raise GitHubAPIError(msg.GitHub.API_ERROR.format(error_msg=paused))
+            raise GitHubAPIError(msg.GitHub.API_ERROR.format(error_msg=paused), rate_limited=True)
 
         try:
             result = subprocess.run(
@@ -131,13 +131,15 @@ class GHNetwork:
             if not error_parts:
                 error_parts.append(str(e))
             error_msg = " | ".join(error_parts)
-            if rate_limit.is_rate_limit(error_msg):
+            rate_limited = rate_limit.is_rate_limit(error_msg)
+            if rate_limited:
                 rate_limit.start_pause()
                 error_msg = rate_limit.paused_message() or error_msg
             raise GitHubAPIError(
                 msg.GitHub.API_ERROR.format(error_msg=error_msg),
                 stderr=stderr or None,
                 stdout=stdout or None,
+                rate_limited=rate_limited,
                 exit_code=e.returncode,
             ) from e
         except FileNotFoundError:

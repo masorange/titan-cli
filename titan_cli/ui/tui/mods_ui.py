@@ -102,6 +102,15 @@ class TitanModHost:
         self._on_app_thread(push)
         return None
 
+    def workspace_open(self, mod: str, name: str) -> bool:
+        from titan_cli.ui.tui.screens.workspace_screen import WorkspaceScreen
+
+        try:
+            top = self._app.screen
+        except Exception:
+            return False  # no screen yet, or the app is closing
+        return isinstance(top, WorkspaceScreen) and top.workspace == name
+
     def press_dock(self, mod: str) -> None:
         """A click on a mod's dock tile: its own action, if it gave one."""
         slot = self._dock.get(mod)
@@ -181,6 +190,11 @@ class TitanModHost:
         """Copies of the panes and badges, safe to iterate while mods change them from other threads."""
         with self._lock:
             return dict(self.panes), dict(self.badges)
+
+    def pane_shown(self, mod: str, pane: str) -> bool:
+        with self._lock:
+            owner = self.panes.get(pane, (None,))[0]
+        return owner == mod and not self.collapsed and self.active == pane
 
     def open_pane(self, mod: str, pane: str, title: str, icon: Optional[str] = None) -> None:
         with self._lock:

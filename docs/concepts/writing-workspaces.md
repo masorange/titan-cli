@@ -94,6 +94,8 @@ w.on_open(focus)
 
 `open_workspace(name)` returns `False` and shows a toast when there is no such workspace.
 
+`w.ui.is_open()` says whether the screen is the one on top now. A timer that reads for the view asks it first, so a closed workspace costs the service nothing; `w.on_open` is where to read at once when it opens, since the next tick may be seconds away (the screen is pushed right after `w.on_open` runs, so do not ask `is_open` there).
+
 ### Events
 
 A workspace hooks only the events its `workspace.toml` lists in `events`, with the `on` it receives, exactly as a mod does. A workspace's hooks wrap a workflow outside the mods' ones. `app.start` and `ui.render` are not available: use `w.on_start` and `w.ui.view`.

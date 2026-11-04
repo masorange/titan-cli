@@ -17,6 +17,7 @@ from ...models.view import UICommentThread, UIReview
 from ...models.mappers import from_graphql_review_thread, from_network_review
 from ...exceptions import GitHubAPIError
 from ...messages import msg
+from .api_errors import api_error
 
 
 class ReviewService:
@@ -104,7 +105,7 @@ class ReviewService:
                 error_code="PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_pr_general_comments(
@@ -173,7 +174,7 @@ class ReviewService:
                 error_code="PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def resolve_review_thread(self, thread_node_id: str) -> ClientResult[None]:
@@ -236,7 +237,7 @@ class ReviewService:
                 error_code="PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def create_draft_review(

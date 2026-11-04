@@ -796,7 +796,7 @@ def test_the_refresh_key_is_bound_at_start_and_refreshes_every_section(mod):
 def test_a_finished_or_aborted_workflow_refreshes_everything_off_its_thread(mod):
     from titan_cli.core.mods import WorkflowRun
 
-    bus, calls = _workspace(mod)
+    bus, calls = _workspace(mod, workspace_open=lambda mod, name: True)
     _register(mod, bus)
     state = bus.api("github").state
 
@@ -824,7 +824,7 @@ def test_a_finished_or_aborted_workflow_refreshes_everything_off_its_thread(mod)
 
 
 def test_a_section_turned_on_while_running_refreshes_at_once_and_off_ones_do_not_poll(mod):
-    bus, calls = _workspace(mod)
+    bus, calls = _workspace(mod, workspace_open=lambda mod, name: True)
     sections = {"prs": False, "queue": True}
     _register(mod, bus, sections=sections)
     bus.start()
@@ -888,3 +888,32 @@ def test_opened_from_its_dock_tile_it_changes_nothing(mod):
     bus.opened("github", None)
 
     assert bus.api("github").state.get("rows_open") is None
+
+
+def test_a_closed_workspace_reads_nothing_and_opening_it_reads_at_once(mod):
+    is_open = [False]
+    bus, calls = _workspace(mod, workspace_open=lambda mod, name: is_open[0])
+    _register(mod, bus)
+    bus.start()
+    state = bus.api("github").state
+
+    calls.runs.clear()
+    for tick in calls.ticks:
+        tick()
+    assert state.get("prs") is None and state.get("queue") is None and state.get("runs") is None
+
+    bus.opened("github", None)
+    for run in calls.runs:
+        run()
+    assert state.get("prs") is not None and state.get("queue") is not None and state.get("runs") is not None
+
+
+def test_a_workflow_ending_with_the_workspace_closed_leaves_the_rereading_to_the_mod(mod):
+    from titan_cli.core.mods import WorkflowRun
+
+    bus, calls = _workspace(mod)
+    _register(mod, bus)
+    bus.start()
+    calls.runs.clear()
+    bus.dispatch("workflow.run", WorkflowRun("review-pr", "plugin", nested=False), lambda e: None)
+    assert calls.runs == []
