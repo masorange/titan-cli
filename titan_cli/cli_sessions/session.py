@@ -43,9 +43,14 @@ def _proc_table() -> dict:
     return table
 
 
+def _tool(name: str) -> str:
+    """Absolute path of a system tool, so a subprocess never depends on a relative program name."""
+    return shutil.which(name) or name
+
+
 def _ps_table() -> dict:
     """`{pid: (ppid, rss_bytes)}` for every process, from `ps` (macOS and other systems without /proc)."""
-    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True, timeout=10).stdout
+    out = subprocess.run([_tool("ps"), "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True, timeout=10).stdout
     table = {}
     for line in out.splitlines():
         try:
@@ -89,7 +94,7 @@ def probe_scope() -> bool:
     ok = False
     if shutil.which("systemd-run"):
         try:
-            ok = subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "true"],
+            ok = subprocess.run([_tool("systemd-run"), "--user", "--scope", "--quiet", "true"],
                                 capture_output=True, timeout=5).returncode == 0
         except (subprocess.TimeoutExpired, OSError):
             ok = False
@@ -154,7 +159,7 @@ def kill_scope(pid: int) -> None:
     """SIGKILL every process of the unit `pid` runs in, children in other process groups included."""
     path, own = _cgroup_dir(pid), _cgroup_dir(os.getpid())
     if path and path != own:
-        subprocess.run(["systemctl", "--user", "kill", "--signal=SIGKILL", os.path.basename(path)],
+        subprocess.run([_tool("systemctl"), "--user", "kill", "--signal=SIGKILL", os.path.basename(path)],
                        capture_output=True, timeout=10)
 
 
@@ -180,7 +185,7 @@ def ensure_cap(pid: int, memory_limit_mb: int) -> bool:
             return None
 
     if current() != want:
-        subprocess.run(["systemctl", "--user", "set-property", "--runtime", os.path.basename(path),
+        subprocess.run([_tool("systemctl"), "--user", "set-property", "--runtime", os.path.basename(path),
                         f"MemoryMax={memory_limit_mb}M", "MemorySwapMax=0"], capture_output=True, timeout=10)
     return current() == want
 
@@ -210,7 +215,7 @@ class Session:
         self._writes: "queue.Queue[Optional[bytes]]" = queue.Queue()  # input for the writer thread
         # TITAN_CLI_RECORD=<folder>: keep the raw bytes each CLI sent, to replay a screen that looks wrong
         folder = os.environ.get("TITAN_CLI_RECORD")
-        self._record = open(os.path.join(folder, f"{command}-{sid}.bin"), "wb") if folder else None
+        self._record = open(os.path.join(folder, f"{os.path.basename(command)}-{int(sid)}.bin"), "wb") if folder else None
         self.screen.write_process_input = lambda data: self.send(data.encode())
 
     @property

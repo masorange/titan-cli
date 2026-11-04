@@ -38,7 +38,8 @@ def test_tree_rss_counts_the_process_and_its_children():
 
 
 def test_tree_rss_falls_back_to_ps_when_proc_is_missing(monkeypatch):
-    monkeypatch.setattr(session_mod.os.path, "isdir", lambda p: False if p == "/proc" else os.path.isdir(p))
+    real_isdir = os.path.isdir
+    monkeypatch.setattr(session_mod.os.path, "isdir", lambda p: False if p == "/proc" else real_isdir(p))
     assert session_mod.tree_rss_mb(os.getpid()) > 0
 
 
