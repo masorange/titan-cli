@@ -262,3 +262,15 @@ query($owner: String!, $repo: String!, $prNumber: Int!) {
   }
 }
 '''
+
+
+# User Queries
+
+def get_users_availability_query(count: int) -> str:
+    """Query for the status of `count` users, passed as variables `$login0..$loginN`."""
+    declarations = ", ".join(f"$login{i}: String!" for i in range(count))
+    fields = "\n  ".join(
+        f"user{i}: user(login: $login{i}) {{ login status {{ indicatesLimitedAvailability message emoji }} }}"
+        for i in range(count)
+    )
+    return f"query({declarations}) {{\n  {fields}\n}}"

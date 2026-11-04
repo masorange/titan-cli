@@ -364,6 +364,14 @@ class UIPRCreated:
 
 
 @dataclass
+class UIUserAvailability:
+    """Whether a GitHub user marked themselves as busy (the profile status's "Busy" checkbox)."""
+    login: str
+    is_busy: bool
+    status_message: str = ""
+
+
+@dataclass
 class UIRelease:
     """
     UI model for a GitHub release.
@@ -404,6 +412,7 @@ __all__ = [
     "UIFileChange",
     "UIPRCreated",
     "UIRelease",
+    "UIUserAvailability",
     "UIWorkflowRun",
     "UIReviewSuggestion",
 ]

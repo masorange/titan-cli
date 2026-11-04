@@ -7,6 +7,8 @@ from titan_cli.core.plugins.community_sources import (
     build_raw_pyproject_url,
     check_for_update,
     detect_host,
+    normalise_subdirectory,
+    parse_repo_url,
     resolve_ref_to_commit_sha,
     validate_url,
 )
@@ -243,3 +245,42 @@ def test_get_titan_incompatibility_never_blocks_on_missing_or_broken_specifier()
     assert get_titan_incompatibility({"titan_requirement": None}, "0.8.0") is None
     assert get_titan_incompatibility({}, "0.8.0") is None
     assert get_titan_incompatibility({"titan_requirement": "not a specifier"}, "0.8.0") is None
+
+
+def test_parse_repo_url_without_subdirectory():
+    assert parse_repo_url("https://github.com/example/plugin@v1.0.0") == (
+        "https://github.com/example/plugin", "v1.0.0", None,
+    )
+
+
+def test_parse_repo_url_reads_subdirectory_after_the_version():
+    assert parse_repo_url(
+        "https://github.com/example/monorepo@v1.0.0:plugins/titan-plugin-x/"
+    ) == ("https://github.com/example/monorepo", "v1.0.0", "plugins/titan-plugin-x")
+
+
+@pytest.mark.parametrize("bad", ["../x", "a/../b", "/abs", "a//b", "./a/."])
+def test_normalise_subdirectory_rejects_paths_outside_the_repository(bad):
+    with pytest.raises(ValueError):
+        normalise_subdirectory(bad)
+
+
+def test_normalise_subdirectory_treats_blank_as_root():
+    assert normalise_subdirectory("") is None
+    assert normalise_subdirectory(" / ") is None
+    assert normalise_subdirectory(None) is None
+
+
+def test_build_raw_pyproject_url_points_into_the_subdirectory():
+    url = build_raw_pyproject_url(
+        "https://github.com/example/monorepo", "abcdef", PluginHost.GITHUB,
+        "plugins/titan-plugin-x",
+    )
+
+    assert url == (
+        "https://raw.githubusercontent.com/example/monorepo/abcdef/"
+        "plugins/titan-plugin-x/pyproject.toml"
+    )
+    assert build_raw_pyproject_url(
+        "https://github.com/example/monorepo", "abcdef", PluginHost.GITHUB, "../x"
+    ) is None

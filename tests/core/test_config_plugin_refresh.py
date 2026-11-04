@@ -184,36 +184,36 @@ class TestPluginSourceOverrides:
     def test_switching_to_dev_local_rebuilds(self, config):
         before = _rebuilds(config)
 
-        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.set_local_plugin_override("git", "dev_local", "/tmp/checkout")
         config.load()
 
         assert _rebuilds(config) == before + 1
 
     def test_switching_back_to_stable_rebuilds(self, config):
         """The swap has to work in both directions, not just into Develop."""
-        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.set_local_plugin_override("git", "dev_local", "/tmp/checkout")
         config.load()
         after_dev = _rebuilds(config)
 
-        config.set_global_plugin_source("git", "stable")
+        config.set_local_plugin_override("git", "stable")
         config.load()
 
         assert _rebuilds(config) == after_dev + 1
 
     def test_pointing_dev_local_at_a_different_checkout_rebuilds(self, config):
         """Another path is another copy of the code, so it is another registry."""
-        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.set_local_plugin_override("git", "dev_local", "/tmp/checkout")
         config.load()
         after_first = _rebuilds(config)
 
-        config.set_global_plugin_source("git", "dev_local", "/tmp/other-checkout")
+        config.set_local_plugin_override("git", "dev_local", "/tmp/other-checkout")
         config.load()
 
         assert _rebuilds(config) == after_first + 1
 
     def test_a_second_reload_after_a_source_change_does_not_rebuild_again(self, config):
         """The fingerprint has to absorb the change, or every later load rebuilds."""
-        config.set_global_plugin_source("git", "dev_local", "/tmp/checkout")
+        config.set_local_plugin_override("git", "dev_local", "/tmp/checkout")
         config.load()
         after_change = _rebuilds(config)
 

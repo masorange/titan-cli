@@ -110,13 +110,15 @@ class HomeCardSlot:
     workflows: its `mod.toml` icon, a short `title` and a `text` body under it.
     A click or Enter runs `on_click`, if given - an independent slot from the
     dock tile and the side panel pane: a mod may fill any mix of the three,
-    with different content in each.
+    with different content in each. `actions` are `Button` elements drawn under the
+    text, each its own pressable button (a press on one never runs `on_click`).
     """
 
     title: str
     text: str = ""
     icon: Optional[str] = None
     on_click: Optional[Callable[[], None]] = None
+    actions: Tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -275,11 +277,14 @@ class _ModUI:
         title: Optional[str],
         text: str = "",
         on_click: Optional[Callable[[], None]] = None,
+        actions: Optional[Sequence[Any]] = None,
     ) -> None:
         """
         Show this mod as a card on the home screen, beside the quick-launch
         workflows: its `mod.toml` `icon`, `title` and `text` below it. A click or
-        Enter runs `on_click`, if given. `None` as title removes it.
+        Enter runs `on_click`, if given. `actions` are `Button` elements
+        (`titan_cli.ui.elements`) drawn as buttons under the text; their `on_press`
+        runs on the UI thread, so slow work goes to `m.run`. `None` as title removes it.
 
         Independent from `dock` and `open`: nothing requires the same content in
         the three, so a mod free to use any of them can show something different
@@ -291,7 +296,7 @@ class _ModUI:
             return
         manifest = self._bus.manifest(self._mod)
         icon = manifest.icon if manifest else None
-        self._bus.host.home_card(self._mod, HomeCardSlot(title, text, icon, on_click))
+        self._bus.host.home_card(self._mod, HomeCardSlot(title, text, icon, on_click, tuple(actions or ())))
 
     def widget(self, name: str, widget: Any) -> None:
         """
