@@ -7,5 +7,5 @@ Provides GitHub integration for pull requests, issues, and more.
 
 from .plugin import GitHubPlugin
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 __all__ = ["GitHubPlugin"]
