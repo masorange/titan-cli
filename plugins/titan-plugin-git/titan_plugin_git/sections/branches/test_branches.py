@@ -255,15 +255,15 @@ def test_enter_with_uncommitted_work_says_why_and_stays():
     assert m.state.get("branch_search_error") == "1 uncommitted file - commit or stash before switching"
 
 
-def test_a_switch_from_a_row_clears_the_search_too():
+def test_a_switch_clears_the_search_and_closes_the_switch_panel():
     m, _ = bus_for(fake_git())
     m.state.set("branch_filter", "log")
-    m.state.set("open_branch", "feat/login")
+    m.state.set("branch_panel", "switch")
 
     actions.switch_to(m, "feat/login")
 
     assert m.state.get("branch_filter") == ""
-    assert m.state.get("open_branch") is None
+    assert m.state.get("branch_panel") is None
 
 
 def test_a_failed_switch_keeps_what_was_typed():

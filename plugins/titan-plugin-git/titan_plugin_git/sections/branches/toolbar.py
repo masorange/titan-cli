@@ -1,4 +1,9 @@
-"""The branch toolbar above the left column: the branch you are on, its actions, and the panels they open."""
+"""
+The branch toolbar: the branch you are on, its actions, and the panels they open.
+
+The git workspace draws it above its left column and the git mod's pane under the branch line,
+both from their own state.
+"""
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
@@ -8,9 +13,10 @@ from titan_cli.ui.components import Option, choice_card, error_card
 from titan_cli.ui.elements import Box, Button, Input, Text
 from titan_plugin_git.operations import filter_branches, merge_sources
 from titan_plugin_git.readers import Branches, Repo
-from titan_plugin_git.sections.branches import branches as api
-from titan_plugin_git.sections.branches import new_branch as new_branch_api
-from titan_plugin_git.sections.branches.draw import SEARCH_SHOWN, new_branch_form
+
+from . import branches as api
+from . import new_branch as new_branch_api
+from .draw import SEARCH_SHOWN, new_branch_form
 
 
 def can_create_pr(w, options) -> bool:

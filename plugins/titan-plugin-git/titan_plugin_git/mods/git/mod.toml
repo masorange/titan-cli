@@ -1,8 +1,8 @@
 [mod]
 name = "git"
-version = "0.6.0"
+version = "0.7.0"
 icon = "⎇"
-description = "Side panel with the branch you are on: how it stands against its upstream and its commit, pull, push, pull request, stash, merge and new-branch actions; the history, the switcher and the worktrees are the git workspace's"
+description = "Side panel with the branch you are on: how it stands against its upstream and the git workspace's branch toolbar (switch, commit, pull, push, pull request, stash, new branch, merge); the history, the stashes and the worktrees are the workspace's"
 requires_plugins = ["git"]
 events = ["app.start", "workflow.run", "ui.render"]
 slots = ["pane", "toast"]
