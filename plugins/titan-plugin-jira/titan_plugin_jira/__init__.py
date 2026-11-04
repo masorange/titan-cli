@@ -5,4 +5,4 @@ Titan Plugin: JIRA
 AI-powered JIRA integration plugin for Titan CLI.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
