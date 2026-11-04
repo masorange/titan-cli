@@ -1,4 +1,6 @@
 """The branch card and the branch switcher, drawn from `m.state` only; the mod's pane and the workspace both draw them."""
+from typing import Optional
+
 from titan_cli.ui.components import Option, ai_assist_button, choice_card, error_card, fix_prompt
 from titan_cli.ui.elements import Box, Button, Input, Text
 from titan_plugin_git.drawing import section
@@ -76,32 +78,48 @@ def stash_list_option(m, state: Branches, menu: str):
     """
     if not state.stashes:
         return None
+    return Option(
+        f"⤒ Stashes ({len(state.stashes)})…",
+        on_open=lambda: m.state.set(CLEAR_CONFIRM, False),
+        content=stash_list_box(m, state, menu),
+    )
 
+
+def stash_label(s, selected: Optional[str]):
+    """A stash by its message, branch and age; a marker leads it when the caller says which one is on screen."""
+    line = f"{s.message}" + (f" · {s.branch}" if s.branch else "") + (f" · {s.formatted_date}" if s.formatted_date else "")
+    if selected is None:
+        return line
+    return Text(Text("▶ " if s.hash == selected else "  ", color="info", bold=True), line)
+
+
+def stash_list_box(m, state: Branches, menu: Optional[str] = None, selected: Optional[str] = None) -> Box:
+    """
+    The stashes, one button each, and the line that empties the list behind a second press.
+    `menu` is the dropdown to close when the list is cleared; `selected` is the hash of the stash on screen.
+    """
     def clear():
-        m.state.set(menu, None)
+        if menu:
+            m.state.set(menu, None)
         m.state.set(CLEAR_CONFIRM, False)
         branch_actions_api.start_stash(m, "clear")
 
     confirming = m.state.get(CLEAR_CONFIRM, False)
-    return Option(
-        f"⤒ Stashes ({len(state.stashes)})…",
-        on_open=lambda: m.state.set(CLEAR_CONFIRM, False),
-        content=Box(
-            *[
-                Button(
-                    f"{s.message}" + (f" · {s.branch}" if s.branch else "") + (f" · {s.formatted_date}" if s.formatted_date else ""),
-                    lambda s=s: open_stash(m, s),
-                )
-                for s in state.stashes
-            ],
-            Text(" "),
-            not confirming and Button("✗ Clear stash list…", lambda: m.state.set(CLEAR_CONFIRM, True), dim=True),
-            confirming and Text(f"Drops all {len(state.stashes)} stashes. This cannot be undone.", color="warning", wrap=True),
-            confirming and Box(
-                Button("✓ Confirm clear", clear, variant="error"),
-                Button("Cancel", lambda: m.state.set(CLEAR_CONFIRM, False), variant="default"),
-                row=True,
-            ),
+    return Box(
+        *[
+            Button(
+                stash_label(s, selected),
+                lambda s=s: open_stash(m, s),
+            )
+            for s in state.stashes
+        ],
+        Text(" "),
+        not confirming and Button("✗ Clear stash list…", lambda: m.state.set(CLEAR_CONFIRM, True), dim=True),
+        confirming and Text(f"Drops all {len(state.stashes)} stashes. This cannot be undone.", color="warning", wrap=True),
+        confirming and Box(
+            Button("✓ Confirm clear", clear, variant="error"),
+            Button("Cancel", lambda: m.state.set(CLEAR_CONFIRM, False), variant="default"),
+            row=True,
         ),
     )
 
@@ -119,44 +137,49 @@ def new_branch_option(m, branch, options):
     if not branch.is_current:
         return None
 
+    return Option(
+        "New branch from it…",
+        on_open=lambda: new_branch_api.reset(m),
+        content=new_branch_form(m, branch, options),
+    )
+
+
+def new_branch_form(m, branch, options) -> Box:
+    """The new branch's name field, the AI's suggestion and the checkout: the content of its dropdown, or of a fold of its own."""
     doing = new_branch_api.status(m)
     name = m.state.get(new_branch_api.NAME) or ""
     error = m.state.get(new_branch_api.ERROR)
 
-    return Option(
-        "New branch from it…",
-        on_open=lambda: new_branch_api.reset(m),
-        content=Box(
-            Input(
-                value=name,
-                placeholder="feat/short-description",
-                size="normal",
-                on_change=lambda value: new_branch_api.set_name(m, value),
-                on_submit=lambda value: new_branch_api.create(m, branch.name, options),
-            ),
-            doing == "suggesting" and Text("… naming the uncommitted work", dim=True),
-            doing == "creating" and Text(f"… creating {name}", dim=True),
-            not doing and Button(
-                "✦ Suggest with AI",
-                lambda: new_branch_api.suggest(m, options),
-                dim=True,
-            ),
-            not doing and name and Button(
-                f"✓ Create {name} and switch",
-                lambda: new_branch_api.create(m, branch.name, options),
-                variant="primary",
-            ),
-            error and error_card(
-                error,
-                copy=m.ui.copy,
-                # Only the model's own failure is worth a CLI session: a taken name or a
-                # missing plugin has nothing to debug.
-                actions=[ai_assist_button(
-                    m,
-                    fix_prompt(error, "Titan's git mod asked the AI to suggest a branch name for the uncommitted work and the request failed."),
-                    "✦ Fix with AI",
-                )] if error.startswith(new_branch_api.AI_ERROR_PREFIX) else [],
-            ),
+    return Box(
+        Input(
+            value=name,
+            placeholder="feat/short-description",
+            size="normal",
+            on_change=lambda value: new_branch_api.set_name(m, value),
+            on_submit=lambda value: new_branch_api.create(m, branch.name, options),
+        ),
+        doing == "suggesting" and Text("… naming the uncommitted work", dim=True),
+        doing == "creating" and Text(f"… creating {name}", dim=True),
+        not doing and Button(
+            "✦ Suggest with AI",
+            lambda: new_branch_api.suggest(m, options),
+            dim=True,
+        ),
+        not doing and name and Button(
+            f"✓ Create {name} and switch",
+            lambda: new_branch_api.create(m, branch.name, options),
+            variant="primary",
+        ),
+        error and error_card(
+            error,
+            copy=m.ui.copy,
+            # Only the model's own failure is worth a CLI session: a taken name or a
+            # missing plugin has nothing to debug.
+            actions=[ai_assist_button(
+                m,
+                fix_prompt(error, "Titan's git mod asked the AI to suggest a branch name for the uncommitted work and the request failed."),
+                "✦ Fix with AI",
+            )] if error.startswith(new_branch_api.AI_ERROR_PREFIX) else [],
         ),
     )
 

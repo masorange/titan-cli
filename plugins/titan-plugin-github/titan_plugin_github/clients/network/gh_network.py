@@ -14,6 +14,7 @@ from titan_cli.core.logging.config import get_logger
 
 from ...exceptions import GitHubError, GitHubAuthenticationError, GitHubAPIError
 from ...messages import msg
+from . import rate_limit
 
 
 class GHNetwork:
@@ -92,6 +93,9 @@ class GHNetwork:
         action = args[1] if len(args) > 1 else ""
         start = time.time()
 
+        if (paused := rate_limit.paused_message()) is not None:
+            raise GitHubAPIError(msg.GitHub.API_ERROR.format(error_msg=paused))
+
         try:
             result = subprocess.run(
                 ["gh"] + args,
@@ -127,6 +131,9 @@ class GHNetwork:
             if not error_parts:
                 error_parts.append(str(e))
             error_msg = " | ".join(error_parts)
+            if rate_limit.is_rate_limit(error_msg):
+                rate_limit.start_pause()
+                error_msg = rate_limit.paused_message() or error_msg
             raise GitHubAPIError(
                 msg.GitHub.API_ERROR.format(error_msg=error_msg),
                 stderr=stderr or None,

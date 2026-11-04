@@ -99,6 +99,7 @@ def switch_to(m, branch: str) -> None:
             # The search found what it was for; a name left typed would hide the new list.
             clear_search(m)
             m.state.set("open_branch", None)
+            m.state.set("branch_panel", None)  # the workspace's switch panel, if it is the one that asked
             m.ui.toast(f"Switched to {branch}", "information")
         case ClientError(error_message=err):
             m.ui.toast(f"Could not switch to {branch}: {err}", "error")

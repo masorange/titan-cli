@@ -27,13 +27,6 @@ description = "How many commits the history starts with; \"Show more\" adds this
 default = 40
 min = 5
 
-[options.graph_max_lanes]
-type = "int"
-title = "Graph lanes shown"
-description = "Draw the commit graph while it fits in this many lanes; beyond it, a plain list."
-default = 8
-min = 1
-
 [options.context_lines]
 type = "int"
 title = "Context lines"

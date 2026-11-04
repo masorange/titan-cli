@@ -71,3 +71,8 @@ The GitHub plugin exposes public reusable steps for:
 - workflow prompts and CLI selection
 
 The complete grouped reference lives in [Workflow Steps](./workflow-steps.md).
+
+
+## API usage
+
+The `github` mod and workspace poll the same lists. The client keeps the successful results of the PR lists, the open-PR count, workflow runs and the merge queue for 15 seconds, so both read GitHub once; the login is kept for the session. `GitHubClient.invalidate_reads()` makes the next reads go to GitHub (the refresh key, Retry and the end of a workflow do it). When GitHub answers "rate limit exceeded", every `gh` call is refused with "paused until HH:MM" until the limit resets, instead of failing again each poll.
