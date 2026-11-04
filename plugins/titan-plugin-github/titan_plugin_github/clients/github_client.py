@@ -15,7 +15,7 @@ from titan_plugin_git.clients.git_client import GitClient
 from .network import GHNetwork, GraphQLNetwork
 from .services import PRService, ReviewService, IssueService, TeamService, ReleaseService, ContentsService
 from ..models.review_models import ReferencedCommitContext
-from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIReview, UIFileChange, UIPRCreated, UIRelease, UIWorkflowRun, UIFailedCheck
+from ..models.view import UIPullRequest, UICommentThread, UIIssue, UIPRMergeResult, UIMergeQueue, UIMergeQueueState, UIReview, UIFileChange, UIPRCreated, UIRelease, UIWorkflowRun, UIFailedCheck, UIUserAvailability
 
 
 class GitHubClient:
@@ -71,7 +71,7 @@ class GitHubClient:
         self._pr_service = PRService(self._gh_network, self._graphql_network)
         self._review_service = ReviewService(self._gh_network, self._graphql_network)
         self._issue_service = IssueService(self._gh_network)
-        self._team_service = TeamService(self._gh_network)
+        self._team_service = TeamService(self._gh_network, self._graphql_network)
         self._release_service = ReleaseService(self._gh_network)
         self._contents_service = ContentsService(self._gh_network)
 
@@ -415,6 +415,10 @@ class GitHubClient:
     def list_team_members(self, team_slug: str) -> ClientResult[List[str]]:
         """List all members of a GitHub team."""
         return self._team_service.list_team_members(team_slug)
+
+    def get_users_availability(self, logins: List[str]) -> ClientResult[List[UIUserAvailability]]:
+        """Whether each GitHub user has the "Busy" status set on their profile."""
+        return self._team_service.get_users_availability(logins)
 
     # ============================================================================
     # Utility Methods

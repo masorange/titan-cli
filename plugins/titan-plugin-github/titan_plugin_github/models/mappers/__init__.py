@@ -25,8 +25,10 @@ from .comment_mapper import from_graphql_review_comment, from_graphql_issue_comm
 from .thread_mapper import from_graphql_review_thread
 from .review_mapper import from_network_review
 from .release_mapper import from_network_release
+from .user_mapper import from_graphql_user_availability
 
 __all__ = [
+    "from_graphql_user_availability",
     "from_rest_pr",
     "from_network_pr_merge_result",
     "from_graphql_merge_queue",

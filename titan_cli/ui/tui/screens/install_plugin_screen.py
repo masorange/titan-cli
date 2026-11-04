@@ -1,10 +1,8 @@
-"""Install a project-pinned community plugin."""
+"""Install a community plugin, pinned for one project or for every project."""
 
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
-import tomli
-import tomli_w
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -13,7 +11,6 @@ from textual.widgets import Input, LoadingIndicator, Static
 
 from titan_cli.core.logging import get_logger
 from titan_cli.core.plugins.community_sources import (
-    PluginChannel,
     build_raw_pyproject_url,
     detect_host,
     fetch_pyproject_toml,
@@ -24,14 +21,17 @@ from titan_cli.core.plugins.community_sources import (
     resolve_ref_to_commit_sha,
     validate_url,
 )
+from titan_cli.core.plugins.models import PluginPin, PluginPinScope
 from titan_cli.core.plugins.runtime import PluginRuntimeManager
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import (
     BoldText,
     Button,
     DimText,
+    ChoiceOption,
     ErrorCard,
     Panel,
+    PromptChoice,
     PromptInput,
     StepIndicator,
     StepStatus,
@@ -47,17 +47,21 @@ logger = get_logger(__name__)
 
 @dataclass
 class InstalledPluginSummary:
-    """Summary shown after a successful project plugin install."""
+    """Summary shown after a successful community plugin install."""
 
     repo_url: str
     package_name: str
     titan_plugin_name: str
     requested_ref: str
     resolved_commit: str
+    scope: PluginPinScope = PluginPinScope.PROJECT
+    # The current project's own pin, when it hides a freshly installed global one.
+    shadowed_by: Optional[PluginPin] = None
 
 
 _STEPS = [
     WizardStep(id="source",  title="Source"),
+    WizardStep(id="scope",   title="Scope"),
     WizardStep(id="preview", title="Preview"),
     WizardStep(id="install", title="Install"),
     WizardStep(id="done",    title="Done"),
@@ -65,7 +69,7 @@ _STEPS = [
 
 
 class InstallPluginScreen(BaseScreen):
-    """Wizard for pinning a stable community plugin into the current project."""
+    """Wizard for pinning a stable community plugin, per project or globally."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -162,6 +166,7 @@ class InstallPluginScreen(BaseScreen):
         self._base_url: str = ""
         self._requested_ref: str = ""
         self._resolved_commit: Optional[str] = None
+        self._scope: PluginPinScope = PluginPinScope.PROJECT
         self._token: Optional[str] = None
 
         # Shared state
@@ -245,6 +250,8 @@ class InstallPluginScreen(BaseScreen):
         match _STEPS[index].id:
             case "source":
                 self._render_url(title, body)
+            case "scope":
+                self._render_scope(title, body)
             case "preview":
                 self._render_preview_stable(title, body)
             case "install":
@@ -300,7 +307,41 @@ class InstallPluginScreen(BaseScreen):
             return False
 
     # -----------------------------------------------------------------------
-    # Step 2 (Stable): Preview — fetch metadata + resolve SHA
+    # Step 2: Scope — this project or every project
+    # -----------------------------------------------------------------------
+
+    def _render_scope(self, title: Static, body: Container) -> None:
+        title.update("Scope")
+        self._set_next_label("Next")
+        self._set_next_visible(True)
+        self._set_cancel_visible(True)
+
+        body.mount(DimText(
+            "Where should this plugin be available?\n"
+            "Your choice is saved with the plugin's pinned version."
+        ))
+        body.mount(Text(""))
+        body.mount(DimText(
+            "  This project  - pinned in .titan/config.toml, shared with your team.\n"
+            "  All projects  - pinned in ~/.titan/config.toml, only on this machine."
+        ))
+
+        def on_select(value: PluginPinScope) -> None:
+            self._scope = value
+            self.query_one("#next-button", Button).action_press()
+
+        body.mount(PromptChoice(
+            question="Install for",
+            options=[
+                ChoiceOption(value=PluginPinScope.PROJECT, label="This project", variant="primary"),
+                ChoiceOption(value=PluginPinScope.GLOBAL, label="All projects", variant="default"),
+            ],
+            on_select=on_select,
+            on_cancel=self.action_cancel,
+        ))
+
+    # -----------------------------------------------------------------------
+    # Step 3 (Stable): Preview — fetch metadata + resolve SHA
     # -----------------------------------------------------------------------
 
     def _render_preview_stable(self, title: Static, body: Container) -> None:
@@ -443,16 +484,22 @@ class InstallPluginScreen(BaseScreen):
         body.mount(Text(""))
 
     def _render_security_warning(self, body: Container) -> None:
+        reach = (
+            "It will run in EVERY repository you open with Titan, not only this one.\n"
+            if self._scope is PluginPinScope.GLOBAL
+            else ""
+        )
         body.mount(Panel(
             "SECURITY WARNING\n\n"
             "This is third-party code not reviewed or verified by Titan.\n"
+            f"{reach}"
             "Installing it grants full access to your system and credentials.\n"
             "Only install plugins from sources you trust.",
             panel_type="warning",
         ))
 
     # -----------------------------------------------------------------------
-    # Step 3: Install
+    # Step 4: Install
     # -----------------------------------------------------------------------
 
     def _render_install(self, title: Static, body: Container) -> None:
@@ -473,7 +520,17 @@ class InstallPluginScreen(BaseScreen):
         eps = self._metadata.get("titan_entry_points", {})
         plugin_name = next(iter(eps), "")
         package_name = self._metadata.get("name") or self._base_url.rstrip("/").split("/")[-1]
-        error = await asyncio.to_thread(self._prepare_project_plugin_install, plugin_name)
+        # Read before saving: once a global pin is written, the project's own pin
+        # (if any) is what keeps winning, and the Done step has to say so.
+        project_pin = self.config.get_plugin_pin(plugin_name)
+        shadowed_by = (
+            project_pin
+            if self._scope is PluginPinScope.GLOBAL
+            and project_pin is not None
+            and project_pin.scope is PluginPinScope.PROJECT
+            else None
+        )
+        error = await asyncio.to_thread(self._prepare_plugin_install, plugin_name)
 
         body.remove_children()
 
@@ -505,6 +562,8 @@ class InstallPluginScreen(BaseScreen):
                 titan_plugin_name=plugin_name,
                 requested_ref=self._requested_ref,
                 resolved_commit=self._resolved_commit,
+                scope=self._scope,
+                shadowed_by=shadowed_by,
             )
             await asyncio.to_thread(self.config.load)
 
@@ -512,7 +571,8 @@ class InstallPluginScreen(BaseScreen):
 
             self._plugin_has_config = plugin_has_config_ui(self.config, plugin_name)
 
-            body.mount(SuccessText(f"{Icons.SUCCESS} Plugin added to this project."))
+            where = "every project" if self._scope is PluginPinScope.GLOBAL else "this project"
+            body.mount(SuccessText(f"{Icons.SUCCESS} Plugin added to {where}."))
 
         if self._plugin_has_config and self._installed_record:
             plugin_name = self._installed_record.titan_plugin_name
@@ -528,10 +588,16 @@ class InstallPluginScreen(BaseScreen):
             lambda _: self._load_step(self.current_step + 1),
         )
 
-    def _prepare_project_plugin_install(self, plugin_name: str) -> Optional[str]:
-        """Persist the project pin and provision its isolated runtime."""
+    def _prepare_plugin_install(self, plugin_name: str) -> Optional[str]:
+        """Persist the pin in the chosen scope and provision its isolated runtime."""
         try:
-            self._save_project_plugin_source(plugin_name)
+            self.config.set_plugin_pin(
+                plugin_name,
+                self._scope,
+                repo_url=self._base_url,
+                requested_ref=self._requested_ref,
+                resolved_commit=self._resolved_commit,
+            )
             self._runtime_manager.ensure_stable_runtime(
                 plugin_name=plugin_name,
                 repo_url=self._base_url,
@@ -542,32 +608,8 @@ class InstallPluginScreen(BaseScreen):
             return str(e)
         return None
 
-    def _save_project_plugin_source(self, plugin_name: str) -> None:
-        """Persist the stable source for a plugin in the current project config."""
-        project_cfg_path = self.config.project_config_path or (self.config.project_root / ".titan" / "config.toml")
-        project_cfg_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if project_cfg_path.exists():
-            with open(project_cfg_path, "rb") as f:
-                project_cfg_dict = tomli.load(f)
-        else:
-            project_cfg_dict = {}
-
-        plugins_table = project_cfg_dict.setdefault("plugins", {})
-        plugin_table = plugins_table.setdefault(plugin_name, {})
-        plugin_table["enabled"] = True
-
-        source_table = plugin_table.setdefault("source", {})
-        source_table["channel"] = PluginChannel.STABLE
-        source_table["repo_url"] = self._base_url
-        source_table["requested_ref"] = self._requested_ref
-        source_table["resolved_commit"] = self._resolved_commit
-
-        with open(project_cfg_path, "wb") as f:
-            tomli_w.dump(project_cfg_dict, f)
-
     # -----------------------------------------------------------------------
-    # Step 4: Done
+    # Step 5: Done
     # -----------------------------------------------------------------------
 
     def _render_done(self, title: Static, body: Container) -> None:
@@ -592,11 +634,22 @@ class InstallPluginScreen(BaseScreen):
             body.mount(Text(""))
 
             if r.titan_plugin_name:
+                if r.scope is PluginPinScope.GLOBAL:
+                    pinned_in = "~/.titan/config.toml, so it is available in every project"
+                else:
+                    pinned_in = "this project's .titan/config.toml"
                 body.mount(Panel(
                     f"The plugin '{r.titan_plugin_name}' is now available.\n"
-                    "Titan pinned this version in the current project's config and prepared its local runtime.",
+                    f"Titan pinned this version in {pinned_in} and prepared its local runtime.",
                     panel_type="info",
                 ))
+                if r.shadowed_by is not None:
+                    body.mount(Panel(
+                        "This project pins its own version "
+                        f"({r.shadowed_by.requested_ref or r.shadowed_by.resolved_commit[:12]}), "
+                        "which takes precedence over the one you just installed here.",
+                        panel_type="warning",
+                    ))
             else:
                 body.mount(Panel(
                     "The package was installed but no Titan plugin entry point was found.\n"

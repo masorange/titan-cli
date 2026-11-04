@@ -15,6 +15,7 @@ from .errors import ConfigParseError, ConfigWriteError
 from .utils import find_project_root, project_source_scope_key
 from .logging import get_logger
 from .plugins.community_sources import PluginChannel
+from .plugins.models import PluginPin, PluginPinScope
 
 logger = get_logger(__name__)
 
@@ -877,7 +878,14 @@ class TitanConfig:
             return False
         project_plugins = self.project_config.get("plugins", {}) if self.project_config else {}
         if plugin_name not in project_plugins:
-            return False
+            # No project entry: only a global pin enables a plugin on its own. A global
+            # `[plugins.<name>]` without a pin is per-user config for an official plugin
+            # (jira credentials) and enables nothing.
+            global_pin = self._read_pin(self.global_config, PluginPinScope.GLOBAL, plugin_name)
+            if global_pin is None or plugin_name == "slack":
+                return False
+            plugin_cfg = self.config.plugins.get(plugin_name)
+            return plugin_cfg.enabled if plugin_cfg else False
 
         # Slack is repo-scoped: it is only considered enabled when the current
         # project explicitly contains a complete Slack config block.
@@ -909,15 +917,11 @@ class TitanConfig:
             return None
         return Path(path).expanduser().resolve()
 
-    def get_global_plugin_source(self, plugin_name: str) -> dict:
-        """Return the raw user-local source override for a plugin in the active project."""
-        scoped_source = self._get_project_source_scope_data().get("plugins", {}).get(plugin_name, {}).get("source", {})
-        if scoped_source:
-            return scoped_source.copy()
-
-        # Backward-compatible fallback for older global config layouts.
+    def get_local_plugin_override(self, plugin_name: str) -> dict:
+        """Return the per-user, per-project source override for a plugin (`dev_local`)."""
         return (
-            self.global_config.get("plugins", {})
+            self._get_project_source_scope_data()
+            .get("plugins", {})
             .get(plugin_name, {})
             .get("source", {})
             .copy()
@@ -932,48 +936,140 @@ class TitanConfig:
             .copy()
         )
 
+    @staticmethod
+    def _read_pin(config_data: dict, scope: PluginPinScope, plugin_name: str) -> Optional[PluginPin]:
+        """Read a stable pin from one config file's `[plugins.<name>.source]`."""
+        source = config_data.get("plugins", {}).get(plugin_name, {}).get("source", {})
+        if source.get("channel", PluginChannel.STABLE) != PluginChannel.STABLE:
+            return None
+        repo_url = source.get("repo_url")
+        resolved_commit = source.get("resolved_commit")
+        if not repo_url or not resolved_commit:
+            return None
+        return PluginPin(
+            scope=scope,
+            repo_url=repo_url,
+            resolved_commit=resolved_commit,
+            requested_ref=source.get("requested_ref"),
+        )
+
+    def get_plugin_pin(self, plugin_name: str) -> Optional[PluginPin]:
+        """The stable pin that applies here: the project's own, otherwise the global one."""
+        return self._read_pin(
+            self.project_config or {}, PluginPinScope.PROJECT, plugin_name
+        ) or self._read_pin(self.global_config, PluginPinScope.GLOBAL, plugin_name)
+
     def get_effective_plugin_source(self, plugin_name: str) -> dict:
         """Return the effective plugin source after applying local overrides."""
-        global_source = self.get_global_plugin_source(plugin_name)
-        project_source = self.get_project_plugin_source(plugin_name)
+        local_source = self.get_local_plugin_override(plugin_name)
+        pin = self.get_plugin_pin(plugin_name)
+        pin_fields = (
+            {
+                "repo_url": pin.repo_url,
+                "requested_ref": pin.requested_ref,
+                "resolved_commit": pin.resolved_commit,
+            }
+            if pin
+            else {}
+        )
 
-        if global_source.get("channel") == PluginChannel.DEV_LOCAL and global_source.get("path"):
+        if local_source.get("channel") == PluginChannel.DEV_LOCAL and local_source.get("path"):
             return {
                 "channel": PluginChannel.DEV_LOCAL,
-                "path": global_source.get("path"),
-                "repo_url": project_source.get("repo_url"),
-                "requested_ref": project_source.get("requested_ref"),
-                "resolved_commit": project_source.get("resolved_commit"),
+                "path": local_source.get("path"),
+                "repo_url": pin_fields.get("repo_url"),
+                "requested_ref": pin_fields.get("requested_ref"),
+                "resolved_commit": pin_fields.get("resolved_commit"),
             }
 
-        effective = dict(project_source)
-        effective.setdefault("channel", PluginChannel.STABLE)
+        effective = {k: v for k, v in pin_fields.items() if v is not None}
+        if pin:
+            effective["channel"] = PluginChannel.STABLE
+        else:
+            effective = dict(self.get_project_plugin_source(plugin_name))
+            effective.setdefault("channel", PluginChannel.STABLE)
 
         # Preserve the remembered dev path for quick switching, but only as UX state.
-        if global_source.get("path") and "path" not in effective:
-            effective["path"] = global_source.get("path")
+        if local_source.get("path") and "path" not in effective:
+            effective["path"] = local_source.get("path")
 
         return effective
 
-    def get_project_plugin_repo_url(self, plugin_name: str) -> Optional[str]:
-        """Return the shared stable repository URL for a plugin."""
-        return self.get_project_plugin_source(plugin_name).get("repo_url")
+    def set_plugin_pin(
+        self,
+        plugin_name: str,
+        scope: PluginPinScope,
+        repo_url: str,
+        requested_ref: str,
+        resolved_commit: str,
+    ) -> None:
+        """Pin a stable community plugin in the project file or in the user's global file."""
+        data = self._load_pin_file(scope)
+        plugin_table = data.setdefault("plugins", {}).setdefault(plugin_name, {})
+        plugin_table["enabled"] = True
+        plugin_table["source"] = {
+            "channel": PluginChannel.STABLE,
+            "repo_url": repo_url,
+            "requested_ref": requested_ref,
+            "resolved_commit": resolved_commit,
+        }
+        self._write_pin_file(scope, data)
 
-    def get_project_plugin_requested_ref(self, plugin_name: str) -> Optional[str]:
-        """Return the shared requested stable ref for a plugin."""
-        return self.get_project_plugin_source(plugin_name).get("requested_ref")
+    def clear_plugin_pin(self, plugin_name: str, scope: PluginPinScope) -> None:
+        """Remove a plugin's pin, and its entry too when nothing else is left in it."""
+        data = self._load_pin_file(scope)
+        plugins_table = data.get("plugins", {})
+        plugin_table = plugins_table.get(plugin_name)
+        if plugin_table is None:
+            return
+        plugin_table.pop("source", None)
+        if scope is PluginPinScope.GLOBAL:
+            # A pin is what made `enabled` meaningful in the global file.
+            plugin_table.pop("enabled", None)
+        if not plugin_table:
+            plugins_table.pop(plugin_name, None)
+        if not plugins_table:
+            data.pop("plugins", None)
+        self._write_pin_file(scope, data)
 
-    def get_project_plugin_resolved_commit(self, plugin_name: str) -> Optional[str]:
-        """Return the shared resolved stable commit for a plugin."""
-        return self.get_project_plugin_source(plugin_name).get("resolved_commit")
+    def set_plugin_enabled_in_project(self, plugin_name: str, enabled: bool) -> None:
+        """Record in the project file whether a plugin is enabled here.
 
-    def set_global_plugin_source(
+        For a globally pinned plugin this is the per-project opt-out
+        (`enabled = false`), since the project has no pin of its own.
+        """
+        data = self._load_pin_file(PluginPinScope.PROJECT)
+        data.setdefault("plugins", {}).setdefault(plugin_name, {})["enabled"] = enabled
+        self._write_pin_file(PluginPinScope.PROJECT, data)
+
+    def remove_plugin_from_project(self, plugin_name: str) -> None:
+        """Drop a plugin's whole entry (pin, config, enabled flag) from the project file."""
+        data = self._load_pin_file(PluginPinScope.PROJECT)
+        plugins_table = data.get("plugins", {})
+        if plugin_name not in plugins_table:
+            raise KeyError(f"Plugin '{plugin_name}' is not configured in this project")
+        plugins_table.pop(plugin_name)
+        self._write_pin_file(PluginPinScope.PROJECT, data)
+
+    def _pin_file_path(self, scope: PluginPinScope) -> Path:
+        if scope is PluginPinScope.GLOBAL:
+            return self._global_config_path
+        return self.project_config_path or (self.project_root / ".titan" / "config.toml")
+
+    def _load_pin_file(self, scope: PluginPinScope) -> dict:
+        path = self._pin_file_path(scope)
+        return self._load_toml(path, strict=True)
+
+    def _write_pin_file(self, scope: PluginPinScope, data: dict) -> None:
+        self._write_toml(self._pin_file_path(scope), data)
+
+    def set_local_plugin_override(
         self,
         plugin_name: str,
         channel: str,
         path: Optional[str] = None,
     ) -> None:
-        """Persist a plugin source override in the global user config."""
+        """Persist a per-user, per-project plugin source override in the user config."""
         config_data = self._load_toml(self._global_config_path)
         project_sources = config_data.setdefault("project_sources", {})
         project_table = project_sources.setdefault(self._get_project_source_scope_key(), {})
@@ -990,8 +1086,8 @@ class TitanConfig:
 
         self._write_global_config(config_data)
 
-    def clear_global_plugin_source(self, plugin_name: str) -> None:
-        """Remove a plugin source override from the global user config."""
+    def clear_local_plugin_override(self, plugin_name: str) -> None:
+        """Remove the per-user, per-project plugin source override."""
         config_data = self._load_toml(self._global_config_path)
         project_sources = config_data.get("project_sources", {})
         project_key = self._find_project_source_scope_key(project_sources)
@@ -999,17 +1095,6 @@ class TitanConfig:
         plugins_table = project_table.get("plugins", {})
         plugin_table = plugins_table.get(plugin_name)
         if not plugin_table:
-            # Fall back to cleaning any legacy global override for the plugin.
-            legacy_plugins = config_data.get("plugins", {})
-            legacy_plugin = legacy_plugins.get(plugin_name)
-            if not legacy_plugin:
-                return
-            legacy_plugin.pop("source", None)
-            if not legacy_plugin:
-                legacy_plugins.pop(plugin_name, None)
-            if not legacy_plugins and "plugins" in config_data:
-                config_data.pop("plugins", None)
-            self._write_global_config(config_data)
             return
 
         plugin_table.pop("source", None)

@@ -8,10 +8,10 @@ Titan supports community plugins in addition to the official plugins bundled wit
 
 There are two source channels:
 
-- `stable`: a shared project pin stored in `.titan/config.toml`
-- `dev_local`: a user-local override stored in `~/.titan/config.toml`
+- `stable`: a pin to one commit, with an install **scope**: `project` (in `.titan/config.toml`, shared with the team) or `global` (in `~/.titan/config.toml`, this machine, every project)
+- `dev_local`: a per-user, per-project override stored in `~/.titan/config.toml`
 
-Titan itself can remain globally installed, while project-pinned community plugins are prepared in isolated local runtimes.
+Titan itself can remain globally installed, while community plugins are prepared in isolated local runtimes.
 
 ---
 
@@ -21,18 +21,21 @@ Titan itself can remain globally installed, while project-pinned community plugi
 |------|------|
 | `titan_cli/core/plugins/community_sources.py` | URL parsing, metadata preview, ref resolution, update checks |
 | `titan_cli/core/plugins/runtime.py` | Isolated runtime/cache manager for `stable` community plugins |
-| `titan_cli/core/plugins/models.py` | Plugin source config model |
+| `titan_cli/core/plugins/models.py` | Plugin source config model, `PluginPin` and `PluginPinScope` |
 | `titan_cli/core/plugins/plugin_registry.py` | Resolves effective source and loads `dev_local` or cached `stable` plugin code |
-| `titan_cli/ui/tui/screens/install_plugin_screen.py` | Adds a stable community plugin to the current project |
-| `titan_cli/ui/tui/screens/plugin_management.py` | Displays source state and handles update/remove/dev override actions |
+| `titan_cli/ui/tui/screens/install_plugin_screen.py` | Adds a stable community plugin, pinned for the project or for all projects |
+| `titan_cli/ui/tui/screens/plugin_management.py` | Displays source state and scope, handles update/remove/dev override actions on the pin's scope |
 
 ---
 
 ## Source Model
 
-### Shared project pin (`stable`)
+### Stable pin: project or global
 
-The shared stable source lives in `.titan/config.toml`:
+A stable pin is the same block in either file. Its scope is **where it lives**; nothing in
+the block records it.
+
+Project, in `.titan/config.toml`:
 
 ```toml
 [plugins.custom]
@@ -45,25 +48,32 @@ requested_ref = "v1.2.0"
 resolved_commit = "0123456789abcdef0123456789abcdef01234567"
 ```
 
+Global, the same two tables in `~/.titan/config.toml`.
+
 Notes:
 - `requested_ref` stores the exact tag/ref used by that repository
-- `resolved_commit` is the operational truth
-- this block is meant to be committed and reviewed in PRs
+- `resolved_commit` is the operational truth; a pin is always a SHA, never "latest"
+- a project pin is meant to be committed and reviewed in PRs
+- a global pin runs the plugin's code in every repo you open with Titan, and the wizard says so
+- only a stable block with both `repo_url` and `resolved_commit` is a pin; a global
+  `[plugins.<name>]` without one (jira credentials, say) is per-user config and enables nothing
+- the `*_plugin_pin` methods on `TitanConfig` read and write pins; screens never edit TOML themselves
 
 ### User-local override (`dev_local`)
 
-The active local development override lives in `~/.titan/config.toml`:
+The active local development override lives in the user's `~/.titan/config.toml`, keyed by project:
 
 ```toml
-[plugins.custom.source]
+[project_sources.<project key>.plugins.custom.source]
 channel = "dev_local"
 path = "/absolute/path/to/local/plugin/repo"
 ```
 
 Notes:
-- this is not committed to the project
-- if present, it wins over the project's `stable` pin on that machine
-- when switching back to `stable`, the remembered `path` may stay in global config as UX state, but it is ignored
+- this is not committed to the project, and it applies to one project only, also for a globally pinned plugin
+- if present, it wins over any `stable` pin on that machine
+- when switching back to `stable`, the remembered `path` may stay as UX state, but it is ignored
+- there is no global `dev_local`: set the Develop switch in each repo
 
 ---
 
@@ -71,10 +81,18 @@ Notes:
 
 Titan resolves the effective source in this order:
 
-1. global `dev_local` override
-2. project `stable` pin
+1. the per-project `dev_local` override
+2. the project `stable` pin
+3. the global `stable` pin
 
-If neither exists, the plugin is treated as a normal installed plugin with no community source metadata.
+A project can pin another version of a globally installed plugin (its own pin wins), or
+opt out of it with `enabled = false` in its `[plugins.<name>]`.
+
+Enablement: a plugin is enabled in a project when the project file lists it, or when it has a
+global pin (including outside any project) and the project does not set `enabled = false`.
+Slack is the exception: it stays repo-scoped and needs its full block in the project.
+
+If no source exists, the plugin is treated as a normal installed plugin with no community source metadata.
 
 ---
 
@@ -91,7 +109,12 @@ https://github.com/user/titan-plugin-custom@abc123def456
 
 Bare repository URLs without `@ref` are rejected.
 
-### 2. Preview
+### 2. Scope
+
+"This project" (the default) or "All projects". The preview then repeats that a global plugin
+runs in every repo.
+
+### 3. Preview
 
 Titan fetches `pyproject.toml` from that source and shows:
 - package name
@@ -101,17 +124,19 @@ Titan fetches `pyproject.toml` from that source and shows:
 - Titan entry points
 - Python dependencies
 
-### 3. Pin + runtime
+### 4. Pin + runtime
 
 Titan resolves the requested ref to a full commit SHA and then:
 
-1. writes the shared stable pin into the current project's `.titan/config.toml`
+1. writes the stable pin in the chosen scope (`set_plugin_pin`)
 2. prepares an isolated runtime for that plugin commit
 3. reloads config/registry so the plugin becomes available immediately
 
-### 4. Done
+### 5. Done
 
-The wizard shows the pinned ref/commit and the Titan plugin name if found.
+The wizard shows the pinned ref/commit, the Titan plugin name if found, and where it was
+pinned. Installing globally while the current project pins its own version warns that the
+project's version wins.
 
 ---
 
@@ -199,7 +224,7 @@ in-process today.
 ## Update Flow
 
 Only `stable` community plugins can be updated. A plugin whose load failed can still be
-updated: the pin lives in project config, not in the loaded plugin, and update is the
+updated: the pin lives in config, not in the loaded plugin, and update is the
 standard way out of a broken pinned version.
 
 Update behavior:
@@ -210,7 +235,7 @@ Update behavior:
    declared `titan-cli` requirement against the running version — a positively-detected
    incompatibility aborts the update with an explanatory notify (fetch/parse failures do
    not block)
-4. update the current project's `.titan/config.toml`
+4. rewrite the pin in the scope where it lives (project or global)
 5. prepare the runtime for the new commit
 6. reload Titan config/registry
 
@@ -247,7 +272,13 @@ Rule".
 In Plugin Management:
 
 - if the active source is `dev_local`, remove the local override from global config
-- if the active source is `stable`, remove the plugin from the current project's config
+- if the active pin is a project pin, remove the plugin's entry from the current project's config
+- if it is a global pin, clear the pin from `~/.titan/config.toml` (its other per-user settings stay), which removes the plugin from every project
+
+Toggle (`e`) always acts on this project: on a globally installed plugin it writes
+`enabled = false` in the project file, so the plugin stays on everywhere else.
+
+Plugin Management marks each plugin `[community · project]` or `[community · global]`.
 
 This no longer uninstalls a package from Titan's global environment, because `stable` community plugins are no longer managed with `pipx inject`.
 

@@ -679,12 +679,17 @@ def test_get_plugin_source_prefers_global_override_over_project(tmp_path: Path, 
     with open(global_config_path, "wb") as f:
         tomli_w.dump(
             {
-                "plugins": {
-                    "github": {
-                        "source": {
-                            "channel": "dev_local",
-                            "path": str(global_plugin_repo),
-                        }
+                "project_sources": {
+                    _project_scope_key(project_dir): {
+                        "project_path": str(project_dir.resolve()),
+                        "plugins": {
+                            "github": {
+                                "source": {
+                                    "channel": "dev_local",
+                                    "path": str(global_plugin_repo),
+                                }
+                            }
+                        },
                     }
                 }
             },
@@ -745,9 +750,11 @@ def test_project_stable_source_helpers_return_shared_pin_metadata(tmp_path: Path
         config_instance = TitanConfig()
 
         assert config_instance.get_plugin_source_channel("sample") == "stable"
-        assert config_instance.get_project_plugin_repo_url("sample") == "https://github.com/example/sample-plugin"
-        assert config_instance.get_project_plugin_requested_ref("sample") == "v1.2.3"
-        assert config_instance.get_project_plugin_resolved_commit("sample") == "a" * 40
+        pin = config_instance.get_plugin_pin("sample")
+        assert pin.scope.value == "project"
+        assert pin.repo_url == "https://github.com/example/sample-plugin"
+        assert pin.requested_ref == "v1.2.3"
+        assert pin.resolved_commit == "a" * 40
         assert config_instance.get_effective_plugin_source("sample") == {
             "channel": "stable",
             "repo_url": "https://github.com/example/sample-plugin",
@@ -793,12 +800,17 @@ def test_effective_plugin_source_keeps_global_dev_path_as_stable_memory(tmp_path
     with open(global_config_path, "wb") as f:
         tomli_w.dump(
             {
-                "plugins": {
-                    "sample": {
-                        "source": {
-                            "channel": "stable",
-                            "path": str(remembered_path),
-                        }
+                "project_sources": {
+                    _project_scope_key(project_dir): {
+                        "project_path": str(project_dir.resolve()),
+                        "plugins": {
+                            "sample": {
+                                "source": {
+                                    "channel": "stable",
+                                    "path": str(remembered_path),
+                                }
+                            }
+                        },
                     }
                 }
             },
@@ -825,7 +837,7 @@ def test_effective_plugin_source_keeps_global_dev_path_as_stable_memory(tmp_path
         os.chdir(original_cwd)
 
 
-def test_set_global_plugin_source_writes_user_config(tmp_path: Path, monkeypatch, mocker):
+def test_set_local_plugin_override_writes_user_config(tmp_path: Path, monkeypatch, mocker):
     """Global plugin source overrides should be written to user config."""
     mocker.patch('titan_cli.core.config.PluginRegistry')
 
@@ -843,7 +855,7 @@ def test_set_global_plugin_source_writes_user_config(tmp_path: Path, monkeypatch
     try:
         os.chdir(project_dir)
         config_instance = TitanConfig()
-        config_instance.set_global_plugin_source("github", "dev_local", "/tmp/local-github")
+        config_instance.set_local_plugin_override("github", "dev_local", "/tmp/local-github")
     finally:
         os.chdir(original_cwd)
 
@@ -858,7 +870,7 @@ def test_set_global_plugin_source_writes_user_config(tmp_path: Path, monkeypatch
     assert "plugins" not in data
 
 
-def test_clear_global_plugin_source_removes_only_source_block(tmp_path: Path, monkeypatch, mocker):
+def test_clear_local_plugin_override_removes_only_source_block(tmp_path: Path, monkeypatch, mocker):
     """Clearing a global plugin source should preserve other global plugin settings."""
     mocker.patch('titan_cli.core.config.PluginRegistry')
 
@@ -896,7 +908,7 @@ def test_clear_global_plugin_source_removes_only_source_block(tmp_path: Path, mo
     try:
         os.chdir(project_dir)
         config_instance = TitanConfig()
-        config_instance.clear_global_plugin_source("github")
+        config_instance.clear_local_plugin_override("github")
     finally:
         os.chdir(original_cwd)
 
@@ -998,7 +1010,7 @@ def test_global_plugin_source_is_scoped_to_active_project(tmp_path: Path, monkey
     try:
         os.chdir(project_b)
         config_b = TitanConfig()
-        config_b.set_global_plugin_source("sample", "dev_local", "/tmp/sample-dev")
+        config_b.set_local_plugin_override("sample", "dev_local", "/tmp/sample-dev")
 
         config_b.load(skip_plugin_init=True)
         assert config_b.get_plugin_source_channel("sample") == "dev_local"
@@ -1512,3 +1524,188 @@ def test_get_workflow_last_used_skips_entries_that_are_not_timestamps(tmp_path: 
     )
 
     assert _at(project_dir).get_workflow_last_used() == {"release-notes": "2026-09-18T10:22:00Z"}
+
+
+_GLOBAL_PIN = {
+    "enabled": True,
+    "source": {
+        "channel": "stable",
+        "repo_url": "https://github.com/example/global-plugin",
+        "requested_ref": "v1.0.0",
+        "resolved_commit": "c" * 40,
+    },
+}
+
+
+def _make_config(tmp_path: Path, monkeypatch, mocker, global_data: dict, project_data: dict | None):
+    """Build a TitanConfig in a temp project with the given global and project files."""
+    mocker.patch('titan_cli.core.config.PluginRegistry')
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    if project_data is not None:
+        (project_dir / ".titan").mkdir()
+        with open(project_dir / ".titan" / "config.toml", "wb") as f:
+            tomli_w.dump(project_data, f)
+    global_config_path = tmp_path / "home" / ".titan" / "config.toml"
+    global_config_path.parent.mkdir(parents=True)
+    with open(global_config_path, "wb") as f:
+        tomli_w.dump(global_data, f)
+    monkeypatch.setattr(TitanConfig, "GLOBAL_CONFIG", global_config_path)
+    monkeypatch.chdir(project_dir)
+    return TitanConfig(skip_plugin_init=True), global_config_path, project_dir
+
+
+def test_global_pin_enables_plugin_in_project_without_entry(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": _GLOBAL_PIN}},
+        {"project": {"name": "P"}},
+    )
+    assert config.is_plugin_enabled("sample") is True
+    pin = config.get_plugin_pin("sample")
+    assert (pin.scope.value, pin.resolved_commit) == ("global", "c" * 40)
+
+
+def test_global_pin_enables_plugin_outside_any_project(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker, {"plugins": {"sample": _GLOBAL_PIN}}, None
+    )
+    assert config.is_plugin_enabled("sample") is True
+
+
+def test_global_plugin_block_without_pin_enables_nothing(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"jira": {"enabled": True, "config": {"base_url": "https://x"}}}},
+        {"project": {"name": "P"}},
+    )
+    assert config.is_plugin_enabled("jira") is False
+    assert config.get_plugin_pin("jira") is None
+
+
+def test_project_can_opt_out_of_global_pin(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": _GLOBAL_PIN}},
+        {"project": {"name": "P"}, "plugins": {"sample": {"enabled": False}}},
+    )
+    assert config.is_plugin_enabled("sample") is False
+
+
+def test_project_pin_wins_over_global_pin(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": _GLOBAL_PIN}},
+        {
+            "project": {"name": "P"},
+            "plugins": {
+                "sample": {
+                    "enabled": True,
+                    "source": {
+                        "channel": "stable",
+                        "repo_url": "https://github.com/example/global-plugin",
+                        "requested_ref": "v2.0.0",
+                        "resolved_commit": "d" * 40,
+                    },
+                }
+            },
+        },
+    )
+    pin = config.get_plugin_pin("sample")
+    assert (pin.scope.value, pin.requested_ref) == ("project", "v2.0.0")
+    assert config.get_effective_plugin_source("sample")["resolved_commit"] == "d" * 40
+
+
+def test_project_entry_without_pin_falls_through_to_global_pin(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": _GLOBAL_PIN}},
+        {"project": {"name": "P"}, "plugins": {"sample": {"enabled": True, "config": {"a": 1}}}},
+    )
+    assert config.get_plugin_pin("sample").scope.value == "global"
+    assert config.is_plugin_enabled("sample") is True
+
+
+def test_set_and_clear_plugin_pin_in_each_scope(tmp_path, monkeypatch, mocker):
+    from titan_cli.core.plugins.models import PluginPinScope
+    import tomli
+
+    config, global_path, project_dir = _make_config(
+        tmp_path, monkeypatch, mocker, {"extra": {"keep": "me"}}, {"project": {"name": "P"}}
+    )
+    args = ("https://github.com/example/p", "v1", "e" * 40)
+
+    config.set_plugin_pin("sample", PluginPinScope.GLOBAL, *args)
+    with open(global_path, "rb") as f:
+        data = tomli.load(f)
+    assert data["plugins"]["sample"]["source"]["resolved_commit"] == "e" * 40
+    assert data["extra"] == {"keep": "me"}
+
+    config.set_plugin_pin("sample", PluginPinScope.PROJECT, *args)
+    with open(project_dir / ".titan" / "config.toml", "rb") as f:
+        assert tomli.load(f)["plugins"]["sample"]["source"]["resolved_commit"] == "e" * 40
+
+    config.clear_plugin_pin("sample", PluginPinScope.GLOBAL)
+    with open(global_path, "rb") as f:
+        data = tomli.load(f)
+    assert "plugins" not in data and data["extra"] == {"keep": "me"}
+    with open(project_dir / ".titan" / "config.toml", "rb") as f:
+        assert "source" in tomli.load(f)["plugins"]["sample"]
+
+
+def test_clear_global_pin_keeps_other_global_plugin_config(tmp_path, monkeypatch, mocker):
+    from titan_cli.core.plugins.models import PluginPinScope
+    import tomli
+
+    config, global_path, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": {**_GLOBAL_PIN, "config": {"k": "v"}}}},
+        {"project": {"name": "P"}},
+    )
+    config.clear_plugin_pin("sample", PluginPinScope.GLOBAL)
+    with open(global_path, "rb") as f:
+        data = tomli.load(f)
+    assert data["plugins"]["sample"] == {"config": {"k": "v"}}
+
+
+def test_global_plugin_source_table_is_no_longer_a_dev_override(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": {"source": {"channel": "dev_local", "path": "/tmp/x"}}}},
+        {"project": {"name": "P"}},
+    )
+    assert config.get_local_plugin_override("sample") == {}
+
+
+def test_set_plugin_enabled_in_project_creates_opt_out_entry(tmp_path, monkeypatch, mocker):
+    import tomli
+
+    config, _, project_dir = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": _GLOBAL_PIN}},
+        {"project": {"name": "P"}},
+    )
+    config.set_plugin_enabled_in_project("sample", False)
+    config.load(skip_plugin_init=True)
+
+    with open(project_dir / ".titan" / "config.toml", "rb") as f:
+        assert tomli.load(f)["plugins"]["sample"] == {"enabled": False}
+    assert config.is_plugin_enabled("sample") is False
+
+    config.set_plugin_enabled_in_project("sample", True)
+    config.load(skip_plugin_init=True)
+    assert config.is_plugin_enabled("sample") is True
+
+
+def test_remove_plugin_from_project_drops_entry_and_rejects_unknown(tmp_path, monkeypatch, mocker):
+    import pytest
+
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker, {},
+        {"project": {"name": "P"}, "plugins": {"sample": {"enabled": True}}},
+    )
+    config.remove_plugin_from_project("sample")
+    config.load(skip_plugin_init=True)
+    assert "sample" not in config.project_config.get("plugins", {})
+    with pytest.raises(KeyError):
+        config.remove_plugin_from_project("sample")

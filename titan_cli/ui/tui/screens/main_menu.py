@@ -155,7 +155,8 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
 
     #home-mods-grid {
         grid-size: 3;
-        grid-rows: 9;
+        /* A card is at least 9 rows and grows with the buttons a mod gives it. */
+        grid-rows: auto;
         grid-gutter: 1 2;
         height: auto;
     }
@@ -230,7 +231,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         return host.home_card_slots() if host is not None else []
 
     def _mod_card_for(self, mod: str, slot: HomeCardSlot) -> ModHomeCard:
-        return ModHomeCard(mod, slot.icon or "", slot.title, slot.text, slot.on_click is not None)
+        return ModHomeCard(mod, slot.icon or "", slot.title, slot.text, slot.on_click is not None, slot.actions)
 
     def refresh_mod_cards(self) -> None:
         """Rebuild the mods section from what they currently ask for."""
@@ -382,23 +383,22 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             )
 
     def _get_project_stable_records(self) -> list[CommunityPluginRecord]:
-        """Return synthetic records for project-pinned community plugins."""
+        """Return synthetic records for pinned community plugins (project or global)."""
         records: list[CommunityPluginRecord] = []
         for plugin_name in self.config.get_enabled_plugins():
-            repo_url = self.config.get_project_plugin_repo_url(plugin_name)
-            resolved_commit = self.config.get_project_plugin_resolved_commit(plugin_name)
-            if not repo_url or not resolved_commit:
+            pin = self.config.get_plugin_pin(plugin_name)
+            if pin is None:
                 continue
             records.append(
                 CommunityPluginRecord(
-                    repo_url=repo_url,
+                    repo_url=pin.repo_url,
                     package_name=plugin_name,
                     titan_plugin_name=plugin_name,
                     installed_at="",
                     channel=PluginChannel.STABLE,
                     dev_local_path=None,
-                    requested_ref=self.config.get_project_plugin_requested_ref(plugin_name) or resolved_commit,
-                    resolved_commit=resolved_commit,
+                    requested_ref=pin.requested_ref or pin.resolved_commit,
+                    resolved_commit=pin.resolved_commit,
                 )
             )
         return records

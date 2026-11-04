@@ -1,4 +1,5 @@
 # titan_cli/core/plugins/models.py
+from enum import Enum
 from typing import Any, Dict, Optional, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -28,6 +29,22 @@ class PluginSourceConfig(BaseModel):
             if self.resolved_commit and not self.repo_url:
                 raise ValueError("stable plugin sources with 'resolved_commit' require 'repo_url'")
         return self
+
+class PluginPinScope(str, Enum):
+    """Where a stable community plugin pin is recorded."""
+
+    PROJECT = "project"
+    GLOBAL = "global"
+
+
+class PluginPin(BaseModel):
+    """A stable community plugin pinned to one commit, and where that pin lives."""
+
+    scope: PluginPinScope
+    repo_url: str
+    resolved_commit: str
+    requested_ref: Optional[str] = None
+
 
 class PluginConfig(BaseModel):
     """
