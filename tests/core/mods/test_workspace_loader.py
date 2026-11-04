@@ -122,6 +122,19 @@ def test_a_disabled_workspace_never_imports(tmp_path):
     assert bus.statuses["off"].state == "disabled"
 
 
+def test_a_workspace_that_is_off_by_default_loads_only_when_the_user_enables_it(tmp_path):
+    write_workspace(tmp_path, "quiet", extra="default_enabled = false\n", source="def register(w, on, options):\n    pass\n")
+    found = discover_mods([("user", tmp_path)], WORKSPACES)
+
+    off = ModBus(prefix="workspace.")
+    load_mods(off, found, {}, kind=WORKSPACES)
+    on = ModBus(prefix="workspace.")
+    load_mods(on, found, {"quiet": {"enabled": True}}, kind=WORKSPACES)
+
+    assert off.statuses["quiet"].state == "disabled"
+    assert on.statuses["quiet"].state == LOADED
+
+
 def test_build_mod_bus_for_workspaces_prefixes_and_loads(tmp_path, monkeypatch):
     write_workspace(tmp_path / "ws", "github")
     bus = build_mod_bus(cli_mod_dirs=[str(tmp_path / "ws" / "github")], kind=WORKSPACES)

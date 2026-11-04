@@ -20,7 +20,7 @@ Titan itself ships the `cli` workspace, in every project:
 
 | Workspace | Shows |
 |---|---|
-| `cli` | A full-screen terminal that runs the active CLI session (Claude, Gemini, Codex, OpenCode, Antigravity, Grok) inside Titan; with no session it lists the installed CLIs to start one. The menu to switch, start and close sessions is the `cli` [mod](mods.md)'s, in the side panel. A session keeps running when you leave the workspace (`ctrl+]`) and is the same one when you come back. The mouse wheel (or `shift+pageup`/`shift+pagedown`) scrolls back through the last 2000 lines and typing returns to the live screen; a CLI that reads the mouse, or runs full-screen, gets the wheel itself. Each session's memory is measured in the border and capped (`memory_limit_mb`, 2048 by default; a watchdog kills it past the limit everywhere, the systemd cgroup cap is Linux-only); every session is stopped when Titan quits |
+| `cli` (off by default: `[workspaces.cli] enabled = true`) | A full-screen terminal that runs the active CLI session (Claude, Gemini, Codex, OpenCode, Antigravity, Grok) inside Titan; with no session it lists the installed CLIs to start one. The menu to switch, start and close sessions is the `cli` [mod](mods.md)'s, in the side panel. A session keeps running when you leave the workspace (`ctrl+]`) and is the same one when you come back. The mouse wheel (or `shift+pageup`/`shift+pagedown`) scrolls back through the last 2000 lines and typing returns to the live screen; a CLI that reads the mouse, or runs full-screen, gets the wheel itself. Each session's memory is measured in the border and capped (`memory_limit_mb`, 2048 by default; a watchdog kills it past the limit everywhere, the systemd cgroup cap is Linux-only); every session is stopped when Titan quits |
 
 Official plugins ship theirs, and they load while the plugin is enabled:
 
@@ -47,6 +47,8 @@ queue = false                  # switch one section off
 [workspaces.github.options]
 prs_refresh_seconds = 60       # override a declared option
 ```
+
+A workspace can ship off: `default_enabled = false` in the `[workspace]` of its `workspace.toml` (the `cli` one does). It stays off until `[workspaces.<name>] enabled = true` turns it on.
 
 An option value that does not fit its declared type, or an option the workspace never declared, is dropped with a warning in the log; the workspace gets its default.
 
