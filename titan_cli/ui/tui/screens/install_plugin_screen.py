@@ -165,6 +165,7 @@ class InstallPluginScreen(BaseScreen):
         self._raw_url: str = ""
         self._base_url: str = ""
         self._requested_ref: str = ""
+        self._subdirectory: Optional[str] = None
         self._resolved_commit: Optional[str] = None
         self._scope: PluginPinScope = PluginPinScope.PROJECT
         self._token: Optional[str] = None
@@ -271,10 +272,14 @@ class InstallPluginScreen(BaseScreen):
 
         body.mount(DimText(
             "Enter the URL of the plugin's git repository.\n"
-            "Include a version tag or commit SHA after @"
+            "Include a version tag or commit SHA after @.\n"
+            "If the plugin lives in a folder of the repository, add :folder after the version."
         ))
         body.mount(Text(""))
-        body.mount(DimText("  Example: https://github.com/user/titan-plugin-example@v1.0.0"))
+        body.mount(DimText(
+            "  Example: https://github.com/user/titan-plugin-example@v1.0.0\n"
+            "  In a folder: https://github.com/user/monorepo@v1.0.0:plugins/titan-plugin-example"
+        ))
         body.mount(Text(""))
 
         def on_submit(value: str):
@@ -300,7 +305,7 @@ class InstallPluginScreen(BaseScreen):
             w.remove()
         try:
             validate_url(self._raw_url)
-            self._base_url, self._requested_ref = parse_repo_url(self._raw_url)
+            self._base_url, self._requested_ref, self._subdirectory = parse_repo_url(self._raw_url)
             return True
         except ValueError as e:
             body.mount(ErrorCard(e))
@@ -379,7 +384,9 @@ class InstallPluginScreen(BaseScreen):
 
         self._resolved_commit = resolved_sha
 
-        raw_url = build_raw_pyproject_url(self._base_url, self._resolved_commit, host)
+        raw_url = build_raw_pyproject_url(
+            self._base_url, self._resolved_commit, host, self._subdirectory
+        )
 
         if raw_url is None:
             body.remove_children()
@@ -395,11 +402,18 @@ class InstallPluginScreen(BaseScreen):
         body.remove_children()
 
         if error == "not_found":
-            body.mount(Panel(
-                "Repository or version not found.\n"
-                "Check that the URL and version tag are correct.",
-                panel_type="error",
-            ))
+            if self._subdirectory:
+                message = (
+                    f"No pyproject.toml found in '{self._subdirectory}' at {self._requested_ref}.\n"
+                    "The folder must hold the plugin's own pyproject.toml. "
+                    "If the plugin's pyproject.toml is at the repository root, drop the :folder part."
+                )
+            else:
+                message = (
+                    "Repository or version not found.\n"
+                    "Check that the URL and version tag are correct."
+                )
+            body.mount(Panel(message, panel_type="error"))
             self._set_next_label("Next", disabled=True)
             return
 
@@ -442,6 +456,8 @@ class InstallPluginScreen(BaseScreen):
         body.mount(Text(""))
         body.mount(BoldText("Version resolution"))
         body.mount(DimText(f"  Requested:       {self._requested_ref}"))
+        if self._subdirectory:
+            body.mount(DimText(f"  Folder:          {self._subdirectory}"))
         body.mount(DimText(f"  Installs commit: {self._resolved_commit}"))
 
         self._render_security_warning(body)
@@ -597,12 +613,14 @@ class InstallPluginScreen(BaseScreen):
                 repo_url=self._base_url,
                 requested_ref=self._requested_ref,
                 resolved_commit=self._resolved_commit,
+                subdirectory=self._subdirectory,
             )
             self._runtime_manager.ensure_stable_runtime(
                 plugin_name=plugin_name,
                 repo_url=self._base_url,
                 resolved_commit=self._resolved_commit,
                 token=self._token,
+                subdirectory=self._subdirectory,
             )
         except Exception as e:
             return str(e)

@@ -399,6 +399,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
                     dev_local_path=None,
                     requested_ref=pin.requested_ref or pin.resolved_commit,
                     resolved_commit=pin.resolved_commit,
+                    subdirectory=pin.subdirectory,
                 )
             )
         return records

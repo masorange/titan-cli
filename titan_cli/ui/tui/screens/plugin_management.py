@@ -655,6 +655,7 @@ class PluginManagementScreen(BaseScreen):
             dev_local_path=None,
             requested_ref=requested_ref,
             resolved_commit=resolved_commit,
+            subdirectory=pin.subdirectory,
         )
 
     def _pin_scope_label(self, plugin_name: str) -> str:
@@ -851,7 +852,8 @@ class PluginManagementScreen(BaseScreen):
             return
 
         incompatibility = await asyncio.to_thread(
-            self._check_candidate_incompatibility, record.repo_url, resolved_sha, host, token
+            self._check_candidate_incompatibility,
+            record.repo_url, resolved_sha, host, token, record.subdirectory
         )
         if incompatibility:
             self.app.notify(
@@ -870,6 +872,7 @@ class PluginManagementScreen(BaseScreen):
                 record.repo_url,
                 latest,
                 resolved_sha,
+                record.subdirectory,
             )
         except Exception as e:
             logger.error("plugin_update_failed", plugin=record.titan_plugin_name, error=str(e))
@@ -888,7 +891,12 @@ class PluginManagementScreen(BaseScreen):
         )
 
     def _check_candidate_incompatibility(
-        self, repo_url: str, resolved_sha: str, host, token: str | None
+        self,
+        repo_url: str,
+        resolved_sha: str,
+        host,
+        token: str | None,
+        subdirectory: str | None = None,
     ) -> str | None:
         """Check the candidate version's declared titan-cli requirement before pinning it.
 
@@ -903,7 +911,7 @@ class PluginManagementScreen(BaseScreen):
             parse_plugin_metadata,
         )
 
-        raw_url = build_raw_pyproject_url(repo_url, resolved_sha, host)
+        raw_url = build_raw_pyproject_url(repo_url, resolved_sha, host, subdirectory)
         if raw_url is None:
             return None
         content, error = fetch_pyproject_toml(raw_url, token)

@@ -76,3 +76,80 @@ def test_build_authenticated_repo_url_adds_token():
     )
 
     assert result == "https://abc123@github.com/example/sample-plugin"
+
+
+def test_runtime_paths_point_into_the_subdirectory(tmp_path: Path):
+    manager = PluginRuntimeManager(cache_root=tmp_path)
+
+    paths = manager.get_runtime_paths("sample", "a" * 40, "plugins/titan-plugin-x")
+
+    assert paths.cache_dir == tmp_path / "sample" / ("a" * 40)
+    assert paths.source_dir == paths.cache_dir / "src" / "plugins" / "titan-plugin-x"
+
+
+def test_prepare_runtime_checks_out_the_repo_and_installs_the_subdirectory(tmp_path: Path, mocker):
+    manager = PluginRuntimeManager(cache_root=tmp_path)
+    paths = manager.get_runtime_paths("sample", "a" * 40, "plugins/x")
+
+    def fake_checkout(repo_url, commit, checkout_dir, token):
+        (checkout_dir / "plugins" / "x").mkdir(parents=True)
+        (checkout_dir / "plugins" / "x" / "pyproject.toml").write_text("", encoding="utf-8")
+
+    mocker.patch.object(manager, "_checkout_source", side_effect=fake_checkout)
+    mocker.patch.object(manager, "_create_virtualenv")
+    install = mocker.patch.object(manager, "_install_plugin")
+
+    manager._prepare_runtime(paths, "https://github.com/example/m", "a" * 40, None)
+
+    install.assert_called_once_with(paths.venv_dir, paths.source_dir)
+
+
+def test_prepare_runtime_fails_when_the_subdirectory_has_no_pyproject(tmp_path: Path, mocker):
+    import pytest
+    from titan_cli.core.plugins.runtime import PluginRuntimeError
+
+    manager = PluginRuntimeManager(cache_root=tmp_path)
+    paths = manager.get_runtime_paths("sample", "a" * 40, "plugins/missing")
+    mocker.patch.object(
+        manager, "_checkout_source",
+        side_effect=lambda r, c, d, t: d.mkdir(parents=True),
+    )
+    install = mocker.patch.object(manager, "_install_plugin")
+
+    with pytest.raises(PluginRuntimeError, match="plugins/missing"):
+        manager._prepare_runtime(paths, "https://github.com/example/m", "a" * 40, None)
+
+    install.assert_not_called()
+
+
+def test_plugin_dir_cannot_escape_the_checkout(tmp_path: Path):
+    import pytest
+    from titan_cli.core.plugins.runtime import PluginRuntimeError
+
+    manager = PluginRuntimeManager(cache_root=tmp_path)
+
+    with pytest.raises(PluginRuntimeError):
+        manager.get_runtime_paths("sample", "a" * 40, "../../etc")
+
+
+def test_prepare_runtime_rejects_a_symlinked_folder_that_leaves_the_checkout(tmp_path: Path, mocker):
+    import pytest
+    from titan_cli.core.plugins.runtime import PluginRuntimeError
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "pyproject.toml").write_text("", encoding="utf-8")
+    manager = PluginRuntimeManager(cache_root=tmp_path / "cache")
+    paths = manager.get_runtime_paths("sample", "a" * 40, "plugins/x")
+
+    def fake_checkout(repo_url, commit, checkout_dir, token):
+        (checkout_dir / "plugins").mkdir(parents=True)
+        (checkout_dir / "plugins" / "x").symlink_to(outside)
+
+    mocker.patch.object(manager, "_checkout_source", side_effect=fake_checkout)
+    install = mocker.patch.object(manager, "_install_plugin")
+
+    with pytest.raises(PluginRuntimeError, match="outside"):
+        manager._prepare_runtime(paths, "https://github.com/example/m", "a" * 40, None)
+
+    install.assert_not_called()

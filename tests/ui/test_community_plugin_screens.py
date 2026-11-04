@@ -225,6 +225,7 @@ def test_install_wizard_pins_in_the_chosen_scope():
             repo_url="https://github.com/example/sample-plugin",
             requested_ref="v1.0.0",
             resolved_commit="a" * 40,
+            subdirectory=None,
         )
         screen._runtime_manager.ensure_stable_runtime.assert_called_once()
 

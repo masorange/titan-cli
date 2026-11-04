@@ -71,6 +71,8 @@ resolved_commit = "0123456789abcdef0123456789abcdef01234567"
 
 An *All projects* pin is the same block in `~/.titan/config.toml`. It enables the plugin in every repo you open with Titan, on this machine only, and runs its code in all of them. A project can pin a different version of that plugin (its own pin wins) or turn it off with `enabled = false`. Plugin Management marks each plugin `[community · project]` or `[community · global]`, and Update and Remove act on the scope shown.
 
+A plugin that lives in a folder of a larger repository adds `subdirectory = "plugins/titan-plugin-custom"` to that block, and in the install wizard you write it after the version: `https://github.com/user/monorepo@v1.2.0:plugins/titan-plugin-custom`. The folder must hold the plugin's own `pyproject.toml`.
+
 `requested_ref` stores the exact tag or ref used by that repository. Some repos use
 tags like `v1.2.0`; others use `1.2.0`.
 

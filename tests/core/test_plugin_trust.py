@@ -15,27 +15,23 @@ from titan_cli.core.plugins.trust import (
 
 # --- Classification -------------------------------------------------------
 
-def test_official_plugin_requires_matching_distribution():
-    assert classify_plugin("git", channel=None, dist_name="titan-plugin-git") == PluginTrust.OFFICIAL
-    assert classify_plugin("github", channel=None, dist_name="titan-plugin-github") == PluginTrust.OFFICIAL
+def test_official_plugin_comes_from_the_titan_cli_distribution():
+    assert classify_plugin(channel=None, dist_name="titan-cli") == PluginTrust.OFFICIAL
 
 
 def test_official_name_from_foreign_distribution_is_community():
     """An entry point NAMED git from a third-party package must not be OFFICIAL."""
-    assert classify_plugin("git", channel=None, dist_name="evil-package") == PluginTrust.COMMUNITY
-    assert classify_plugin("git", channel=None, dist_name=None) == PluginTrust.COMMUNITY
+    assert classify_plugin(channel=None, dist_name="evil-package") == PluginTrust.COMMUNITY
+    assert classify_plugin(channel=None, dist_name="titan-plugin-git") == PluginTrust.COMMUNITY
+    assert classify_plugin(channel=None, dist_name=None) == PluginTrust.COMMUNITY
 
 
-def test_unknown_entry_point_plugin_is_community():
-    assert classify_plugin("shady-helper", channel=None) == PluginTrust.COMMUNITY
-
-
-def test_stable_channel_is_community_even_for_official_names():
-    assert classify_plugin("git", channel=PluginChannel.STABLE) == PluginTrust.COMMUNITY
+def test_stable_channel_is_community_even_from_the_titan_cli_distribution():
+    assert classify_plugin(channel=PluginChannel.STABLE, dist_name="titan-cli") == PluginTrust.COMMUNITY
 
 
 def test_dev_local_channel_is_local():
-    assert classify_plugin("ragnarok", channel=PluginChannel.DEV_LOCAL) == PluginTrust.LOCAL
+    assert classify_plugin(channel=PluginChannel.DEV_LOCAL) == PluginTrust.LOCAL
 
 
 # --- Static scan ----------------------------------------------------------

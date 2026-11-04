@@ -50,6 +50,10 @@ resolved_commit = "0123456789abcdef0123456789abcdef01234567"
 
 Global, the same two tables in `~/.titan/config.toml`.
 
+A plugin that lives in a folder of a repository (a monorepo) adds `subdirectory = "plugins/titan-plugin-custom"`
+to the source block; without it the repository root is the plugin. The folder is relative, never
+`..` or absolute, and holds the plugin's own `pyproject.toml`.
+
 Notes:
 - `requested_ref` stores the exact tag/ref used by that repository
 - `resolved_commit` is the operational truth; a pin is always a SHA, never "latest"
@@ -105,7 +109,10 @@ The user enters a URL with an explicit ref:
 ```text
 https://github.com/user/titan-plugin-custom@v1.2.0
 https://github.com/user/titan-plugin-custom@abc123def456
+https://github.com/user/monorepo@v1.2.0:plugins/titan-plugin-custom
 ```
+
+`:folder` after the ref names the plugin's folder inside the repository (a git ref cannot contain `:`).
 
 Bare repository URLs without `@ref` are rejected.
 
@@ -116,7 +123,7 @@ runs in every repo.
 
 ### 3. Preview
 
-Titan fetches `pyproject.toml` from that source and shows:
+Titan fetches `pyproject.toml` from that source (from the folder, when one was given) and shows:
 - package name
 - version
 - description

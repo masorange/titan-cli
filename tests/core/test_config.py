@@ -1709,3 +1709,35 @@ def test_remove_plugin_from_project_drops_entry_and_rejects_unknown(tmp_path, mo
     assert "sample" not in config.project_config.get("plugins", {})
     with pytest.raises(KeyError):
         config.remove_plugin_from_project("sample")
+
+
+def test_pin_keeps_its_subdirectory(tmp_path, monkeypatch, mocker):
+    from titan_cli.core.plugins.models import PluginPinScope
+
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker, {}, {"project": {"name": "P"}}
+    )
+    config.set_plugin_pin(
+        "sample", PluginPinScope.GLOBAL, "https://github.com/example/m", "v1", "e" * 40,
+        "plugins/x",
+    )
+    config.set_plugin_pin(
+        "root", PluginPinScope.GLOBAL, "https://github.com/example/p", "v1", "f" * 40,
+    )
+    config.load()
+
+    assert config.get_plugin_pin("sample").subdirectory == "plugins/x"
+    assert config.get_effective_plugin_source("sample")["subdirectory"] == "plugins/x"
+    assert config.get_plugin_pin("root").subdirectory is None
+
+
+def test_pin_with_an_invalid_subdirectory_is_ignored(tmp_path, monkeypatch, mocker):
+    config, _, _ = _make_config(
+        tmp_path, monkeypatch, mocker,
+        {"plugins": {"sample": {"enabled": True, "source": {
+            **_GLOBAL_PIN["source"], "subdirectory": "../outside",
+        }}}},
+        {"project": {"name": "P"}},
+    )
+
+    assert config.get_plugin_pin("sample") is None

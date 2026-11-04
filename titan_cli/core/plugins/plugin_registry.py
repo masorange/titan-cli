@@ -194,7 +194,6 @@ class PluginRegistry:
 
         for name, ep in self._entry_points.items():
             self._plugin_trust[name] = classify_plugin(
-                name,
                 channel=None,
                 dist_name=ep.dist.name if ep.dist else None,
             )
@@ -457,6 +456,7 @@ class PluginRegistry:
                     repo_url=repo_url,
                     resolved_commit=resolved_commit,
                     token=get_github_token(),
+                    subdirectory=pin.subdirectory,
                 )
                 plugin = _load_local_plugin(
                     runtime.paths.source_dir,
@@ -561,7 +561,7 @@ class PluginRegistry:
         `SecretManager`), which the user should know about — but whether to
         keep running it is their call.
         """
-        self._plugin_trust[plugin_name] = classify_plugin(plugin_name, channel)
+        self._plugin_trust[plugin_name] = classify_plugin(channel)
         try:
             findings = scan_plugin_source(source_dir)
         except OSError as e:

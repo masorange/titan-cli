@@ -14,7 +14,7 @@ from .security import create_broker_factory
 from .errors import ConfigParseError, ConfigWriteError
 from .utils import find_project_root, project_source_scope_key
 from .logging import get_logger
-from .plugins.community_sources import PluginChannel
+from .plugins.community_sources import PluginChannel, normalise_subdirectory
 from .plugins.models import PluginPin, PluginPinScope
 
 logger = get_logger(__name__)
@@ -946,11 +946,18 @@ class TitanConfig:
         resolved_commit = source.get("resolved_commit")
         if not repo_url or not resolved_commit:
             return None
+        try:
+            subdirectory = normalise_subdirectory(source.get("subdirectory"))
+        except ValueError:
+            # Running the repository root instead of the folder asked for would be worse than no pin.
+            logger.warning("plugin_pin_invalid_subdirectory", plugin=plugin_name, scope=scope.value)
+            return None
         return PluginPin(
             scope=scope,
             repo_url=repo_url,
             resolved_commit=resolved_commit,
             requested_ref=source.get("requested_ref"),
+            subdirectory=subdirectory,
         )
 
     def get_plugin_pin(self, plugin_name: str) -> Optional[PluginPin]:
@@ -968,6 +975,7 @@ class TitanConfig:
                 "repo_url": pin.repo_url,
                 "requested_ref": pin.requested_ref,
                 "resolved_commit": pin.resolved_commit,
+                "subdirectory": pin.subdirectory,
             }
             if pin
             else {}
@@ -980,6 +988,7 @@ class TitanConfig:
                 "repo_url": pin_fields.get("repo_url"),
                 "requested_ref": pin_fields.get("requested_ref"),
                 "resolved_commit": pin_fields.get("resolved_commit"),
+                "subdirectory": pin_fields.get("subdirectory"),
             }
 
         effective = {k: v for k, v in pin_fields.items() if v is not None}
@@ -1002,17 +1011,21 @@ class TitanConfig:
         repo_url: str,
         requested_ref: str,
         resolved_commit: str,
+        subdirectory: Optional[str] = None,
     ) -> None:
         """Pin a stable community plugin in the project file or in the user's global file."""
         data = self._load_pin_file(scope)
         plugin_table = data.setdefault("plugins", {}).setdefault(plugin_name, {})
         plugin_table["enabled"] = True
-        plugin_table["source"] = {
+        source = {
             "channel": PluginChannel.STABLE,
             "repo_url": repo_url,
             "requested_ref": requested_ref,
             "resolved_commit": resolved_commit,
         }
+        if subdirectory:
+            source["subdirectory"] = subdirectory
+        plugin_table["source"] = source
         self._write_pin_file(scope, data)
 
     def clear_plugin_pin(self, plugin_name: str, scope: PluginPinScope) -> None:

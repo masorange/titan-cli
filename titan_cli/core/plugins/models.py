@@ -18,6 +18,7 @@ class PluginSourceConfig(BaseModel):
     repo_url: Optional[str] = Field(None, description="Git repository URL when channel is 'stable'.")
     requested_ref: Optional[str] = Field(None, description="User-facing tag/ref requested for a stable plugin source.")
     resolved_commit: Optional[str] = Field(None, description="Resolved commit SHA installed for a stable plugin source.")
+    subdirectory: Optional[str] = Field(None, description="Plugin folder inside the repository when it is not the root.")
 
     @model_validator(mode="after")
     def validate_channel_specific_fields(self) -> "PluginSourceConfig":
@@ -44,6 +45,7 @@ class PluginPin(BaseModel):
     repo_url: str
     resolved_commit: str
     requested_ref: Optional[str] = None
+    subdirectory: Optional[str] = None
 
 
 class PluginConfig(BaseModel):
