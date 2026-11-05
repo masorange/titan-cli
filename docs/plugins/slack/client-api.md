@@ -7,7 +7,7 @@ The Slack plugin exposes Slack operations through `SlackClient`. This page docum
 To use the Slack client in Titan code:
 
 - enable the `slack` plugin
-- complete project-scoped Slack OAuth configuration so a personal token is available in keyring for the active repository
+- complete project-scoped Slack OAuth configuration so a personal grant is stored in the keyring for the active repository (one key, `<project>_slack_oauth`, written by Titan's shared OAuth flow; connections made before it need one reconnect)
 
 ---
 
@@ -125,3 +125,4 @@ Returns `ClientResult[UISlackUploadedFile]` with `file_id`, `channel`, `title`, 
 - `read_channel()` exists in the client API but is not yet exposed as a public workflow step.
 - The current Slack integration assumes one active Slack workspace binding per repository.
 - `granted_scopes` is recorded during OAuth connection setup; `auth_test()` validates the token but does not refresh that stored scope snapshot.
+- The token is refreshed by Titan before it expires and once more when Slack rejects it (`token_expired`, `token_revoked`…); `SlackClient(token_refresher=...)` receives a callable that hands the new token to the client and never returns it.

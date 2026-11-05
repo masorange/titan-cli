@@ -14,6 +14,7 @@ All raw secret handling lives in **`titan_cli/core/security/`**:
   OS keyring cascade). Only this package may import it or `keyring`.
 - `broker.py` — `SecretBroker`, `SecretRef`, `SecretBrokerFactory`.
 - `sessions.py` — authenticated-object factories.
+- `oauth.py` — OAuth 2.0 for desktop apps (authorization code + PKCE, loopback redirect).
 - `execution.py` — redacted subprocess primitives.
 - `redaction.py` — global redaction registry + leak detection.
 - `sensitive.py` — `SensitiveValue` for plugin-derived material.
@@ -48,6 +49,29 @@ For sessions/providers built inside the boundary:
 `create_authenticated_session(ref, scheme)` (a `requests.Session` with the
 `Authorization` header set) and `create_ai_provider(connection_id, cfg)`
 (the AI chain's provider factory).
+
+## OAuth: `connect_oauth` and `OAuthCredentials`
+
+For providers without personal tokens (Google) or with user OAuth (Slack), the token
+lifecycle stays inside the boundary. The plugin declares the provider as data
+(`OAuthProvider`: endpoints, scopes, separator, where the tokens and non-secret fields sit in
+the response) and the user's app (`OAuthApp`: `client_id`, optional broker key of the client
+secret, loopback port), then:
+
+- `connect_oauth(broker, key, provider, app, verify=...)` — blocking, from a worker thread.
+  PKCE S256, constant-time `state` check (a callback with another state is ignored, not
+  fatal), server bound to 127.0.0.1, one path, nothing reflected. The token response goes
+  straight into one broker key as a JSON grant; the caller gets an `OAuthGrant` (scopes,
+  expiry, `metadata` such as team or `id_token` claims like `email`). `verify(grant)` can
+  reject the account before anything is stored.
+- `OAuthCredentials(broker, key, provider, app)` — `session()` (a `requests.Session` that
+  refreshes before expiry and once on a 401), `create_client(builder)` (same leak guard as
+  the broker's), `refresh(apply)` (forced refresh, new token handed to `apply`),
+  `disconnect()`. Rotated refresh tokens are persisted before use. `OAuthError.reauthorize`
+  says when only connecting again helps.
+
+Response bodies never reach logs or exception messages — Titan's logging does not redact, so
+only provider error codes are logged. Tokens are registered for redaction when parsed.
 
 ## Namespacing — honest limits
 
