@@ -56,7 +56,7 @@ class SlackClient:
         timeout: int = 30,
         default_channels: list[str] | None = None,
         max_rate_limit_retries: int = DEFAULT_MAX_RATE_LIMIT_RETRIES,
-        token_refresher: Callable[[], str] | None = None,
+        token_refresher: Callable[[Callable[[str], None]], None] | None = None,
     ):
         if not user_token:
             raise SlackClientError("Slack client requires a user token.")
@@ -104,7 +104,9 @@ class SlackClient:
                 return call()
 
             try:
-                new_token = self._token_refresher()
+                # The refresher hands the new token to `_apply_token`; it
+                # never returns it.
+                self._token_refresher(self._apply_token)
             except Exception as exc:
                 logger.warning("slack_reactive_token_refresh_failed", error=str(exc))
                 return ClientError(
@@ -117,10 +119,12 @@ class SlackClient:
                 )
 
             logger.info("slack_reactive_token_refresh_succeeded")
-            self.user_token = new_token
-            self._web_client.token = new_token
 
         return call()
+
+    def _apply_token(self, token: str) -> None:
+        self.user_token = token
+        self._web_client.token = token
 
     @property
     def web_client(self):

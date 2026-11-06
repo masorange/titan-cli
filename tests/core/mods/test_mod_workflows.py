@@ -171,7 +171,8 @@ def test_assist_refuses_a_task_the_user_pinned_to_something_that_is_not_interact
 def test_the_help_task_offers_only_the_interactive_cli_and_the_complete_task_never_does():
     from titan_cli.ai.router import AIProviderType
 
-    assist, complete = TitanModHost._assist_policy("github"), TitanModHost._policy("github")
+    host = TitanModHost(app=None, bus=ModBus())
+    assist, complete = host._assist_policy("github"), host._policy("github")
 
     assert assist.task == "mods.github.assist" and assist.executes == [AIProviderType.CLI_INTERACTIVE]
     assert AIProviderType.CLI_INTERACTIVE not in complete.executes

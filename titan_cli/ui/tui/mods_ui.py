@@ -9,6 +9,7 @@ import importlib
 import pkgutil
 import threading
 import time
+from dataclasses import fields
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from rich.markup import escape
@@ -20,6 +21,25 @@ from titan_cli.core.mods.keys import key_refusal
 from titan_cli.ui.tui.widgets.registry import register_widget, unregister_widget
 
 logger = get_logger(__name__)
+
+
+def _looks(slot: Any) -> Any:
+    """
+    What a dock or home-card slot puts on screen. Its callbacks are left out but for
+    whether there is one: a mod builds new lambdas on every tick, and a press looks the
+    slot up when it happens, so new callbacks alone are nothing to repaint.
+    """
+    if slot is None:
+        return None
+    looks = []
+    for field in fields(slot):
+        value = getattr(slot, field.name)
+        if field.name == "on_click":
+            value = value is not None
+        elif field.name == "actions":
+            value = tuple((action.label, action.variant) for action in value)
+        looks.append(value)
+    return type(slot), tuple(looks)
 
 
 class TitanModHost:
@@ -50,6 +70,9 @@ class TitanModHost:
         self._clients: Dict[str, Any] = {}
         # mod -> the timers it started, to stop them when it is unloaded
         self._timers: Dict[str, List[Any]] = {}
+        # (mod, first tick) of the timers asked to run at once before the first screen is
+        # painted; None once release_first_ticks() has let them go.
+        self._held_ticks: Optional[List[Tuple[str, Callable[[], None]]]] = []
         self._executor = None
         # key -> (mod, description, fn)
         self._keys: Dict[str, Tuple[str, str, Callable[[], None]]] = {}
@@ -61,11 +84,14 @@ class TitanModHost:
         return list(self._dock.items())
 
     def dock(self, mod: str, slot: Optional[DockSlot]) -> None:
+        previous = self._dock.get(mod)
         if slot is not None:
             self._dock[mod] = slot
         else:
             self._dock.pop(mod, None)
-        self._on_app_thread(self._paint_dock)
+        # Mods resend their slot on every tick, mostly unchanged: only a change is painted.
+        if _looks(previous) != _looks(slot):
+            self._on_app_thread(self._paint_dock)
 
     def widget(self, mod: str, name: str, widget: Any) -> None:
         register_widget(name, widget)
@@ -137,11 +163,13 @@ class TitanModHost:
         return list(self._home_cards.items())
 
     def home_card(self, mod: str, slot: Optional[HomeCardSlot]) -> None:
+        previous = self._home_cards.get(mod)
         if slot is not None:
             self._home_cards[mod] = slot
         else:
             self._home_cards.pop(mod, None)
-        self._on_app_thread(self._paint_home_cards)
+        if _looks(previous) != _looks(slot):
+            self._on_app_thread(self._paint_home_cards)
 
     def press_home_card(self, mod: str) -> None:
         """Enter or a click on a mod's home card: its own action, if it gave one."""
@@ -385,18 +413,40 @@ class TitanModHost:
 
         def start() -> None:
             self._timers.setdefault(mod, []).append(self._app.set_interval(seconds, tick))
-            if immediately:
+            if not immediately:
+                return
+            if self._held_ticks is not None:
+                self._held_ticks.append((mod, tick))
+            else:
                 tick()
 
         self._on_app_thread(start)
 
+    def release_first_ticks(self, delay: float = 0.2, spacing: float = 0.1) -> None:
+        """
+        Run the first refresh of every timer that asked for one at once, now that the first
+        screen is painted, one every `spacing` seconds.
+
+        At start every mod and workspace asks for its first load together: a dozen threads of
+        Python work (git, gh, log parsing) fighting the UI for the GIL while it tries to draw
+        its first frame. Held until here and spread out, they no longer delay it.
+        """
+        held, self._held_ticks = self._held_ticks or [], None
+        for index, (mod, tick) in enumerate(held):
+            # Kept with the mod's timers, so unloading it before its turn cancels it.
+            self._timers.setdefault(mod, []).append(self._app.set_timer(delay + index * spacing, tick))
+
     def client(self, name: str) -> Any:
         # Cached once found: is_available() can be a network round-trip
-        # (github runs `gh auth status`), and timers ask on every tick.
-        if name in self._clients:
-            return self._clients[name]
+        # (github runs `gh auth status`), and timers ask on every tick. A plugin
+        # rebuilt since (a reconnect, a new account) is no longer initialized
+        # in the current build, so its old client is dropped and asked again.
         if self._registry is None:
             return None
+        if name in self._clients:
+            if self._registry.is_initialized(name):
+                return self._clients[name]
+            self._clients.pop(name, None)  # another thread may have dropped it first
         try:
             plugin = self._registry.ensure_initialized(name)
             if plugin is None or not plugin.is_available():
@@ -424,6 +474,8 @@ class TitanModHost:
         self._on_app_thread(lambda: self._unload(mod))
 
     def _unload(self, mod: str) -> None:
+        if self._held_ticks is not None:
+            self._held_ticks = [(holder, tick) for holder, tick in self._held_ticks if holder != mod]
         for timer in self._timers.pop(mod, []):
             timer.stop()
         try:
@@ -458,20 +510,29 @@ class TitanModHost:
 
     # -- AI -------------------------------------------------------------------
 
-    @staticmethod
-    def _policy(mod: str):
+    def _ai_owner(self, mod: str) -> str:
+        """
+        Whose AI task `mod` runs under (`ModBus.ai_owner`): a plugin's workspace runs under its
+        mod's. Only the task is the owner's: toasts, error cards and logs keep `mod`, the surface.
+        """
+        workspaces = getattr(self._app, "workspaces", None)
+        prefix = getattr(workspaces, "prefix", "")
+        if prefix and mod.startswith(prefix):
+            return workspaces.ai_owner(mod.removeprefix(prefix))
+        return mod
+
+    def _policy(self, mod: str):
         from titan_cli.ai.router import AIProviderType, AIRoutePolicy
 
         # A mod can run a remote connection or a headless CLI; it never drives an
         # interactive session, so that type is not offered for its task.
         return AIRoutePolicy(
-            task=f"mods.{mod}",
+            task=f"mods.{self._ai_owner(mod)}",
             executes=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
             preferred=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
         )
 
-    @staticmethod
-    def _assist_policy(mod: str):
+    def _assist_policy(self, mod: str):
         from titan_cli.ai.router import AIProviderType, AIRoutePolicy
 
         # The help button opens an interactive CLI, which a one-shot `m.ai.complete` could
@@ -480,7 +541,7 @@ class TitanModHost:
         # offered. A remote or headless pin is refused with a toast: showing its answer would
         # take `ask_ai`, and the button has nowhere to draw it.
         return AIRoutePolicy(
-            task=f"mods.{mod}.assist",
+            task=f"mods.{self._ai_owner(mod)}.assist",
             executes=[AIProviderType.CLI_INTERACTIVE],
             preferred=[AIProviderType.CLI_INTERACTIVE],
         )
@@ -491,7 +552,7 @@ class TitanModHost:
     def ai_pinned(self, mod: str) -> Optional[str]:
         ai_config = self._ai_config()
         prefs = getattr(ai_config, "preferences", None)
-        pin = prefs.tasks.get(f"mods.{mod}") if prefs is not None else None
+        pin = prefs.tasks.get(self._policy(mod).task) if prefs is not None else None
         if pin is None:
             return None
         if pin.provider == "remote":
@@ -499,23 +560,34 @@ class TitanModHost:
         return f"cli:{pin.cli or ai_config.default_cli}"
 
     def ai_routings(self) -> list:
-        """A task row for every loaded mod whose manifest declares `ai_task`, for the AI screen."""
+        """
+        A task row for every AI task a loaded mod or workspace declares, for the AI screen.
+
+        One row per task, not per surface: a plugin's mod and workspace of the same name share
+        their tasks (`ModBus.ai_owner`), so the row lists both as its users.
+        """
         executor = self._ai_executor()
         if executor is None:
             return []
-        rows = []
+        rows: Dict[str, Any] = {}
         workspaces = getattr(self._app, "workspaces", None)
         for bus in (self._bus, workspaces):
             for name, manifest in (bus.manifests.items() if bus is not None else ()):
-                ident = bus.prefix + name
-                if manifest.ai_task:
-                    rows.append(self._task_routing(ident, manifest.ai_task, executor))
-                if getattr(manifest, "ai_assist_task", None):
-                    rows.append(self._task_routing(ident, manifest.ai_assist_task, executor, assist=True))
-        return rows
+                user = bus.prefix + name
+                for title, assist in ((manifest.ai_task, False), (getattr(manifest, "ai_assist_task", None), True)):
+                    if not title:
+                        continue
+                    routing = self._task_routing(user, title, executor, assist=assist, users=[])
+                    rows.setdefault(routing.task, routing).mods.append(user)
+        return list(rows.values())
 
-    def _task_routing(self, mod: str, title: str, executor=None, assist: bool = False):
-        """One of this mod's tasks (`mods.<mod>`, or `mods.<mod>.assist`) as the AI screen's task rows see it."""
+    def _task_routing(self, mod: str, title: str, executor=None, assist: bool = False, users: Optional[List[str]] = None):
+        """
+        One of `mod`'s tasks (`mods.<owner>`, or `mods.<owner>.assist`) as the AI screen's task rows see it.
+
+        `users` are the mods and workspaces that run under it, as the host knows them, and
+        default to `mod` alone.
+        """
         from titan_cli.ui.tui.screens.ai_routing import TaskRouting
 
         executor = executor or self._ai_executor()
@@ -532,7 +604,7 @@ class TitanModHost:
             pinned_cli=pin.cli if pin else None,
             pinned_connection=pin.connection if pin else None,
             pinned_model=pin.model if pin else None,
-            mod=mod,
+            mods=[mod] if users is None else users,
         )
 
     def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None:
