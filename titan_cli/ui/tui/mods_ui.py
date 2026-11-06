@@ -392,11 +392,15 @@ class TitanModHost:
 
     def client(self, name: str) -> Any:
         # Cached once found: is_available() can be a network round-trip
-        # (github runs `gh auth status`), and timers ask on every tick.
-        if name in self._clients:
-            return self._clients[name]
+        # (github runs `gh auth status`), and timers ask on every tick. A plugin
+        # rebuilt since (a reconnect, a new account) is no longer initialized
+        # in the current build, so its old client is dropped and asked again.
         if self._registry is None:
             return None
+        if name in self._clients:
+            if self._registry.is_initialized(name):
+                return self._clients[name]
+            self._clients.pop(name, None)  # another thread may have dropped it first
         try:
             plugin = self._registry.ensure_initialized(name)
             if plugin is None or not plugin.is_available():

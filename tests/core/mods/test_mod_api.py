@@ -537,3 +537,42 @@ def test_m_ui_widget_reaches_the_host_and_the_headless_host_only_logs():
     bus.host = type("H", (RecordingHost,), {"widget": lambda self, mod, name, widget: seen.append((mod, name, widget))})()
     bus.api("dev").ui.widget("dev.graph", int)
     assert seen == [("dev", "dev.graph", int)]
+
+
+def test_a_plugin_client_is_cached_until_the_plugin_is_rebuilt():
+    from types import SimpleNamespace
+
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    class Plugin:
+        def __init__(self):
+            self.client = object()
+
+        def is_available(self):
+            return True
+
+        def get_client(self):
+            return self.client
+
+    class Registry:
+        def __init__(self):
+            self.plugin, self.initialized, self.inits = Plugin(), set(), 0
+
+        def ensure_initialized(self, name):
+            self.inits += 1
+            self.initialized.add(name)
+            return self.plugin
+
+        def is_initialized(self, name):
+            return name in self.initialized
+
+    registry = Registry()
+    host = TitanModHost(SimpleNamespace(config=None), ModBus(), registry)
+
+    first = host.client("google")
+    assert host.client("google") is first and registry.inits == 1
+
+    registry.initialized.clear()          # a forced reload rebuilt the plugins
+    registry.plugin.client = rebuilt = object()
+
+    assert host.client("google") is rebuilt
