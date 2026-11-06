@@ -510,20 +510,29 @@ class TitanModHost:
 
     # -- AI -------------------------------------------------------------------
 
-    @staticmethod
-    def _policy(mod: str):
+    def _ai_owner(self, mod: str) -> str:
+        """
+        Whose AI task `mod` runs under (`ModBus.ai_owner`): a plugin's workspace runs under its
+        mod's. Only the task is the owner's: toasts, error cards and logs keep `mod`, the surface.
+        """
+        workspaces = getattr(self._app, "workspaces", None)
+        prefix = getattr(workspaces, "prefix", "")
+        if prefix and mod.startswith(prefix):
+            return workspaces.ai_owner(mod.removeprefix(prefix))
+        return mod
+
+    def _policy(self, mod: str):
         from titan_cli.ai.router import AIProviderType, AIRoutePolicy
 
         # A mod can run a remote connection or a headless CLI; it never drives an
         # interactive session, so that type is not offered for its task.
         return AIRoutePolicy(
-            task=f"mods.{mod}",
+            task=f"mods.{self._ai_owner(mod)}",
             executes=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
             preferred=[AIProviderType.REMOTE, AIProviderType.CLI_HEADLESS],
         )
 
-    @staticmethod
-    def _assist_policy(mod: str):
+    def _assist_policy(self, mod: str):
         from titan_cli.ai.router import AIProviderType, AIRoutePolicy
 
         # The help button opens an interactive CLI, which a one-shot `m.ai.complete` could
@@ -532,7 +541,7 @@ class TitanModHost:
         # offered. A remote or headless pin is refused with a toast: showing its answer would
         # take `ask_ai`, and the button has nowhere to draw it.
         return AIRoutePolicy(
-            task=f"mods.{mod}.assist",
+            task=f"mods.{self._ai_owner(mod)}.assist",
             executes=[AIProviderType.CLI_INTERACTIVE],
             preferred=[AIProviderType.CLI_INTERACTIVE],
         )
@@ -543,7 +552,7 @@ class TitanModHost:
     def ai_pinned(self, mod: str) -> Optional[str]:
         ai_config = self._ai_config()
         prefs = getattr(ai_config, "preferences", None)
-        pin = prefs.tasks.get(f"mods.{mod}") if prefs is not None else None
+        pin = prefs.tasks.get(self._policy(mod).task) if prefs is not None else None
         if pin is None:
             return None
         if pin.provider == "remote":
@@ -551,23 +560,34 @@ class TitanModHost:
         return f"cli:{pin.cli or ai_config.default_cli}"
 
     def ai_routings(self) -> list:
-        """A task row for every loaded mod whose manifest declares `ai_task`, for the AI screen."""
+        """
+        A task row for every AI task a loaded mod or workspace declares, for the AI screen.
+
+        One row per task, not per surface: a plugin's mod and workspace of the same name share
+        their tasks (`ModBus.ai_owner`), so the row lists both as its users.
+        """
         executor = self._ai_executor()
         if executor is None:
             return []
-        rows = []
+        rows: Dict[str, Any] = {}
         workspaces = getattr(self._app, "workspaces", None)
         for bus in (self._bus, workspaces):
             for name, manifest in (bus.manifests.items() if bus is not None else ()):
-                ident = bus.prefix + name
-                if manifest.ai_task:
-                    rows.append(self._task_routing(ident, manifest.ai_task, executor))
-                if getattr(manifest, "ai_assist_task", None):
-                    rows.append(self._task_routing(ident, manifest.ai_assist_task, executor, assist=True))
-        return rows
+                user = bus.prefix + name
+                for title, assist in ((manifest.ai_task, False), (getattr(manifest, "ai_assist_task", None), True)):
+                    if not title:
+                        continue
+                    routing = self._task_routing(user, title, executor, assist=assist, users=[])
+                    rows.setdefault(routing.task, routing).mods.append(user)
+        return list(rows.values())
 
-    def _task_routing(self, mod: str, title: str, executor=None, assist: bool = False):
-        """One of this mod's tasks (`mods.<mod>`, or `mods.<mod>.assist`) as the AI screen's task rows see it."""
+    def _task_routing(self, mod: str, title: str, executor=None, assist: bool = False, users: Optional[List[str]] = None):
+        """
+        One of `mod`'s tasks (`mods.<owner>`, or `mods.<owner>.assist`) as the AI screen's task rows see it.
+
+        `users` are the mods and workspaces that run under it, as the host knows them, and
+        default to `mod` alone.
+        """
         from titan_cli.ui.tui.screens.ai_routing import TaskRouting
 
         executor = executor or self._ai_executor()
@@ -584,7 +604,7 @@ class TitanModHost:
             pinned_cli=pin.cli if pin else None,
             pinned_connection=pin.connection if pin else None,
             pinned_model=pin.model if pin else None,
-            mod=mod,
+            mods=[mod] if users is None else users,
         )
 
     def ai_configure(self, mod: str, title: str, on_done: Optional[Callable[[], None]]) -> None:

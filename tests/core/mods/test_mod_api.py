@@ -210,7 +210,7 @@ def test_ai_screen_lists_only_mods_that_declare_an_ai_task():
     host._executor = FakeExecutor()
     [routing] = host.ai_routings()
 
-    assert (routing.task, routing.label, routing.mod) == ("mods.dev", "Dev diagnosis", "dev")
+    assert (routing.task, routing.label, routing.mods) == ("mods.dev", "Dev diagnosis", ["dev"])
     assert TaskRoutingRow._usage_summary(SimpleNamespace(routing=routing)) == "used by mod dev"
 
 
@@ -238,7 +238,7 @@ def test_a_mod_that_declares_an_assist_task_gets_a_second_row_of_its_own():
     rows = {r.task: r for r in host.ai_routings()}
 
     assert set(rows) == {"mods.dev", "mods.dev.assist", "mods.help.assist"}
-    assert rows["mods.dev.assist"].label == "Fix with AI" and rows["mods.dev.assist"].mod == "dev"
+    assert rows["mods.dev.assist"].label == "Fix with AI" and rows["mods.dev.assist"].mods == ["dev"]
     assert rows["mods.dev.assist"].executes == [AIProviderType.CLI_INTERACTIVE]
     assert AIProviderType.CLI_INTERACTIVE not in rows["mods.dev"].executes
 
@@ -646,3 +646,70 @@ def test_a_slot_resent_unchanged_is_not_painted_again():
     assert painted.count("home") == 1
     host.home_card("git", HomeCardSlot("Git", "clean", actions=(Button("Push", press, "primary"),)))
     assert painted.count("home") == 2
+
+
+def test_a_plugins_mod_and_workspace_of_one_name_get_one_row_per_task_listing_both():
+    from types import SimpleNamespace
+
+    from titan_cli.core.models import AIConfig
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+    from titan_cli.ui.tui.screens.ai_routing import TaskRoutingRow
+
+    manifest = SimpleNamespace(ai_task="Branch name", ai_assist_task="Fix with AI", plugin="git")
+    mods, workspaces = ModBus(), ModBus(prefix="workspace.")
+    mods.manifests = {"git": manifest}
+    workspaces.manifests = {"git": manifest, "notes": SimpleNamespace(ai_task="Notes", ai_assist_task=None, plugin=None)}
+    app = SimpleNamespace(config=SimpleNamespace(config=SimpleNamespace(ai=AIConfig())), workspaces=workspaces)
+    host = TitanModHost(app, mods)
+
+    class FakeExecutor:
+        ai_config = host._ai_config()
+
+        def resolve(self, policy):
+            return None
+
+    host._executor = FakeExecutor()
+    rows = {r.task: r for r in host.ai_routings()}
+
+    assert set(rows) == {"mods.git", "mods.git.assist", "mods.workspace.notes"}
+    assert rows["mods.git"].mods == ["git", "workspace.git"]
+    assert TaskRoutingRow._usage_summary(SimpleNamespace(routing=rows["mods.git"])) == "used by mod git · workspace git"
+    assert TaskRoutingRow._usage_summary(SimpleNamespace(routing=rows["mods.workspace.notes"])) == "used by workspace notes"
+
+
+def test_a_plugins_workspace_asks_under_its_mods_task_but_is_named_as_itself():
+    from types import SimpleNamespace
+
+    from titan_cli.core.models import AIConfig
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    workspaces = ModBus(prefix="workspace.")
+    # Found but not loaded (switched off): its task is still the mod's.
+    workspaces.found = {"git": SimpleNamespace(plugin="git"), "notes": SimpleNamespace(plugin=None)}
+    app = SimpleNamespace(config=SimpleNamespace(config=SimpleNamespace(ai=AIConfig())), workspaces=workspaces)
+    host = TitanModHost(app, ModBus())
+    toasts = []
+    host.toast = lambda mod, text, severity: toasts.append(mod)
+    host._ai_executor = lambda: None
+
+    assert host._policy("workspace.git").task == "mods.git"
+    assert host._assist_policy("workspace.git").task == "mods.git.assist"
+    assert host._policy("workspace.notes").task == "mods.workspace.notes"
+    assert workspaces.api("git").ai.task == "mods.git"
+    assert workspaces.api("git").ident == "workspace.git"
+
+    host.ai_configure("workspace.git", "Branch name", None)
+    assert toasts == ["workspace.git"]
+
+
+def test_ai_per_task_lists_the_steps_tasks_before_the_mods_each_by_label():
+    from titan_cli.ui.tui.screens.ai_routing import TaskRouting, order_task_routings
+
+    rows = [
+        TaskRouting(task="mods.git", label="Branch name", mods=["git"]),
+        TaskRouting(task="review", label="Review PR"),
+        TaskRouting(task="mods.jira", label="Algo", mods=["jira"]),
+        TaskRouting(task="commit", label="commit message"),
+    ]
+
+    assert [r.task for r in order_task_routings(rows)] == ["commit", "review", "mods.jira", "mods.git"]

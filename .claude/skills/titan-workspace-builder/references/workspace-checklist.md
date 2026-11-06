@@ -8,6 +8,7 @@ applies too for threads, errors and quality; this adds what is specific to a scr
 - [ ] `register(w, on, options)`: the three arguments, in that order.
 - [ ] A hook on an event the manifest does not list makes `register` fail. The events a workspace has are `workflow.run`, `step.call` and `section.change`; `app.start` and `ui.render` do not exist here.
 - [ ] `ai_task` set when `w.ai.complete` is used, `ai_assist_task` when an assist button is.
+- [ ] Shipped with a mod of the same name: the same `ai_task` / `ai_assist_task` (one task, shared), and `shared = true` on each option that means the same on both, with the mod's type and default.
 
 ## Start and open
 - [ ] The dock tile, timers and keys are in `w.on_start`, not in `register`.

@@ -10,6 +10,7 @@ ai_task = "Jira issue summary"
 
 [options.project]
 type = "string"
+shared = true
 title = "Project keys"
 description = "Comma-separated project keys to search (e.g. \"ECAPP, ESHOP\"); empty uses the jira plugin's default_project, and every project you can see when that is unset too. Only seeds the Projects dropdown the first time it runs - pick there after that."
 default = ""
