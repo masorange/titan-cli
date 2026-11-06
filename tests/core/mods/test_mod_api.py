@@ -1,3 +1,5 @@
+import pytest
+
 from rich.console import Console
 from rich.text import Text as RichText
 
@@ -576,3 +578,71 @@ def test_a_plugin_client_is_cached_until_the_plugin_is_rebuilt():
     registry.plugin.client = rebuilt = object()
 
     assert host.client("google") is rebuilt
+
+
+def _timer_app(started, scheduled):
+    import threading
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        _thread_id=threading.get_ident(), is_running=True,
+        set_interval=lambda seconds, fn: SimpleNamespace(stop=lambda: None),
+        set_timer=lambda delay, fn: scheduled.append((delay, fn)) or SimpleNamespace(stop=lambda: None),
+        run_worker=lambda work, **kwargs: started.append(kwargs["group"]),
+        workers=SimpleNamespace(cancel_group=lambda node, group: None),
+        _bindings=SimpleNamespace(key_to_bindings={}),
+        screen=SimpleNamespace(query_one=lambda *a: (_ for _ in ()).throw(LookupError())),
+    )
+
+
+def test_first_ticks_wait_for_the_first_frame_then_go_one_after_another():
+    from titan_cli.core.mods import ModBus
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    started, scheduled = [], []
+    host = TitanModHost(app=_timer_app(started, scheduled), bus=ModBus())
+    host.repaint = lambda mod: None
+    host.every("git", 30, lambda: None, immediately=True)
+    host.every("github", 30, lambda: None, immediately=True)
+    host.every("gone", 30, lambda: None, immediately=True)
+    host.every("quiet", 30, lambda: None, immediately=False)
+    host.unload("gone")
+
+    assert started == []  # nothing runs while the first screen is still being drawn
+
+    host.release_first_ticks(delay=0.2, spacing=0.1)
+
+    assert [delay for delay, _ in scheduled] == pytest.approx([0.2, 0.3])
+    for _, tick in scheduled:
+        tick()
+    assert started == ["mod:git", "mod:github"]
+
+    host.every("late", 30, lambda: None, immediately=True)  # after the first frame: at once
+    assert started[-1] == "mod:late"
+
+
+def test_a_slot_resent_unchanged_is_not_painted_again():
+    from titan_cli.core.mods import ModBus
+    from titan_cli.core.mods.bus import DockSlot, HomeCardSlot
+    from titan_cli.ui.elements import Button
+    from titan_cli.ui.tui.mods_ui import TitanModHost
+
+    host = TitanModHost(app=_timer_app([], []), bus=ModBus())
+    painted = []
+    host._paint_dock = lambda: painted.append("dock")
+    host._paint_home_cards = lambda: painted.append("home")
+
+    host.dock("git", DockSlot("Git", badge="2", on_click=lambda: None))
+    host.dock("git", DockSlot("Git", badge="2", on_click=lambda: None))  # new lambda, same look
+    assert painted == ["dock"]
+    host.dock("git", DockSlot("Git", badge="3", on_click=lambda: None))
+    host.dock("git", DockSlot("Git", badge="3"))  # no longer pressable: drawn differently
+    host.dock("git", None)
+    assert painted == ["dock"] * 4
+
+    press = lambda: None  # noqa: E731
+    host.home_card("git", HomeCardSlot("Git", "clean", actions=(Button("Pull", press, "primary"),)))
+    host.home_card("git", HomeCardSlot("Git", "clean", actions=(Button("Pull", lambda: None, "primary"),)))
+    assert painted.count("home") == 1
+    host.home_card("git", HomeCardSlot("Git", "clean", actions=(Button("Push", press, "primary"),)))
+    assert painted.count("home") == 2

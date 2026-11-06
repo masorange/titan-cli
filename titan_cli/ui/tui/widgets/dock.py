@@ -197,6 +197,7 @@ class DockItem(Static):
         self._icon, self._label, self._badges = icon, label, tuple(badges)
         self._on_press = on_press
         self.compact = False
+        self.mod: Optional[str] = None  # the mod whose slot it shows; None for Titan's own
 
     def widths(self) -> Tuple[int, int]:
         """Columns this tile takes with its label and without."""
@@ -204,6 +205,16 @@ class DockItem(Static):
             tile_width(tile_text(self._icon, self._label, self._badges)),
             tile_width(tile_text(self._icon, self._label, self._badges, compact=True), compact=True),
         )
+
+    def show(self, icon: Optional[str], label: str, badges: Sequence[Badge] = ()) -> bool:
+        """Show new content in place; False, and nothing redrawn, when it is what is shown."""
+        badges = tuple(badges)
+        if (icon, label, badges) == (self._icon, self._label, self._badges):
+            return False
+        self._icon, self._label, self._badges = icon, label, badges
+        self.update(tile_text(icon, label, badges, compact=self.compact))
+        self.tooltip = label if self.compact else None
+        return True
 
     def show_compact(self, compact: bool) -> None:
         """Drop the label (it becomes the tooltip) or bring it back."""
@@ -332,7 +343,9 @@ class Dock(Widget):
             yield DockItem(Icons.PLUGIN, "Plugins", self._run("open_plugins"), classes="titan")
             yield DockItem(Icons.MOD, "Mods", self._run("open_mods"), classes="titan")
             yield DockItem(Icons.AI_CONFIG, "AI", self._run("open_ai_config"), classes="titan")
-            yield Horizontal(id="dock-tiles")
+            # Born with the mods' tiles, so the first frame does not show an empty launcher.
+            with Horizontal(id="dock-tiles"):
+                yield from self._mod_tiles()
         with Horizontal(id="dock-status"):
             yield DockToggle("▾", id="dock-toggle")
             yield Static("", id="dock-context", markup=False)
@@ -391,17 +404,40 @@ class Dock(Widget):
         """Redraw the mods' tiles from what they last asked for."""
         self.call_later(self._paint_tiles)
 
-    async def _paint_tiles(self) -> None:
+    def _slots(self) -> Sequence[Tuple[str, DockSlot]]:
+        host = getattr(self.app, "mods_host", None)
+        return host.dock_slots() if host is not None else ()
+
+    def _mod_tiles(self) -> list:
         host = getattr(self.app, "mods_host", None)
         tiles = []
-        slots: Sequence[Tuple[str, DockSlot]] = host.dock_slots() if host is not None else ()
-        for mod, slot in slots:
+        for mod, slot in self._slots():
             tile = DockItem(slot.icon, slot.label, self._press(host, mod), badges=slot_badges(slot))
+            tile.mod = mod
             tile.set_class(slot.on_click is None, "-inert")
             tiles.append(tile)
+        return tiles
+
+    async def _paint_tiles(self) -> None:
+        """
+        Bring the mods' tiles up to date. The same mods in the same order (every refresh but
+        one that adds or drops a mod) update their tiles in place; removing and mounting them
+        again would show a frame without them, which is the flicker.
+        """
+        slots = self._slots()
         container = self.query_one("#dock-tiles", Horizontal)
-        await container.remove_children()
-        await container.mount_all(tiles)
+        tiles = list(container.query_children(DockItem))
+        if [tile.mod for tile in tiles] == [mod for mod, _ in slots]:
+            changed = False
+            for tile, (_, slot) in zip(tiles, slots):
+                changed = tile.show(slot.icon, slot.label, slot_badges(slot)) or changed
+                tile.set_class(slot.on_click is None, "-inert")
+            if changed:
+                self._fit()
+            return
+        with self.app.batch_update():
+            await container.remove_children()
+            await container.mount_all(self._mod_tiles())
         self._fit()
 
     @staticmethod

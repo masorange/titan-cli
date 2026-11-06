@@ -9,6 +9,7 @@ import importlib
 import pkgutil
 import threading
 import time
+from dataclasses import fields
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from rich.markup import escape
@@ -20,6 +21,25 @@ from titan_cli.core.mods.keys import key_refusal
 from titan_cli.ui.tui.widgets.registry import register_widget, unregister_widget
 
 logger = get_logger(__name__)
+
+
+def _looks(slot: Any) -> Any:
+    """
+    What a dock or home-card slot puts on screen. Its callbacks are left out but for
+    whether there is one: a mod builds new lambdas on every tick, and a press looks the
+    slot up when it happens, so new callbacks alone are nothing to repaint.
+    """
+    if slot is None:
+        return None
+    looks = []
+    for field in fields(slot):
+        value = getattr(slot, field.name)
+        if field.name == "on_click":
+            value = value is not None
+        elif field.name == "actions":
+            value = tuple((action.label, action.variant) for action in value)
+        looks.append(value)
+    return type(slot), tuple(looks)
 
 
 class TitanModHost:
@@ -50,6 +70,9 @@ class TitanModHost:
         self._clients: Dict[str, Any] = {}
         # mod -> the timers it started, to stop them when it is unloaded
         self._timers: Dict[str, List[Any]] = {}
+        # (mod, first tick) of the timers asked to run at once before the first screen is
+        # painted; None once release_first_ticks() has let them go.
+        self._held_ticks: Optional[List[Tuple[str, Callable[[], None]]]] = []
         self._executor = None
         # key -> (mod, description, fn)
         self._keys: Dict[str, Tuple[str, str, Callable[[], None]]] = {}
@@ -61,11 +84,14 @@ class TitanModHost:
         return list(self._dock.items())
 
     def dock(self, mod: str, slot: Optional[DockSlot]) -> None:
+        previous = self._dock.get(mod)
         if slot is not None:
             self._dock[mod] = slot
         else:
             self._dock.pop(mod, None)
-        self._on_app_thread(self._paint_dock)
+        # Mods resend their slot on every tick, mostly unchanged: only a change is painted.
+        if _looks(previous) != _looks(slot):
+            self._on_app_thread(self._paint_dock)
 
     def widget(self, mod: str, name: str, widget: Any) -> None:
         register_widget(name, widget)
@@ -137,11 +163,13 @@ class TitanModHost:
         return list(self._home_cards.items())
 
     def home_card(self, mod: str, slot: Optional[HomeCardSlot]) -> None:
+        previous = self._home_cards.get(mod)
         if slot is not None:
             self._home_cards[mod] = slot
         else:
             self._home_cards.pop(mod, None)
-        self._on_app_thread(self._paint_home_cards)
+        if _looks(previous) != _looks(slot):
+            self._on_app_thread(self._paint_home_cards)
 
     def press_home_card(self, mod: str) -> None:
         """Enter or a click on a mod's home card: its own action, if it gave one."""
@@ -385,10 +413,28 @@ class TitanModHost:
 
         def start() -> None:
             self._timers.setdefault(mod, []).append(self._app.set_interval(seconds, tick))
-            if immediately:
+            if not immediately:
+                return
+            if self._held_ticks is not None:
+                self._held_ticks.append((mod, tick))
+            else:
                 tick()
 
         self._on_app_thread(start)
+
+    def release_first_ticks(self, delay: float = 0.2, spacing: float = 0.1) -> None:
+        """
+        Run the first refresh of every timer that asked for one at once, now that the first
+        screen is painted, one every `spacing` seconds.
+
+        At start every mod and workspace asks for its first load together: a dozen threads of
+        Python work (git, gh, log parsing) fighting the UI for the GIL while it tries to draw
+        its first frame. Held until here and spread out, they no longer delay it.
+        """
+        held, self._held_ticks = self._held_ticks or [], None
+        for index, (mod, tick) in enumerate(held):
+            # Kept with the mod's timers, so unloading it before its turn cancels it.
+            self._timers.setdefault(mod, []).append(self._app.set_timer(delay + index * spacing, tick))
 
     def client(self, name: str) -> Any:
         # Cached once found: is_available() can be a network round-trip
@@ -428,6 +474,8 @@ class TitanModHost:
         self._on_app_thread(lambda: self._unload(mod))
 
     def _unload(self, mod: str) -> None:
+        if self._held_ticks is not None:
+            self._held_ticks = [(holder, tick) for holder, tick in self._held_ticks if holder != mod]
         for timer in self._timers.pop(mod, []):
             timer.stop()
         try:
