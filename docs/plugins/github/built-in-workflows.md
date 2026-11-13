@@ -21,7 +21,7 @@ Set `params.draft` to control draft behavior:
 3. `git.get_current_branch`
 4. `git.show_branch_diff_summary`
 5. `before_pr_generation` hook
-6. `github.ai_suggest_pr_description`
+6. `github.ai_suggest_pr_description` (with `pr_title_scope_source = "labeler"` the title carries the labeler's scopes; see [PR title scopes](./overview.md#pr-title-scopes))
 7. `github.prompt_for_pr_draft`
 8. `github.prompt_for_labels` (configured to save into `pr_labels`)
 9. `before_push` hook
