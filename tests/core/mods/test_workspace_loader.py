@@ -162,3 +162,84 @@ def test_a_workspace_hooks_events_with_the_on_it_is_given_and_only_those_it_decl
     assert bus.statuses["silent"].state == FAILED
     assert ("toast", "workspace.listens", "ran x") in host.calls
     assert not any(c[1] == "workspace.silent" and c[0] == "toast" for c in host.calls)
+
+
+def test_a_plugins_workspace_shares_the_ai_task_of_its_mod_and_a_personal_one_does_not(tmp_path):
+    write_workspace(tmp_path / "plugin", "git")
+    write_workspace(tmp_path / "user", "notes")
+    found = discover_mods([("plugin:git", tmp_path / "plugin"), ("user", tmp_path / "user")], WORKSPACES)
+    bus = ModBus(prefix=WORKSPACES.host_prefix, store_dir=WORKSPACES.store_dir)
+    bus.host = Host()
+    load_mods(bus, found, kind=WORKSPACES)
+
+    assert found["git"].plugin == "git" and found["notes"].plugin is None
+    assert bus.api("git").ai.task == "mods.git"
+    assert bus.api("notes").ai.task == "mods.workspace.notes"
+    # Only the AI task is shared: timers, keys and the store stay the workspace's own.
+    assert bus.api("git").ident == "workspace.git"
+
+
+def test_a_plugins_workspace_reads_the_options_it_shares_with_its_mod_from_the_mods_table(tmp_path):
+    source = "seen = {}\ndef register(w, on, options):\n    seen.update(options)\n"
+    shared = WITH_OPTION + 'shared = true\n[options.key]\ntype = "string"\ndefault = "f6"\n'
+    write_workspace(tmp_path / "plugin", "git", source=source, extra=shared)
+    write_workspace(tmp_path / "user", "notes", source=source, extra=shared)
+    config = tmp_path / "config.toml"
+    config.write_text(
+        '[mods.git.options]\nwho = "from the mod"\nmod_only = 5\nkey = "f5"\n'
+        '[mods.notes.options]\nwho = "not mine"\n'
+    )
+    configs = read_mods_config(config, project_root_path=tmp_path, kind=WORKSPACES)
+    found = discover_mods([("plugin:git", tmp_path / "plugin"), ("user", tmp_path / "user")], WORKSPACES)
+    bus = ModBus(prefix=WORKSPACES.host_prefix)
+    bus.host = Host()
+
+    import sys
+
+    load_mods(bus, {"git": found["git"]}, configs, kind=WORKSPACES)
+    assert sys.modules["titan_workspace_git"].seen["who"] == "from the mod"
+    assert "mod_only" not in sys.modules["titan_workspace_git"].seen
+    # Declared alike but not `shared`: each surface's own (a key both bound would collide).
+    assert sys.modules["titan_workspace_git"].seen["key"] == "f6"
+    load_mods(bus, {"notes": found["notes"]}, configs, kind=WORKSPACES)
+    assert sys.modules["titan_workspace_notes"].seen["who"] == "there"
+
+    # The workspace's own table still wins for itself.
+    config.write_text('[mods.git.options]\nwho = "from the mod"\n[workspaces.git.options]\nwho = "mine"\n')
+    load_mods(bus, {"git": found["git"]}, read_mods_config(config, project_root_path=tmp_path, kind=WORKSPACES), kind=WORKSPACES)
+    assert sys.modules["titan_workspace_git"].seen["who"] == "mine"
+
+
+def test_an_official_plugins_mod_and_workspace_declare_the_options_they_share_alike():
+    # They are set once, in `[mods.<name>.options]`: a type or default that differed would
+    # make one value mean two things, or be refused by one surface only.
+    from pathlib import Path
+
+    plugins = Path(__file__).resolve().parents[3] / "plugins"
+    pairs = 0
+    for workspace_toml in plugins.glob("titan-plugin-*/titan_plugin_*/workspaces/*/workspace.toml"):
+        mod_folder = workspace_toml.parents[2] / "mods" / workspace_toml.parent.name
+        if not (mod_folder / "mod.toml").is_file():
+            continue
+        pairs += 1
+        workspace = read_manifest(workspace_toml.parent, "plugin:x", WORKSPACES).options
+        mod = read_manifest(mod_folder, "plugin:x", MODS).options
+        for name, spec in workspace.items():
+            if not spec.shared:
+                continue
+            def value(spec):
+                return (spec.type, spec.default, spec.values, spec.min, spec.max)
+
+            assert name in mod, f"{workspace_toml.parent.name}: shared option '{name}' is not the mod's"
+            assert value(spec) == value(mod[name]), f"{workspace_toml.parent.name}: shared option '{name}' differs"
+    assert pairs
+
+
+def test_shared_is_refused_in_a_mods_own_options(tmp_path):
+    import pytest
+
+    folder = tmp_path / "m"
+    folder.mkdir()
+    (folder / "mod.toml").write_text('[mod]\nname = "m"\n[options.x]\ntype = "int"\ndefault = 1\nshared = true\n')
+    with pytest.raises(ValueError, match="shared is for a workspace"):
+        read_manifest(folder, "user", MODS)

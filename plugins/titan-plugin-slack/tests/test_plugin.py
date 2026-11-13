@@ -1,17 +1,19 @@
-from pathlib import Path
+import json
+import time
 from unittest.mock import MagicMock
 
-import tomli
+import requests
 
 import pytest
 
 from titan_plugin_slack.plugin import SlackPlugin
 from titan_plugin_slack.exceptions import SlackConfigurationError
-from titan_plugin_slack.oauth import SlackOAuthResult
 
 
 class FakeBroker:
     """Dict-backed stand-in honoring the SecretBroker surface plugins use."""
+
+    namespace = "titan.plugins.slack"
 
     def __init__(self, values=None):
         self.values = dict(values or {})
@@ -83,111 +85,62 @@ def test_slack_plugin_exposes_config_schema() -> None:
     assert schema["properties"]["default_channels"]["config_scope"] == "project"
 
 
+def _grant(access: str, refresh: str | None = None, expires_at: int | None = None) -> str:
+    return json.dumps(
+        {"access_token": access, "refresh_token": refresh, "expires_at": expires_at, "scopes": []}
+    )
+
+
+def _config(plugin_config: dict) -> MagicMock:
+    config = MagicMock()
+    config.get_project_name.return_value = "demo-project"
+    config.config.plugins = {"slack": MagicMock(config=plugin_config)}
+    return config
+
+
 def test_slack_plugin_initialize_requires_user_token() -> None:
     plugin = SlackPlugin()
-    config = MagicMock()
-    config.config.plugins = {"slack": MagicMock(config={"oauth_client_id": "123"})}
-    config.get_project_name.return_value = "demo-project"
-    broker = FakeBroker()
 
-    with pytest.raises(SlackConfigurationError):
-        plugin.initialize(config, broker)
+    with pytest.raises(SlackConfigurationError, match="Slack user token not found"):
+        plugin.initialize(_config({"oauth_client_id": "123"}), FakeBroker())
 
 
 def test_slack_plugin_initialize_uses_personal_token() -> None:
     plugin = SlackPlugin()
-    config = MagicMock()
-    config.config.plugins = {
-        "slack": MagicMock(config={"default_team_id": "T123"})
-    }
-    config.get_project_name.return_value = "demo-project"
-    broker = FakeBroker({"demo-project_slack_user_token": "xoxp-user-token"})
+    broker = FakeBroker({"demo-project_slack_oauth": _grant("xoxp-user-token")})
 
-    plugin.initialize(config, broker)
+    plugin.initialize(_config({"oauth_client_id": "123", "default_team_id": "T1"}), broker)
 
     client = plugin.get_client()
     assert client.user_token == "xoxp-user-token"
-    assert client.team_id == "T123"
-    assert client.timeout == 30
-    # No refresh token stored -> no refresher was built and nothing written.
+    assert client.team_id == "T1"
+    # A token without expiry is used as is: nothing refreshed, nothing written.
     assert broker.stored == {}
 
 
-def test_slack_plugin_initialize_refreshes_expiring_pkce_token(tmp_path: Path, monkeypatch) -> None:
+def test_slack_plugin_initialize_refreshes_expiring_token(monkeypatch) -> None:
     plugin = SlackPlugin()
-    project_config_path = tmp_path / "project-config.toml"
-    project_config_path.write_text(
-        """
-[plugins.slack]
-enabled = true
-
-[plugins.slack.config]
-oauth_client_id = "123"
-default_team_id = "T123"
-default_team_name = "Acme"
-granted_scopes = ["users:read"]
-default_channels = ["general"]
-""".strip()
+    broker = FakeBroker(
+        {"demo-project_slack_oauth": _grant("xoxe-old", "xoxe-old-refresh", int(time.time()) + 10)}
     )
+    posted = {}
 
-    config = MagicMock()
-    config.project_config_path = project_config_path
-    config.get_project_name.return_value = "demo-project"
-    config.config = MagicMock()
-    config.config.config_version = "1.0"
-    config.config.plugins = {
-        "slack": MagicMock(
-            config={
-                "oauth_client_id": "123",
-                "default_team_id": "T123",
-                "default_team_name": "Acme",
-                "granted_scopes": ["users:read"],
-                "default_channels": ["general"],
-            }
-        )
-    }
+    def fake_post(url, data=None, headers=None, timeout=None):
+        posted.update(data)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {"ok": True, "access_token": "xoxe-new", "refresh_token": "xoxe-new-refresh", "expires_in": 43200}
+        ).encode()
+        return response
 
-    def fake_load() -> None:
-        with open(project_config_path, "rb") as f:
-            data = tomli.load(f)
-        config.config.plugins = {
-            "slack": MagicMock(config=data["plugins"]["slack"]["config"])
-        }
+    monkeypatch.setattr(requests, "post", fake_post)
 
-    config.load = MagicMock(side_effect=fake_load)
+    plugin.initialize(_config({"oauth_client_id": "123"}), broker)
 
-    secret_values = {
-        "demo-project_slack_user_token": "xoxe-old-token",
-        "demo-project_slack_refresh_token": "xoxe-old-refresh-token",
-        "demo-project_slack_token_expires_at": "1",
-    }
-    broker = FakeBroker(secret_values)
-
-    refreshed = SlackOAuthResult(
-        access_token="xoxe-new-token",
-        refresh_token="xoxe-new-refresh-token",
-        expires_in=43200,
-        token_type="Bearer",
-        granted_scopes=["users:read", "channels:read"],
-        team_id="T123",
-        team_name="Acme",
-        authed_user_id=None,
-    )
-
-    class FakeFlow:
-        def __init__(self, client_id):
-            self.client_id = client_id
-
-        def refresh_access_token(self, refresh_token):
-            assert refresh_token == "xoxe-old-refresh-token"
-            return refreshed
-
-    monkeypatch.setattr("titan_plugin_slack.plugin.SlackOAuthFlow", FakeFlow)
-
-    plugin.initialize(config, broker)
-
-    client = plugin.get_client()
-    assert client.user_token == "xoxe-new-token"
-    assert broker.stored["demo-project_slack_user_token"] == "xoxe-new-token"
-    assert broker.stored["demo-project_slack_refresh_token"] == "xoxe-new-refresh-token"
-    assert "demo-project_slack_token_expires_at" in broker.stored
+    assert posted["refresh_token"] == "xoxe-old-refresh"
+    assert posted["client_id"] == "123"
+    assert plugin.get_client().user_token == "xoxe-new"
+    stored = json.loads(broker.stored["demo-project_slack_oauth"])
+    assert stored["access_token"] == "xoxe-new"
+    assert stored["refresh_token"] == "xoxe-new-refresh"

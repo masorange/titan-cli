@@ -19,18 +19,25 @@ from .broker import (
     derive_namespace,
 )
 from .execution import SecureCommandResult
+from .oauth import OAuthApp, OAuthCredentials, OAuthError, OAuthGrant, OAuthProvider, connect_oauth
 from .redaction import find_secret_in, redact, register_secret
 from .sensitive import SensitiveValue
 from .sessions import AuthScheme, create_ai_provider, create_authenticated_session
 
 __all__ = [
     "AuthScheme",
+    "OAuthApp",
+    "OAuthCredentials",
+    "OAuthError",
+    "OAuthGrant",
+    "OAuthProvider",
     "SecretBroker",
     "SecretBrokerFactory",
     "SecretLeakError",
     "SecretRef",
     "SecureCommandResult",
     "SensitiveValue",
+    "connect_oauth",
     "create_ai_provider",
     "create_authenticated_session",
     "create_broker_factory",

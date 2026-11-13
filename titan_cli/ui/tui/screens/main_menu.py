@@ -234,7 +234,7 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         return ModHomeCard(mod, slot.icon or "", slot.title, slot.text, slot.on_click is not None, slot.actions)
 
     def refresh_mod_cards(self) -> None:
-        """Rebuild the mods section from what they currently ask for."""
+        """Bring the mods section up to date with what they currently ask for."""
         self.call_later(self._refresh_mod_cards)
 
     async def _refresh_mod_cards(self) -> None:
@@ -245,8 +245,19 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             return
         slots = self._mod_card_slots()
         section.display = bool(slots)
-        await grid.remove_children()
-        await grid.mount_all([self._mod_card_for(mod, slot) for mod, slot in slots])
+        cards = list(grid.query_children(ModHomeCard))
+        # The same mods in the same order (every refresh but one that adds or drops a card)
+        # update their cards in place: removing and mounting them again shows a frame
+        # without them, and loses the focus of the one that had it.
+        if [card.mod for card in cards] == [mod for mod, _ in slots]:
+            for card, (mod, slot) in zip(cards, slots):
+                if not card.show(slot.icon or "", slot.title, slot.text, slot.on_click is not None, slot.actions):
+                    await grid.mount(self._mod_card_for(mod, slot), before=card)
+                    await card.remove()
+            return
+        with self.app.batch_update():
+            await grid.remove_children()
+            await grid.mount_all([self._mod_card_for(mod, slot) for mod, slot in slots])
 
     def _build_slots(self) -> List[QuickLaunchSlot]:
         """Read what the grid needs and choose the slots."""

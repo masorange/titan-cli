@@ -252,6 +252,9 @@ class _BusView:
     def set_view(self, ident: str, title: Optional[str], fn: Callable[[int], Any]) -> None:
         self._bus.views[self.name_of(ident)] = (title, fn)
 
+    def ai_owner(self, ident: str) -> str:
+        return self._bus.ai_owner(self.name_of(ident))
+
     def manifest(self, ident: str) -> Any:
         """The manifest of the handle the host knows as `ident` (a workspace's carries the bus's prefix)."""
         return self._bus.manifests.get(ident.removeprefix(self._bus.prefix))
@@ -403,7 +406,8 @@ class _ModAI:
     @property
     def task(self) -> str:
         """The routing task this mod's AI calls run under; the user pins it like any other."""
-        return f"mods.{self._mod}"
+        # The component's, not the surface's: a plugin's workspace shares its mod's (`ModBus.ai_owner`).
+        return f"mods.{self._bus.ai_owner(self._mod)}"
 
     def complete(
         self,
@@ -577,8 +581,9 @@ class ModBus:
 
     def __init__(self, prefix: str = "", store_dir: str = "") -> None:
         # What a bus of another kind (workspaces) puts before a name for Titan's host, so a mod and
-        # a workspace called alike never share timers, keys, a store or an AI task; and the folder
-        # of the store it keeps its values in, under the mods' one.
+        # a workspace called alike never share timers, keys or a store (the AI task is the
+        # exception, see `ai_owner`); and the folder of the store it keeps its values in, under
+        # the mods' one.
         self.prefix = prefix
         self.store_dir = store_dir
         # name -> (title, fn) of what each workspace's screen draws, set with `w.ui.view`
@@ -606,6 +611,20 @@ class ModBus:
     @property
     def mods(self) -> List[str]:
         return list(self._apis)
+
+    def ai_owner(self, mod: str) -> str:
+        """
+        What the host keys `mod`'s AI tasks by (`mods.<owner>`, `mods.<owner>.assist`).
+
+        A plugin's mod and its workspace of the same name are one component on two surfaces,
+        the side panel and the full screen: they ask the AI the same things, so they share the
+        tasks and the person pins each once. A workspace not shipped by a plugin keeps its own,
+        prefixed, so a personal one never borrows the pin of an unrelated mod called alike.
+        """
+        manifest = self.found.get(mod) or self.manifests.get(mod)
+        if self.prefix and getattr(manifest, "plugin", None):
+            return mod
+        return self.prefix + mod
 
     def api(self, mod: str) -> ModAPI:
         """The `m` every hook of `mod` receives; tests drive a mod's state and drawing through it."""

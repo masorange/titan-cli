@@ -95,8 +95,9 @@ class TaskRouting:
     pinned_cli: Optional[str] = None
     pinned_connection: Optional[str] = None
     pinned_model: Optional[str] = None
-    # The mod whose `m.ai` calls run under this task, when no workflow step declares it.
-    mod: Optional[str] = None
+    # The mods and workspaces whose `m.ai` calls run under this task, when no workflow step
+    # declares it, as the host knows them (a workspace's with its `workspace.` prefix).
+    mods: List[str] = field(default_factory=list)
 
     @property
     def configurable(self) -> bool:
@@ -178,6 +179,11 @@ def _merged_policy(task: str, steps: Sequence[DiscoveredAIStep]) -> AIRoutePolic
     executes = executable_types(steps)
     preferred = [p for p in (steps[0].policy.preferred if steps else []) if p in executes]
     return AIRoutePolicy(task=task, executes=executes, preferred=preferred)
+
+
+def order_task_routings(routings: List[TaskRouting]) -> List[TaskRouting]:
+    """The rows of "AI per task" in the order shown: workflow steps' tasks first, then mods', each by label."""
+    return sorted(routings, key=lambda r: (bool(r.mods), r.label.lower()))
 
 
 def build_task_routings(
@@ -937,12 +943,12 @@ class TaskRoutingRow(Container):
     def __init__(self, routing: TaskRouting, **kwargs):
         super().__init__(**kwargs)
         self.routing = routing
-        self.set_class(routing.mod is not None, "-mod")
+        self.set_class(bool(routing.mods), "-mod")
 
     def compose(self) -> ComposeResult:
         routing = self.routing
         title = RichText(routing.label)
-        if routing.mod is not None:
+        if routing.mods:
             title.append("  MOD", style=f"bold {colors.ACCENT}")
         yield Static(title, classes="task-name")
 
@@ -1053,10 +1059,11 @@ class TaskRoutingRow(Container):
             yield DimText(f"  Model: {noun} default")
 
     def _usage_summary(self) -> str:
-        if self.routing.mod is not None:
-            if self.routing.mod.startswith("workspace."):
-                return f"used by workspace {self.routing.mod.removeprefix('workspace.')}"
-            return f"used by mod {self.routing.mod}"
+        if self.routing.mods:
+            return "used by " + " · ".join(
+                f"workspace {user.removeprefix('workspace.')}" if user.startswith("workspace.") else f"mod {user}"
+                for user in self.routing.mods
+            )
         count = len(self.routing.workflows)
         if count == 1:
             return f"used by 1 workflow: {self.routing.workflows[0]}"

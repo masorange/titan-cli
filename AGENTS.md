@@ -43,12 +43,13 @@ its last step (docs, tests and the architecture review included). A task can nee
 | Workflow or step under `.titan/` | `titan-project-workflow-builder` |
 | Workflow in a community plugin | `titan-public-plugin-workflow-builder` |
 | Deciding where workflow code lives, or what `ctx.textual` already offers | `titan-workflow-architecture` |
+| Any token, API key, OAuth login or secret in a plugin, mod, workspace or step | `titan-credentials` |
 | Judging a change to Review PR / Respond to PR Comments | `titan-benchmark-run` |
 | Adding or editing `AGENTS.md`, `.claude/docs/`, skills or agents; deciding where a doc goes; auditing docs | `titan-docs-keeper` |
 
 A mod that needs data the plugin client lacks is **both** `titan-plugin-capability` (the client
 function, with its docs) and `titan-mod-builder` (the mod). After either, run the
-`titan-architecture-reviewer` agent on the diff.
+`titan-architecture-reviewer` agent on the diff; after credential work, `titan-security-reviewer`.
 
 ## Guides — read the one that matches the task
 
@@ -87,9 +88,8 @@ function, with its docs) and `titan-mod-builder` (the mod). After either, run th
 
 **Secrets:** no Titan API ever returns a secret string. Raw secret handling lives only in
 `titan_cli/core/security/` (CI-enforced import boundary).
-- Steps use `ctx.secret_broker`; plugins get a broker in `initialize(config, broker)`.
-  There is no `get()` — use `create_client()`, a session factory, or
-  `run_with_secret_stdin` / `run_with_secret_env` / `with_secret_tempfile`.
+- Steps use `ctx.secret_broker`; plugins get one in `initialize(config, broker)`. No `get()`: use
+  `create_client()`, a session factory, `OAuthCredentials`, `run_with_secret_*`, `with_secret_tempfile`.
 - Never put a raw secret in `ctx.data` or result metadata (`Success`/`Skip`/`Exit` raise
   `SecretLeakError`). Wrap derived material in `SensitiveValue`, `reveal()` it late.
 - Never pass a credential on argv or via the inherited environment.
