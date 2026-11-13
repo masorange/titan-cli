@@ -308,3 +308,54 @@ def test_the_instruction_with_scopes_names_them_and_widens_the_limit():
 
 def test_the_instruction_uses_the_configured_separator():
     assert "feat(a|b): Add user auth flow" in build_title_instruction(["a", "b"], "|")
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "[['x/**']]", "[5]", "[true]", "5", "{a: b}"],
+    ids=["no value", "nested list", "number in list", "bool in list", "bare number", "mapping"],
+)
+def test_a_value_that_parses_as_yaml_but_is_no_glob_is_skipped_with_a_warning(value):
+    text = f"a:\n  - changed-files:\n      - any-glob-to-any-file: {value}\n"
+
+    scopes, warnings = compute_title_scopes(text, ["x/y"])
+
+    assert scopes == []
+    assert len(warnings) == 1 and "'a'" in warnings[0] and "not a glob" in warnings[0]
+
+
+def test_a_bad_value_in_one_rule_does_not_stop_the_others():
+    text = (
+        "bad:\n  - changed-files:\n      - any-glob-to-any-file: [5]\n"
+        "good:\n  - changed-files:\n      - any-glob-to-any-file: ['x/**']\n"
+    )
+
+    scopes, warnings = compute_title_scopes(text, ["x/y"])
+
+    assert scopes == ["good"]
+    assert len(warnings) == 1 and "'bad'" in warnings[0]
+
+
+@pytest.mark.parametrize("key, name", [("2.0", "2.0"), ("yes", "True"), ("1", "1"), ("null", "None")])
+def test_a_label_key_yaml_reads_as_a_non_string_is_still_a_string_scope(key, name):
+    text = f"{key}:\n  - changed-files:\n      - any-glob-to-any-file: ['x/**']\n"
+
+    scopes, _ = compute_title_scopes(text, ["x/y"])
+
+    assert scopes == [name]
+    assert all(isinstance(scope, str) for scope in scopes)
+    assert scope_text(scopes) == f"({name})"
+
+
+def test_the_labelers_own_options_are_not_labels_and_are_reported():
+    text = (
+        "changed-files-labels-limit: 3\nmax-files-changed: 50\n"
+        "area:\n  - changed-files:\n      - any-glob-to-any-file: ['x/**']\n"
+    )
+
+    rules, warnings = parse_labeler_rules(text)
+
+    assert list(rules) == ["area"]
+    assert len(warnings) == 2
+    assert "changed-files-labels-limit" in warnings[0] and "max-files-changed" in warnings[1]
+    assert compute_title_scopes(text, ["x/y"])[0] == ["area"]

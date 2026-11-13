@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from titan_cli.core.plugins.models import GitHubPluginConfig
 from titan_cli.core.result import ClientError, ClientSuccess
 from titan_plugin_github.agents import PRAgent
@@ -166,3 +168,34 @@ def test_the_review_limit_grows_with_the_scope_and_stays_72_without_one():
     assert scoped["title_limit"] == 72 + len("(etravel,ios)")
     assert unscoped["title_limit"] == 72
     assert no_match["title_limit"] == 72
+
+
+def test_a_labeler_that_cannot_be_applied_never_blocks_the_pr(monkeypatch):
+    """Whatever the labeler holds, the description is still generated; only the scope is lost."""
+    def explode(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("titan_plugin_github.agents.pr_agent.build_title_scopes", explode)
+
+    result, prompt, _ = _generate("feat: add home screen")
+
+    assert result["title"] == "feat: Add home screen"
+    assert result["body"]
+    assert any("boom" in w for w in result["title_warnings"])
+    assert "WITHOUT scope" in prompt
+
+
+@pytest.mark.parametrize(
+    "labeler",
+    [
+        "a:\n  - changed-files:\n      - any-glob-to-any-file:\n",
+        "a:\n  - changed-files:\n      - any-glob-to-any-file: [[x]]\n",
+        "2.0:\n  - changed-files:\n      - any-glob-to-any-file: ['pkg/**']\n",
+    ],
+    ids=["no value", "nested list", "numeric label"],
+)
+def test_labelers_with_odd_but_valid_yaml_still_give_a_title_and_a_description(labeler):
+    result, _, _ = _generate("feat: add home screen", git=FakeGit(labeler=labeler))
+
+    assert result["title"].startswith("feat")
+    assert result["body"]

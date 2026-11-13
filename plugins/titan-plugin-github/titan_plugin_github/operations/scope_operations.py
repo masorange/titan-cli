@@ -22,6 +22,9 @@ _TITLE = re.compile(r"^(?P<type>[A-Za-z]+)(?:\([^)]*\))?(?P<breaking>!)?:\s*(?P<
 # A PR title is asked to stay within this many characters, scope not included.
 TITLE_BASE_LIMIT = 72
 
+# Top-level options of the labeler config; they sit beside the labels but are not labels.
+_LABELER_OPTIONS = ("changed-files-labels-limit", "max-files-changed")
+
 
 class UnsupportedGlob(ValueError):
     """The glob uses minimatch syntax that `glob_to_regex` does not translate."""
@@ -108,7 +111,15 @@ def parse_labeler_rules(text: str) -> tuple:
 
     rules: dict = {}
     warnings: list = []
-    for label, entries in data.items():
+    for key, entries in data.items():
+        # YAML reads `2.0:` or `1:` as numbers; the labeler sees every key as a name
+        label = str(key)
+        if label in _LABELER_OPTIONS:
+            warnings.append(
+                f"The labeler sets '{label}', which Titan does not apply, "
+                "so CI may apply fewer labels than the title scope shows."
+            )
+            continue
         rules[label] = []
         if not isinstance(entries, list):
             warnings.append(f"Labeler rule '{label}' is not a list of matchers, skipped.")
@@ -139,7 +150,14 @@ def _supported_globs(label: str, entry, warnings: list) -> list:
         return []
 
     globs = changed_files[0]["any-glob-to-any-file"]
-    return [globs] if isinstance(globs, str) else list(globs)
+    if isinstance(globs, str):
+        return [globs]
+    if isinstance(globs, list) and all(isinstance(glob, str) for glob in globs):
+        return globs
+
+    # `any-glob-to-any-file:` with no value, a number or a nested list parse as YAML but are no glob
+    warnings.append(f"Labeler rule '{label}' has an any-glob-to-any-file that is not a glob or a list of globs, skipped.")
+    return []
 
 
 def match_labels(rules: dict, files: list) -> list:

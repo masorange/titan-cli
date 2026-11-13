@@ -591,8 +591,13 @@ This PR modifies localization/translation files. When analyzing:
 
         Off unless the project asked for `labeler`, so a repository that never configured
         it is prompted and cleaned exactly as before. The labeler is read from the head
-        branch rather than the working tree: that is the version CI will run, and it does
-        not depend on where Titan was launched from.
+        branch rather than the working tree, so it does not depend on where Titan was
+        launched from. CI loads the labeler at the commit its workflow runs on: the PR's
+        merge commit under `pull_request`, the base branch under `pull_request_target`,
+        where a PR that edits the labeler is scoped by rules CI does not apply yet.
+
+        Whatever the labeler holds, a failure here costs the title its scope and nothing
+        else: the PR description is still generated.
 
         Args:
             head_branch: The branch the PR is opened from
@@ -611,7 +616,14 @@ This PR modifies localization/translation files. When analyzing:
 
         match self.git.get_file_at_ref(head_branch, path):
             case ClientSuccess(data=text):
-                return build_title_scopes(text, diff, separator, path)
+                try:
+                    return build_title_scopes(text, diff, separator, path)
+                except Exception as e:
+                    logger.warning("labeler_apply_failed", path=path, error=str(e))
+                    return TitleScopes(
+                        separator=separator,
+                        warnings=(f"Could not apply the labeler config '{path}' ({e}), so the title has no scope.",),
+                    )
             case ClientError(error_message=err):
                 logger.warning("labeler_read_failed", path=path, error=err)
                 return TitleScopes(
