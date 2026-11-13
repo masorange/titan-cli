@@ -1214,6 +1214,7 @@ class TextualComponents:
         edit_instruction: str = "Edit the content below (first line = title, rest = description)",
         confirm_question: str = "Use this content?",
         choice_question: str = "What would you like to do?",
+        title_max_length: int = 72,
     ) -> tuple[str, Optional[str], Optional[str]]:
         """
         Generic flow for reviewing AI-generated content with Use/Edit/Reject options.
@@ -1232,6 +1233,7 @@ class TextualComponents:
             edit_instruction: Instruction text shown when editing (default: generic)
             confirm_question: Question to ask after editing (default: "Use this content?")
             choice_question: Question for the Use/Edit/Reject choice (default: generic)
+            title_max_length: Longest title shown without a length warning (default: 72)
 
         Returns:
             Tuple of (choice, final_title, final_body):
@@ -1267,9 +1269,8 @@ class TextualComponents:
         self.primary_text(f"  {content_title}")
 
         # Warn if title is too long
-        number_of_characters = 72
-        if len(content_title) > number_of_characters:
-            self.warning_text(f"⚠ Title is {len(content_title)} characters (recommended: ≤ {number_of_characters})")
+        if len(content_title) > title_max_length:
+            self.warning_text(f"⚠ Title is {len(content_title)} characters (recommended: ≤ {title_max_length})")
 
         self.text("")  # spacing
 

@@ -1,6 +1,6 @@
 # titan_cli/core/plugins/models.py
 from enum import Enum
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Literal, Optional, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -68,6 +68,9 @@ class GitHubPluginConfig(BaseModel):
     default_branch: str = Field(None, description="Default branch to use (e.g., 'main', 'develop').")
     pr_template_path: str = Field(None, description="Path to PR template file relative to repository root (e.g., '.github/pull_request_template.md', 'docs/PR_TEMPLATE.md'). Defaults to '.github/pull_request_template.md'.")
     auto_assign_prs: bool = Field(True, description="Automatically assign PRs to the author.")
+    pr_title_scope_source: Literal["off", "labeler"] = Field("off", description="Where the scope of an AI-generated PR title comes from. 'off' writes titles without a scope (type: Description). 'labeler' derives it from the repository's labeler rules applied to the files of the PR (type(scope): Description).")
+    pr_title_scope_separator: str = Field(",", min_length=1, description="What joins several scopes in a PR title, e.g. ',' for 'feat(api,ui): ...' or '|' for 'feat(api|ui): ...'. Used when pr_title_scope_source is 'labeler'.")
+    pr_title_labeler_path: str = Field(".github/labeler.yml", description="Path to the actions/labeler config relative to the repository root. Used when pr_title_scope_source is 'labeler'.")
 
 
 class JiraPluginConfig(BaseModel):

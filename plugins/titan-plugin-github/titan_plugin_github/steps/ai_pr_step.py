@@ -170,6 +170,10 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
                 max_chars="varies by size"
             ))
 
+        # Say what the title could not get right (no scope, a labeler rule skipped) before it is reviewed
+        for warning in analysis.pr_warnings:
+            ctx.textual.warning_text(warning)
+
         # Use the reusable AI content review flow
         choice, pr_title, pr_body = ctx.textual.ai_content_review_flow(
             content_title=analysis.pr_title,
@@ -180,6 +184,7 @@ def ai_suggest_pr_description_step(ctx: WorkflowContext) -> WorkflowResult:
             edit_instruction="Edit the PR content below (first line = title, rest = description)",
             confirm_question="Use this PR content?",
             choice_question="What would you like to do with this PR description?",
+            title_max_length=analysis.pr_title_max_length,
         )
 
         # Handle rejection

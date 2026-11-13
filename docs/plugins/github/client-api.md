@@ -30,7 +30,10 @@ repo_name = "example-repo"
 default_branch = "main"
 pr_template_path = ".github/pull_request_template.md"
 auto_assign_prs = true
+pr_title_scope_source = "off"
 ```
+
+`pr_title_scope_source`, `pr_title_scope_separator` and `pr_title_labeler_path` control the scope of AI-generated PR titles; see [PR title scopes](./overview.md#pr-title-scopes).
 
 ---
 

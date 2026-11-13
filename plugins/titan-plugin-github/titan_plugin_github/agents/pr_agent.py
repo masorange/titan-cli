@@ -8,7 +8,7 @@ This agent analyzes the complete context of a branch and automatically:
 3. Creates PR title and description following templates
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Optional
@@ -23,6 +23,14 @@ from titan_cli.ai.agents.base import BaseAIAgent, AgentRequest
 from titan_cli.ai.agents.contracts import TextContract
 from titan_cli.core.result import ClientSuccess, ClientError
 from .config_loader import load_agent_config
+from ..operations.scope_operations import (
+    TITLE_BASE_LIMIT,
+    TitleScopes,
+    build_title_instruction,
+    build_title_scopes,
+    enforce_title_scopes,
+    title_length_limit,
+)
 from ..utils import calculate_pr_size, is_i18n_change
 
 # Set up logger
@@ -59,6 +67,10 @@ class PRAnalysis:
     pr_size: Optional[str] = None
     pr_status: PRStatus = PRStatus.OK
     pr_error: Optional[str] = None
+    # What the reader of the title should know: a scope that could not be set, a labeler rule skipped.
+    pr_warnings: list[str] = field(default_factory=list)
+    # How long the title may be before the review warns: 72, plus the room its scope takes.
+    pr_title_max_length: int = TITLE_BASE_LIMIT
 
     # Metadata
     total_tokens_used: int = 0
@@ -146,6 +158,8 @@ class PRAgent(BaseAIAgent):
         pr_size = None
         pr_status = PRStatus.OK
         pr_error = None
+        pr_warnings = []
+        pr_title_max_length = TITLE_BASE_LIMIT
         files_changed = 0
         lines_changed = 0
         commits = []
@@ -239,6 +253,8 @@ class PRAgent(BaseAIAgent):
                             pr_title = pr_result["title"]
                             pr_body = pr_result["body"]
                             pr_size = pr_result["pr_size"]
+                            pr_warnings = pr_result["title_warnings"]
+                            pr_title_max_length = pr_result["title_limit"]
                             files_changed = pr_result["files_changed"]
                             lines_changed = pr_result["lines_changed"]
                             total_tokens += pr_result["tokens_used"]
@@ -272,6 +288,8 @@ class PRAgent(BaseAIAgent):
             pr_size=pr_size,
             pr_status=pr_status,
             pr_error=pr_error,
+            pr_warnings=pr_warnings,
+            pr_title_max_length=pr_title_max_length,
             total_tokens_used=total_tokens,
             branch_commits=commits,
             files_changed=files_changed,
@@ -373,7 +391,7 @@ COMMIT_MESSAGE: <conventional commit message>"""
             additional_context: Optional project-specific context
 
         Returns:
-            Dict with keys: title, body, pr_size, files_changed, lines_changed, tokens_used
+            Dict with keys: title, title_warnings, title_limit, body, pr_size, files_changed, lines_changed, tokens_used
 
         Raises:
             ValueError: If commits/diff are empty or AI response is invalid
@@ -392,6 +410,9 @@ COMMIT_MESSAGE: <conventional commit message>"""
         files_changed = estimation.files_changed
         lines_changed = estimation.diff_lines
 
+        # The title scope is settled before the model is asked, so the prompt can say which one to write
+        title_scopes = self._title_scope_policy(head_branch, diff)
+
         # Build prompt
         prompt = self._build_pr_prompt(
             commits=commits,
@@ -401,7 +422,8 @@ COMMIT_MESSAGE: <conventional commit message>"""
             template=template,
             pr_size=pr_size,
             max_chars=max_chars,
-            additional_context=additional_context
+            additional_context=additional_context,
+            title_scopes=title_scopes,
         )
 
         # Calculate max_tokens for OUTPUT (PR description generation)
@@ -438,9 +460,15 @@ COMMIT_MESSAGE: <conventional commit message>"""
             raise
 
         title, body = self._clean_pr_fields(response.parsed)
+        # Asking the model is not enough: the CI that lints the title only knows the labeler's scopes
+        title, title_warnings = enforce_title_scopes(title, title_scopes)
 
         return {
             "title": title,
+            "title_warnings": title_warnings,
+            "title_limit": title_length_limit(
+                title_scopes.scopes if title_scopes.enabled else (), title_scopes.separator
+            ),
             "body": body,
             "pr_size": pr_size,
             "files_changed": files_changed,
@@ -458,9 +486,15 @@ COMMIT_MESSAGE: <conventional commit message>"""
         template: Optional[str],
         pr_size: str,
         max_chars: int,
-        additional_context: Optional[dict] = None
+        additional_context: Optional[dict] = None,
+        title_scopes: Optional[TitleScopes] = None,
     ) -> str:
         """Build the prompt for PR generation."""
+        title_scopes = title_scopes or TitleScopes()
+        title_instruction = build_title_instruction(
+            title_scopes.scopes if title_scopes.enabled else (),
+            title_scopes.separator,
+        )
         # Prepare commits text
         commits_text = "\n".join([f"  - {c}" for c in commits[:self.config.max_commits_to_analyze]])
         if len(commits) > self.config.max_commits_to_analyze:
@@ -527,15 +561,7 @@ This PR modifies localization/translation files. When analyzing:
 ```
 
 ## CRITICAL Instructions
-1. **Title**: Follow conventional commits format WITHOUT scope (type: Description), be clear and descriptive
-   - Format: `type: Description` (NO scope, NO parentheses)
-   - **HARD LIMIT: title MUST be ≤72 characters total** (count carefully before writing)
-   - Start description with CAPITAL letter (imperative mood)
-   - **If <project_context> contains issue IDs** (e.g., jira_issues, issue_ids, tickets), include them in the title BEFORE the description:
-     * Format: `type: ISSUE-1, ISSUE-2 Description`
-     * Example: `feat: PROJ-1234, PROJ-5678 Add OAuth2 integration`
-   - Examples without issues: "feat: Add user auth flow", "fix: Resolve cache race condition"
-   - NEVER use format like "feat(scope): Description" - always use "feat: Description"
+{title_instruction}
 
 2. **Change prioritization** — focus on what matters most:
    - **Primary**: source code changes (`.py`, `.ts`, `.kt`, `.swift`, etc.) — these describe WHAT was built or fixed
@@ -558,6 +584,40 @@ This PR modifies localization/translation files. When analyzing:
      * Very Large PRs: Detailed architecture explanations, migration guides
    - Total description length MUST be ≤{max_chars} chars
    - MAX {max_chars} chars total"""
+
+    def _title_scope_policy(self, head_branch: str, diff: str) -> TitleScopes:
+        """
+        Work out the scope this PR's title carries, from the repository's labeler.
+
+        Off unless the project asked for `labeler`, so a repository that never configured
+        it is prompted and cleaned exactly as before. The labeler is read from the head
+        branch rather than the working tree: that is the version CI will run, and it does
+        not depend on where Titan was launched from.
+
+        Args:
+            head_branch: The branch the PR is opened from
+            diff: The branch diff the PR is built from; its files are the PR's files
+
+        Returns:
+            The policy to prompt with and to enforce
+        """
+        config = getattr(self.github, "config", None)
+        if getattr(config, "pr_title_scope_source", "off") != "labeler":
+            return TitleScopes()
+
+        separator = config.pr_title_scope_separator
+        # `git show <ref>:<path>` reads the path from the repo root unless it starts with ./
+        path = config.pr_title_labeler_path.removeprefix("./").lstrip("/")
+
+        match self.git.get_file_at_ref(head_branch, path):
+            case ClientSuccess(data=text):
+                return build_title_scopes(text, diff, separator, path)
+            case ClientError(error_message=err):
+                logger.warning("labeler_read_failed", path=path, error=err)
+                return TitleScopes(
+                    separator=separator,
+                    warnings=(f"Could not read the labeler config '{path}' ({err}), so the title has no scope.",),
+                )
 
     def _clean_pr_fields(self, parsed: dict) -> tuple[str, str]:
         """

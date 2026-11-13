@@ -72,7 +72,7 @@ Use these steps to generate PR content, inspect PR state, and create or merge pu
 - `get_pull_request`: fetch a pull request and expose it to later steps
 - `merge_pull_request`: merge a pull request with workflow-selected merge options
 - `verify_pull_request_state`: validate that a pull request is in the expected state
-- `ai_suggest_pr_description`: generate PR title and body from branch changes using AI
+- `ai_suggest_pr_description`: generate PR title and body from branch changes using AI; the title can carry the scopes the repository's labeler assigns to the changed files (`pr_title_scope_source`)
 
 ## Prompt and Selection
 
