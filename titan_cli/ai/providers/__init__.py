@@ -6,23 +6,30 @@ Each provider is imported when first asked for, not with the package: their SDKs
 must stay cheap.
 """
 
-from importlib import import_module
-
 from .base import AIProvider
 
-_PROVIDERS = {
-    "AnthropicProvider": ".anthropic",
-    "GeminiProvider": ".gemini",
-    "LiteLLMProvider": ".litellm",
-    "OpenAIProvider": ".openai",
-}
+_PROVIDER_NAMES = ("AnthropicProvider", "GeminiProvider", "LiteLLMProvider", "OpenAIProvider")
 
 
 def __getattr__(name: str):
-    module = _PROVIDERS.get(name)
-    if module is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    return getattr(import_module(module, __name__), name)
+    # Static imports, one per provider: nothing here is derived from the requested name.
+    if name == "AnthropicProvider":
+        from .anthropic import AnthropicProvider
+
+        return AnthropicProvider
+    if name == "GeminiProvider":
+        from .gemini import GeminiProvider
+
+        return GeminiProvider
+    if name == "LiteLLMProvider":
+        from .litellm import LiteLLMProvider
+
+        return LiteLLMProvider
+    if name == "OpenAIProvider":
+        from .openai import OpenAIProvider
+
+        return OpenAIProvider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["AIProvider", *_PROVIDERS]
+__all__ = ["AIProvider", *_PROVIDER_NAMES]

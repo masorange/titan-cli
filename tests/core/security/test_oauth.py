@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import socket
 import threading
 import time
 import urllib.error
@@ -176,6 +177,44 @@ def test_connect_sends_the_client_secret_from_the_broker(broker):
     )
 
     assert http.calls[0]["data"]["client_secret"] == "GOCSPX-secret"
+
+
+def test_connect_names_a_missing_client_secret(broker):
+    http = FakeHttp()
+    opener, _ = _browser()
+
+    with pytest.raises(OAuthError, match="client secret is not stored"):
+        connect_oauth(
+            broker, KEY, GOOGLE_LIKE, OAuthApp("cid", client_secret_key="client_secret"),
+            browser_opener=opener, http=http,
+        )
+
+    assert http.calls == []
+
+
+def test_a_browser_that_hangs_up_does_not_lose_the_code(broker):
+    http = FakeHttp(_response(200, {"access_token": "a", "refresh_token": "r"}))
+
+    def opener(url: str) -> bool:
+        params = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+
+        def hit():
+            time.sleep(0.05)
+            host, port = urlparse(params["redirect_uri"]).netloc.split(":")
+            query = urlencode({"code": "the-code", "state": params["state"]})
+            with socket.create_connection((host, int(port)), timeout=5) as sock:
+                sock.sendall(f"GET /oauth/callback?{query} HTTP/1.0\r\n\r\n".encode())
+                # Hang up without reading the answer.
+
+        threading.Thread(target=hit, daemon=True).start()
+        return True
+
+    started = time.monotonic()
+    connect_oauth(broker, KEY, GOOGLE_LIKE, OAuthApp("cid"), browser_opener=opener,
+                  http=http, timeout=10)
+
+    assert time.monotonic() - started < 5
+    assert http.calls[0]["data"]["code"] == "the-code"
 
 
 def test_connect_ignores_a_callback_with_the_wrong_state(broker):
@@ -357,6 +396,16 @@ def test_failed_transient_refresh_falls_back_even_to_an_expired_token(broker):
     creds = OAuthCredentials(broker, KEY, GOOGLE_LIKE, OAuthApp("cid"), http=http)
 
     assert creds.create_client(lambda token: [token]) == ["old"]
+
+
+def test_transient_refresh_failure_is_not_retried_straight_away(broker):
+    _seed(broker, expires_at=int(time.time()) + 10)
+    http = FakeHttp(_response(503, {"error": "backend_error"}))
+    creds = OAuthCredentials(broker, KEY, GOOGLE_LIKE, OAuthApp("cid"), http=http)
+
+    assert creds.create_client(lambda token: [token]) == ["old"]
+    assert creds.create_client(lambda token: [token]) == ["old"]
+    assert len(http.calls) == 1
 
 
 def test_loaded_tokens_are_registered_for_redaction(broker):

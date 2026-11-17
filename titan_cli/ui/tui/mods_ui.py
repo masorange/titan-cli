@@ -443,10 +443,13 @@ class TitanModHost:
         # in the current build, so its old client is dropped and asked again.
         if self._registry is None:
             return None
-        if name in self._clients:
+        # One read, then decide from it: another thread may drop the entry between a
+        # membership check and a lookup.
+        cached = self._clients.get(name)
+        if cached is not None:
             if self._registry.is_initialized(name):
-                return self._clients[name]
-            self._clients.pop(name, None)  # another thread may have dropped it first
+                return cached
+            self._clients.pop(name, None)
         try:
             plugin = self._registry.ensure_initialized(name)
             if plugin is None or not plugin.is_available():

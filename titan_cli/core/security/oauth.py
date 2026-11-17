@@ -56,6 +56,7 @@ T = TypeVar("T")
 
 REFRESH_MARGIN_SECONDS = 300
 _HTTP_TIMEOUT_SECONDS = 30
+_REFRESH_RETRY_SECONDS = 60
 
 
 class OAuthError(Exception):
@@ -312,11 +313,17 @@ def _token_request(
     data = {"client_id": app.client_id, **data}
     if app.client_secret_key:
         # The client secret crosses into the form data inside the broker call.
-        data = broker.create_client(
-            app.client_secret_key,
-            lambda secret: {**data, "client_secret": secret} if secret else data,
-            required=False,
-        )
+        def with_secret(secret: Optional[str]) -> dict[str, str]:
+            if not secret:
+                # Sending the request without it would end in a provider error
+                # such as `invalid_client`, hiding the real cause.
+                raise OAuthError(
+                    f"The {provider.name} client secret is not stored; "
+                    "save it and connect again.",
+                )
+            return {**data, "client_secret": secret}
+
+        data = broker.create_client(app.client_secret_key, with_secret, required=False)
     try:
         return http.post(
             provider.token_url,
@@ -389,26 +396,39 @@ def _handler_for(callback: _Callback) -> type[BaseHTTPRequestHandler]:
                 return
             error = query.get("error", [""])[0]
             code = query.get("code", [""])[0]
-            if error or not code:
-                callback.error = (error or "missing_code")[:100]
-                self._respond(200, ok=False)
-            else:
+            ok = bool(code) and not error
+            if ok:
                 callback.code = code
-                self._respond(200, ok=True)
+            else:
+                callback.error = (error or "missing_code")[:100]
+            # Before answering: the code is already ours, and a browser that
+            # closed the connection must not make the caller wait out the timeout.
             callback.done.set()
+            self._respond(200, ok=ok)
 
         def _respond(self, status: int, ok: bool) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.end_headers()
-            self.wfile.write(_page(callback.provider.name, ok))
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.end_headers()
+                self.wfile.write(_page(callback.provider.name, ok))
+            except OSError:
+                logger.debug("oauth_callback_response_dropped", provider=callback.provider.name)
 
         def log_message(self, format, *args):  # noqa: A002 - silence stderr access log
             return
 
     return Handler
+
+
+class _QuietServer(HTTPServer):
+    """HTTPServer that logs request errors instead of printing a traceback to
+    stderr, which would corrupt the running TUI."""
+
+    def handle_error(self, request, client_address):  # noqa: ARG002
+        logger.debug("oauth_callback_request_failed", exc_info=True)
 
 
 def connect_oauth(
@@ -449,7 +469,7 @@ def connect_oauth(
     callback = _Callback(provider, state)
 
     try:
-        server = HTTPServer(("127.0.0.1", app.redirect_port), _handler_for(callback))
+        server = _QuietServer(("127.0.0.1", app.redirect_port), _handler_for(callback))
     except OSError as exc:
         raise OAuthError(
             f"Could not listen on 127.0.0.1:{app.redirect_port} for the {provider.name} "
@@ -548,6 +568,9 @@ class OAuthCredentials:
         self._margin = refresh_margin
         self._lock = threading.RLock()
         self._tokens: Optional[_TokenSet] = None
+        # Monotonic time before which a proactive refresh is not retried after a
+        # transient failure, so an endpoint outage does not stall every call.
+        self._next_refresh_attempt = 0.0
 
     def __repr__(self) -> str:
         return f"OAuthCredentials({self._provider.name}, {self._broker.namespace}:{self._key})"
@@ -562,6 +585,7 @@ class OAuthCredentials:
         """Delete the stored grant."""
         with self._lock:
             self._tokens = None
+            self._next_refresh_attempt = 0.0
             return self._broker.delete(self._key)
 
     def _load(self) -> _TokenSet:
@@ -606,6 +630,7 @@ class OAuthCredentials:
         # refresh token we just spent.
         self._broker.store(self._key, fresh.to_json())
         self._tokens = fresh
+        self._next_refresh_attempt = 0.0
         logger.info("oauth_refreshed", provider=self._provider.name, expires_at=fresh.expires_at)
         return fresh
 
@@ -617,6 +642,8 @@ class OAuthCredentials:
             tokens = self._load()
             if not self._expiring(tokens) or not tokens.refresh_token:
                 return tokens
+            if time.monotonic() < self._next_refresh_attempt:
+                return tokens
             try:
                 return self._refresh_locked(tokens)
             except OAuthError as exc:
@@ -625,6 +652,7 @@ class OAuthCredentials:
                 # revoked grant is final.
                 if exc.reauthorize:
                     raise
+                self._next_refresh_attempt = time.monotonic() + _REFRESH_RETRY_SECONDS
                 return self._tokens or tokens
 
     def _refresh_if_unchanged(self, used: Optional[str]) -> _TokenSet:

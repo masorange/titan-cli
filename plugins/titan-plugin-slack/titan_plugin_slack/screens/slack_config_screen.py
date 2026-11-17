@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import asyncio
+import threading
 
 import tomli
 import tomli_w
@@ -21,6 +22,7 @@ from ..config import (
     OAUTH_REDIRECT_PORT,
     SLACK_OAUTH,
     build_project_slack_oauth_key,
+    legacy_project_slack_token_keys,
     slack_oauth_app,
 )
 
@@ -117,6 +119,8 @@ class SlackConfigScreen(BaseScreen):
         )
         self._reconfigure_project_mode = False
         self._has_changes = False
+        # Set to abort the browser wait: the flow holds a fixed local port.
+        self._oauth_cancel = threading.Event()
 
     def compose_content(self) -> ComposeResult:
         with Container(id="slack-config-container"):
@@ -156,6 +160,9 @@ class SlackConfigScreen(BaseScreen):
 
     def on_mount(self) -> None:
         self._refresh_view()
+
+    def on_unmount(self) -> None:
+        self._oauth_cancel.set()
 
     def _load_plugin_config(self) -> dict:
         plugin_cfg = getattr(self.config.config, "plugins", {}).get("slack") if self.config.config else None
@@ -370,14 +377,22 @@ class SlackConfigScreen(BaseScreen):
             }
         )
 
-    def _perform_oauth_connect(self, client_id: str) -> OAuthGrant:
+    def _perform_oauth_connect(self, client_id: str, cancel: threading.Event) -> OAuthGrant:
         """Run the browser authorization; Titan stores the grant itself."""
         return connect_oauth(
             self._broker(),
             self._get_project_grant_key(),
             SLACK_OAUTH,
             slack_oauth_app(client_id),
+            cancel=cancel,
         )
+
+    def _delete_stored_grants(self) -> None:
+        """Delete the grant and the keys the previous plugin version left behind."""
+        broker = self._broker()
+        broker.delete(self._get_project_grant_key())
+        for key in legacy_project_slack_token_keys(self._get_project_name()):
+            broker.delete(key)
 
     def _start_oauth_flow(self) -> None:
         """Start the Slack OAuth flow in a background worker."""
@@ -397,6 +412,9 @@ class SlackConfigScreen(BaseScreen):
             self.app.notify(f"Slack OAuth setup failed: {exc}", severity="error")
             return
 
+        # A flow still waiting holds the callback port; stop it before starting another.
+        self._oauth_cancel.set()
+        self._oauth_cancel = threading.Event()
         self.app.notify("Opening browser for Slack authorization...", severity="information")
         self.run_worker(
             self._run_oauth_connect(client_id, default_channels),
@@ -407,11 +425,18 @@ class SlackConfigScreen(BaseScreen):
         """Run the Slack OAuth flow without blocking the UI thread."""
         token_written = False
         config_written = False
+        cancel = self._oauth_cancel
         try:
             grant = await asyncio.to_thread(
                 self._perform_oauth_connect,
                 client_id,
+                cancel,
             )
+            if cancel.is_set():
+                # The screen was left (or a newer flow started) while waiting:
+                # drop the grant instead of applying it behind a closed screen.
+                self._broker().delete(self._get_project_grant_key())
+                return
             token_written = True
             self._save_project_slack_config(
                 {
@@ -436,9 +461,13 @@ class SlackConfigScreen(BaseScreen):
         except Exception as exc:
             if token_written:
                 try:
-                    self._broker().delete(self._get_project_grant_key())
+                    self._delete_stored_grants()
                 except Exception:
                     pass
+
+            if cancel.is_set():
+                logger.info("slack_oauth_cancelled")
+                return
 
             if config_written:
                 try:
@@ -486,7 +515,7 @@ class SlackConfigScreen(BaseScreen):
                 raise RuntimeError(err)
 
     def _disconnect(self) -> None:
-        self._broker().delete(self._get_project_grant_key())
+        self._delete_stored_grants()
         # Same reason as connecting: the token the plugin holds lives outside the
         # config files, so dropping it has to be announced explicitly.
         self.config.load(force_plugin_init=True)
@@ -496,7 +525,7 @@ class SlackConfigScreen(BaseScreen):
         self._refresh_view()
 
     def _remove_project_config(self) -> None:
-        self._broker().delete(self._get_project_grant_key())
+        self._delete_stored_grants()
         project_cfg_path = self.config.project_config_path
         if project_cfg_path and project_cfg_path.exists():
             with open(project_cfg_path, "rb") as f:

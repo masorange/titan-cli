@@ -50,10 +50,26 @@ def build_project_slack_oauth_key(project_name: str | None) -> str:
     return f"{project_name}_slack_oauth"
 
 
+def legacy_project_slack_token_keys(project_name: str | None) -> tuple[str, ...]:
+    """Keys the pre-OAuth-flow plugin stored (access token, refresh token, expiry).
+
+    Nothing reads them any more; they are deleted on disconnect so an upgraded
+    user's old, still-valid tokens do not stay in the keyring out of reach.
+    """
+    if not project_name:
+        return ()
+    return (
+        f"{project_name}_slack_user_token",
+        f"{project_name}_slack_refresh_token",
+        f"{project_name}_slack_token_expires_at",
+    )
+
+
 __all__ = [
     "OAUTH_REDIRECT_PORT",
     "OAUTH_SCOPES",
     "SLACK_OAUTH",
     "build_project_slack_oauth_key",
+    "legacy_project_slack_token_keys",
     "slack_oauth_app",
 ]

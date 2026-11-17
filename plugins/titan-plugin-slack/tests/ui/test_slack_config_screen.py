@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import threading
 from unittest.mock import MagicMock, PropertyMock
 
 import tomli
@@ -110,7 +111,13 @@ def test_slack_config_screen_disconnect_only_deletes_project_token(tmp_path: Pat
     )
     screen._disconnect()
 
-    assert config.broker.deleted == ["demo-project_slack_oauth"]
+    # The grant and the three keys the previous plugin version stored.
+    assert config.broker.deleted == [
+        "demo-project_slack_oauth",
+        "demo-project_slack_user_token",
+        "demo-project_slack_refresh_token",
+        "demo-project_slack_token_expires_at",
+    ]
     with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
@@ -137,7 +144,12 @@ def test_slack_config_screen_remove_project_config_clears_plugin_entry_and_token
 
     screen._remove_project_config()
 
-    assert config.broker.deleted == ["demo-project_slack_oauth"]
+    assert config.broker.deleted == [
+        "demo-project_slack_oauth",
+        "demo-project_slack_user_token",
+        "demo-project_slack_refresh_token",
+        "demo-project_slack_token_expires_at",
+    ]
     with open(config.project_config_path, "rb") as f:
         data = tomli.load(f)
 
@@ -179,15 +191,17 @@ def test_slack_config_screen_perform_oauth_connect_uses_shared_flow(monkeypatch,
     screen = SlackConfigScreen(config)
     calls = {}
 
-    def fake_connect(broker, key, provider, app):
-        calls.update(broker=broker, key=key, provider=provider, app=app)
+    def fake_connect(broker, key, provider, app, cancel=None):
+        calls.update(broker=broker, key=key, provider=provider, app=app, cancel=cancel)
         return GRANT
 
     monkeypatch.setattr(
         "titan_plugin_slack.screens.slack_config_screen.connect_oauth", fake_connect
     )
 
-    assert screen._perform_oauth_connect("123") is GRANT
+    cancel = threading.Event()
+    assert screen._perform_oauth_connect("123", cancel) is GRANT
+    assert calls["cancel"] is cancel
     assert calls["broker"] is config.broker
     assert calls["key"] == "demo-project_slack_oauth"
     assert calls["provider"].callback_path == "/slack/callback"
@@ -240,7 +254,12 @@ def test_slack_config_screen_oauth_connect_drops_grant_when_config_save_fails(tm
     asyncio.run(screen._run_oauth_connect("123", ["general"]))
 
     app.notify.assert_called_once_with("Slack OAuth failed: disk full", severity="error")
-    assert config.broker.deleted == ["demo-project_slack_oauth"]
+    assert config.broker.deleted == [
+        "demo-project_slack_oauth",
+        "demo-project_slack_user_token",
+        "demo-project_slack_refresh_token",
+        "demo-project_slack_token_expires_at",
+    ]
 
 
 def test_slack_config_screen_save_project_config_enables_plugin(tmp_path: Path) -> None:
@@ -261,3 +280,38 @@ def test_parse_default_channels_normalizes_and_deduplicates() -> None:
     )
 
     assert result == ["general", "release-notes", "alerts"]
+
+
+def test_slack_config_screen_oauth_connect_drops_grant_when_screen_was_left(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    screen = SlackConfigScreen(config)
+    type(screen).app = PropertyMock(return_value=MagicMock())
+    screen.dismiss = MagicMock()
+    screen._save_project_slack_config = MagicMock()
+
+    def connect(client_id, cancel):
+        screen.on_unmount()  # the user left while the browser was open
+        return GRANT
+
+    screen._perform_oauth_connect = connect
+
+    asyncio.run(screen._run_oauth_connect("123", ["general"]))
+
+    screen._save_project_slack_config.assert_not_called()
+    screen.dismiss.assert_not_called()
+    assert "demo-project_slack_oauth" in config.broker.deleted
+
+
+def test_slack_config_screen_starting_a_flow_cancels_the_previous_one(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    screen = SlackConfigScreen(config)
+    type(screen).app = PropertyMock(return_value=MagicMock())
+    screen.run_worker = MagicMock()
+    screen._read_oauth_form_values = MagicMock(return_value=("123", ["general"]))
+    first = screen._oauth_cancel
+
+    screen._start_oauth_flow()
+
+    assert first.is_set()
+    assert not screen._oauth_cancel.is_set()
+    screen.run_worker.call_args.args[0].close()
