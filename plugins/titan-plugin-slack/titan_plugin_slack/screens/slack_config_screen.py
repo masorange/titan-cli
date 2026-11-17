@@ -387,12 +387,16 @@ class SlackConfigScreen(BaseScreen):
             cancel=cancel,
         )
 
-    def _delete_stored_grants(self) -> None:
-        """Delete the grant and the keys the previous plugin version left behind."""
+    def _delete_legacy_grants(self) -> None:
+        """Delete the keys the previous plugin version left behind."""
         broker = self._broker()
-        broker.delete(self._get_project_grant_key())
         for key in legacy_project_slack_token_keys(self._get_project_name()):
             broker.delete(key)
+
+    def _delete_stored_grants(self) -> None:
+        """Delete the grant and the keys the previous plugin version left behind."""
+        self._broker().delete(self._get_project_grant_key())
+        self._delete_legacy_grants()
 
     def _start_oauth_flow(self) -> None:
         """Start the Slack OAuth flow in a background worker."""
@@ -438,6 +442,9 @@ class SlackConfigScreen(BaseScreen):
                 self._broker().delete(self._get_project_grant_key())
                 return
             token_written = True
+            # The grant replaces the keys the previous plugin version stored;
+            # their tokens are still valid, so they must not stay orphaned.
+            self._delete_legacy_grants()
             self._save_project_slack_config(
                 {
                     "oauth_client_id": client_id,

@@ -311,6 +311,8 @@ def _token_request(
     http: Any,
 ) -> requests.Response:
     data = {"client_id": app.client_id, **data}
+    if urlparse(provider.token_url).scheme != "https":
+        raise OAuthError(f"The {provider.name} token endpoint must use https.")
     if app.client_secret_key:
         # The client secret crosses into the form data inside the broker call.
         def with_secret(secret: Optional[str]) -> dict[str, str]:
@@ -330,6 +332,9 @@ def _token_request(
             data=data,
             headers={"Accept": "application/json"},
             timeout=_HTTP_TIMEOUT_SECONDS,
+            # The body carries the code, verifier, client secret or refresh
+            # token: a 307/308 must not replay it somewhere else.
+            allow_redirects=False,
         )
     except requests.RequestException as exc:
         raise OAuthError(
@@ -705,7 +710,8 @@ def _check_destination(provider: OAuthProvider, url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme != "https":
         raise OAuthError(f"Refusing to send the {provider.name} token over {parsed.scheme or 'no scheme'}.")
-    if provider.api_hosts and parsed.hostname not in provider.api_hosts:
+    # No declared hosts means no host is allowed, not every host.
+    if parsed.hostname not in provider.api_hosts:
         raise OAuthError(f"Refusing to send the {provider.name} token to {parsed.hostname}.")
 
 
@@ -728,10 +734,14 @@ class _BearerAuth(AuthBase):
         request = response.request
         if response.status_code != 401 or getattr(request, "_titan_oauth_retried", False):
             return response
+        used = getattr(request, "_titan_oauth_token", None)
+        if used is None:
+            # Not a request this auth signed: a redirect hop, where requests has
+            # already dropped the Authorization header. Never add it back.
+            return response
         try:
-            fresh = self._credentials._refresh_if_unchanged(
-                getattr(request, "_titan_oauth_token", None)
-            )
+            _check_destination(self._credentials._provider, request.url)
+            fresh = self._credentials._refresh_if_unchanged(used)
         except OAuthError:
             return response  # the caller sees the original 401
         response.content  # release the connection  # noqa: B018

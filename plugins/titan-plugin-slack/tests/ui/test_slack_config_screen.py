@@ -254,12 +254,10 @@ def test_slack_config_screen_oauth_connect_drops_grant_when_config_save_fails(tm
     asyncio.run(screen._run_oauth_connect("123", ["general"]))
 
     app.notify.assert_called_once_with("Slack OAuth failed: disk full", severity="error")
-    assert config.broker.deleted == [
-        "demo-project_slack_oauth",
-        "demo-project_slack_user_token",
-        "demo-project_slack_refresh_token",
-        "demo-project_slack_token_expires_at",
-    ]
+    # Legacy keys go right after the grant is stored; the rollback then removes
+    # the grant and sweeps the legacy keys again.
+    assert "demo-project_slack_oauth" in config.broker.deleted
+    assert "demo-project_slack_user_token" in config.broker.deleted
 
 
 def test_slack_config_screen_save_project_config_enables_plugin(tmp_path: Path) -> None:
@@ -315,3 +313,19 @@ def test_slack_config_screen_starting_a_flow_cancels_the_previous_one(tmp_path: 
     assert first.is_set()
     assert not screen._oauth_cancel.is_set()
     screen.run_worker.call_args.args[0].close()
+
+
+def test_slack_config_screen_successful_connect_deletes_legacy_keys(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    screen = SlackConfigScreen(config)
+    type(screen).app = PropertyMock(return_value=MagicMock())
+    screen.dismiss = MagicMock()
+    screen._perform_oauth_connect = MagicMock(return_value=GRANT)
+
+    asyncio.run(screen._run_oauth_connect("123", ["general"]))
+
+    assert config.broker.deleted == [
+        "demo-project_slack_user_token",
+        "demo-project_slack_refresh_token",
+        "demo-project_slack_token_expires_at",
+    ]

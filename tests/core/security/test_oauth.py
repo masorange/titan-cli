@@ -92,8 +92,8 @@ class FakeHttp:
         self.responses = list(responses)
         self.calls: list[dict] = []
 
-    def post(self, url, data=None, headers=None, timeout=None):
-        self.calls.append({"url": url, "data": dict(data)})
+    def post(self, url, data=None, headers=None, timeout=None, allow_redirects=True):
+        self.calls.append({"url": url, "data": dict(data), "allow_redirects": allow_redirects})
         return self.responses.pop(0)
 
 
@@ -432,6 +432,46 @@ def test_session_refuses_other_hosts_and_plain_http(broker):
         session.get("http://api.example.com/calendars")
 
 
+def test_session_refuses_every_host_when_none_are_declared(broker):
+    _seed(broker)
+    provider = OAuthProvider(
+        name="NoHosts",
+        authorize_url="https://a.example.com/authorize",
+        token_url="https://a.example.com/token",
+        scopes=("s",),
+    )
+    session = OAuthCredentials(broker, KEY, provider, OAuthApp("cid"), http=FakeHttp()).session()
+    session.mount("https://", ScriptedAdapter())
+
+    with pytest.raises(OAuthError, match="api.example.com"):
+        session.get("https://api.example.com/calendars")
+
+
+def test_token_requests_do_not_follow_redirects(broker):
+    http = FakeHttp(_response(200, {"access_token": "a", "refresh_token": "r"}))
+    opener, _ = _browser()
+
+    connect_oauth(broker, KEY, GOOGLE_LIKE, OAuthApp("cid"), browser_opener=opener, http=http)
+
+    assert http.calls[0]["allow_redirects"] is False
+
+
+def test_token_endpoint_must_use_https(broker):
+    provider = OAuthProvider(
+        name="Plain",
+        authorize_url="https://a.example.com/authorize",
+        token_url="http://a.example.com/token",
+        scopes=("s",),
+    )
+    http = FakeHttp()
+    opener, _ = _browser()
+
+    with pytest.raises(OAuthError, match="https"):
+        connect_oauth(broker, KEY, provider, OAuthApp("cid"), browser_opener=opener, http=http)
+
+    assert http.calls == []
+
+
 def test_an_idle_connection_does_not_block_the_callback(broker):
     import socket
 
@@ -560,3 +600,41 @@ def test_session_returns_the_401_when_refresh_fails(broker):
     session.mount("https://", ScriptedAdapter())
 
     assert session.get("https://api.example.com/calendars").status_code == 401
+
+
+class RedirectedAdapter(BaseAdapter):
+    """api.example.com answers 302 to another host, which answers 401 to anyone."""
+
+    def __init__(self):
+        super().__init__()
+        self.seen: list[tuple[str, str]] = []
+
+    def send(self, request, **kwargs):
+        host = urlparse(request.url).hostname
+        self.seen.append((host, request.headers.get("Authorization", "")))
+        if host == "api.example.com":
+            response = _response(302, {})
+            response.headers["Location"] = "https://evil.example.com/next"
+        else:
+            response = _response(401, {})
+        response.request = request
+        response.connection = self
+        response.url = request.url
+        return response
+
+    def close(self):
+        pass
+
+
+def test_a_401_after_a_cross_host_redirect_never_gets_the_token(broker):
+    _seed(broker)
+    http = FakeHttp()
+    session = OAuthCredentials(broker, KEY, GOOGLE_LIKE, OAuthApp("cid"), http=http).session()
+    adapter = RedirectedAdapter()
+    session.mount("https://", adapter)
+
+    response = session.get("https://api.example.com/calendars")
+
+    assert response.status_code == 401
+    assert all(auth == "" for host, auth in adapter.seen if host == "evil.example.com")
+    assert http.calls == []

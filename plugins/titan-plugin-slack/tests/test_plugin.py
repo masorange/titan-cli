@@ -125,7 +125,7 @@ def test_slack_plugin_initialize_refreshes_expiring_token(monkeypatch) -> None:
     )
     posted = {}
 
-    def fake_post(url, data=None, headers=None, timeout=None):
+    def fake_post(url, data=None, headers=None, timeout=None, allow_redirects=True):
         posted.update(data)
         response = requests.Response()
         response.status_code = 200
