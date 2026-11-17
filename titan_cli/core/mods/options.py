@@ -13,6 +13,11 @@ A mod declares each option in `mod.toml` as a table under `[options]`:
 
 `type` is one of string, int, float, bool, list (of strings) or choice (which also takes
 `values`).
+
+`shared = true` is for a workspace only: it says the option is the same one its plugin's mod of
+the same name declares (the commit workflow both surfaces offer, say), so the user sets it once,
+in `[mods.<name>.options]`. It keeps its full declaration, with the mod's type and default: the
+workspace still loads, and finds it, when the mod is switched off.
 `default` is required, so a mod always finds every option it declares. The user
 overrides values in `[mods.<name>.options]` of `~/.titan/config.toml`; a value that
 does not fit its declaration, or an option the manifest never declared, is dropped
@@ -26,7 +31,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 # `options["sections"]` carries the mod's section switches (see sections.py).
 RESERVED = "sections"
 TYPES = ("string", "int", "float", "bool", "list", "choice")
-_SPEC_KEYS = {"type", "title", "description", "default", "values", "min", "max"}
+_SPEC_KEYS = {"type", "title", "description", "default", "values", "min", "max", "shared"}
 
 
 @dataclass(frozen=True)
@@ -39,6 +44,8 @@ class OptionSpec:
     values: Tuple[Any, ...] = ()
     min: Optional[float] = None
     max: Optional[float] = None
+    # A workspace's option that is its mod's too, set in `[mods.<name>.options]` (see above).
+    shared: bool = False
 
     def coerce(self, value: Any) -> Any:
         """The value as this option's type. Raises ValueError saying why it does not fit."""
@@ -123,6 +130,8 @@ def parse_option_specs(table: Mapping[str, Any]) -> Dict[str, OptionSpec]:
         if values:
             _check_choice_values(name, values)
         _check_bounds(name, raw)
+        if not isinstance(raw.get("shared", False), bool):
+            raise ValueError(f"option '{name}': shared must be true or false")
         spec = OptionSpec(
             name=name,
             type=kind,
@@ -132,6 +141,7 @@ def parse_option_specs(table: Mapping[str, Any]) -> Dict[str, OptionSpec]:
             values=values,
             min=raw.get("min"),
             max=raw.get("max"),
+            shared=raw.get("shared", False),
         )
         try:
             default = spec.coerce(spec.default)

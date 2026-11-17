@@ -63,16 +63,40 @@ class ModHomeCard(Vertical):
     def __init__(self, mod: str, icon: str, title: str, text: str, clickable: bool, actions=(), **kwargs):
         self.mod = mod
         self._actions = tuple(actions)
-        body = f"[bold]{escape_markup(f'{icon} {title}'.strip())}[/bold]"
-        if text:
-            body = f"{body}\n\n{escape_markup(text)}"
-        self._body = body
+        self._body = self._body_for(icon, title, text)
         super().__init__(**kwargs)
         # Focusable either way (Tab reaches it like any other card); a mod with no
         # on_click just answers a press with nothing - press_home_card() already
         # no-ops there. The -inert class only mutes the hover/focus styling so it
         # doesn't invite a press that does nothing.
         self.set_class(not clickable, "-inert")
+
+    @staticmethod
+    def _body_for(icon: str, title: str, text: str) -> str:
+        body = f"[bold]{escape_markup(f'{icon} {title}'.strip())}[/bold]"
+        if text:
+            body = f"{body}\n\n{escape_markup(text)}"
+        return body
+
+    @staticmethod
+    def _buttons(actions) -> tuple:
+        return tuple((action.label, action.variant) for action in actions)
+
+    def show(self, icon: str, title: str, text: str, clickable: bool, actions=()) -> bool:
+        """
+        Show new content in place, redrawing only what changed. False when its buttons
+        changed: those are widgets of their own, and the card must be built again.
+        """
+        actions = tuple(actions)
+        if self._buttons(actions) != self._buttons(self._actions):
+            return False
+        self._actions = actions  # their on_press is looked up by index on each press
+        self.set_class(not clickable, "-inert")
+        body = self._body_for(icon, title, text)
+        if body != self._body:
+            self._body = body
+            self.query_one(".mod-card-body", Static).update(body)
+        return True
 
     def compose(self):
         yield Static(self._body, classes="mod-card-body")

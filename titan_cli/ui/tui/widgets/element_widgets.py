@@ -158,8 +158,15 @@ def fill_height(body: Widget) -> None:
     Make the columns inside a scrolling `body` reach its bottom edge, so a draggable border runs the
     whole screen instead of stopping where the shortest column's content does. Call it after a
     layout: it reads where the columns start. A column taller than the screen is left as it is.
+    Columns without `on_resize` have no border to drag: they keep the height of their content, so
+    several rows of columns (a month grid) stack instead of each one filling the screen.
     """
     for columns in body.query(_Columns):
+        if not getattr(columns.element, "on_resize", None):
+            for column in columns.children:
+                if isinstance(column, _Column) and column.styles.min_height is not None:
+                    column.styles.clear_rule("min_height")  # the row used to be draggable, or a patched one was
+            continue
         top = columns.region.y - body.region.y + body.scroll_y
         room = max(0, body.scrollable_content_region.height - top)
         for column in columns.children:

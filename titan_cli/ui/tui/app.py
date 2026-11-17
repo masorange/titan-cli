@@ -149,6 +149,8 @@ class TitanApp(App):
         else:
             # Default: show main menu
             self.push_screen(MainMenuScreen(self.config))
+        # The mods' first loads wait for the first frame (see release_first_ticks).
+        self.call_after_refresh(self.mods_host.release_first_ticks)
 
     async def launch_external_cli(self, cli_name: str, prompt: str = None) -> int:
         """

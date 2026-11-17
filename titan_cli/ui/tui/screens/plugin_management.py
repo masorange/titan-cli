@@ -269,7 +269,7 @@ class PluginManagementScreen(BaseScreen):
         if not project_name:
             return False
 
-        token_key = f"{project_name}_slack_user_token"
+        token_key = f"{project_name}_slack_oauth"
         broker = self.config.broker_factory.for_plugin("slack")
         return not broker.exists(token_key)
 

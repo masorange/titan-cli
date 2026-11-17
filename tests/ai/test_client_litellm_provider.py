@@ -50,7 +50,7 @@ class TestAIClientLiteLLMProvider:
         client = AIClient(ai_config, create_ai_provider)
 
         with stored_api_key("test-api-key"), patch(
-            "titan_cli.ai.client.LiteLLMProvider"
+            "titan_cli.ai.providers.litellm.LiteLLMProvider"
         ) as mock_provider_class:
             mock_provider = Mock()
             mock_provider_class.return_value = mock_provider
@@ -71,7 +71,7 @@ class TestAIClientLiteLLMProvider:
         client = AIClient(ai_config, create_ai_provider)
 
         with stored_api_key(None), patch(
-            "titan_cli.ai.client.LiteLLMProvider"
+            "titan_cli.ai.providers.litellm.LiteLLMProvider"
         ) as mock_provider_class:
             mock_provider = Mock()
             mock_provider_class.return_value = mock_provider
@@ -108,7 +108,7 @@ class TestAIClientLiteLLMProvider:
         client = AIClient(ai_config, create_ai_provider)
 
         with stored_api_key("litellm-master-key"), patch(
-            "titan_cli.ai.client.LiteLLMProvider"
+            "titan_cli.ai.providers.litellm.LiteLLMProvider"
         ) as mock_provider_class:
             mock_provider = Mock()
             mock_provider_class.return_value = mock_provider
@@ -136,7 +136,7 @@ class TestAIClientLiteLLMProvider:
         client = AIClient(ai_config, create_ai_provider)
 
         with stored_api_key("test-key"), patch(
-            "titan_cli.ai.client.LiteLLMProvider"
+            "titan_cli.ai.providers.litellm.LiteLLMProvider"
         ) as mock_provider_class:
             mock_provider = Mock()
             mock_response = Mock()
@@ -158,7 +158,7 @@ class TestAIClientLiteLLMProvider:
         client = AIClient(ai_config, create_ai_provider)
 
         with stored_api_key("test-key"), patch(
-            "titan_cli.ai.client.LiteLLMProvider"
+            "titan_cli.ai.providers.litellm.LiteLLMProvider"
         ) as mock_provider_class:
             mock_provider = Mock()
             mock_response = Mock()
@@ -181,7 +181,7 @@ class TestAIClientLiteLLMProvider:
         client = AIClient(ai_config, create_ai_provider)
 
         with stored_api_key("test-key"), patch(
-            "titan_cli.ai.client.LiteLLMProvider",
+            "titan_cli.ai.providers.litellm.LiteLLMProvider",
             side_effect=ImportError("No module named 'openai'"),
         ):
             with pytest.raises(AIConfigurationError, match="Install with:"):

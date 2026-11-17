@@ -37,6 +37,7 @@ from .ai_routing import (
     TaskRoutingRow,
     build_task_routings,
     installed_clis,
+    order_task_routings,
     task_label,
 )
 from .base import BaseScreen
@@ -610,7 +611,7 @@ class AIConfigScreen(BaseScreen):
             # Mods' tasks come from their manifests, not from workflow steps.
             mods_host = getattr(self.app, "mods_host", None)
             if mods_host is not None:
-                routings = sorted(routings + mods_host.ai_routings(), key=lambda r: r.label.lower())
+                routings = order_task_routings(routings + mods_host.ai_routings())
             self._routings = {routing.task: routing for routing in routings}
         except Exception as e:
             # A single broken plugin or malformed workflow must not take down the

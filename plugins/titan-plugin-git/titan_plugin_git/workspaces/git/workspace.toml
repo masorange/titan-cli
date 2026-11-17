@@ -17,8 +17,8 @@ min = 1
 [options.refresh_key]
 type = "string"
 title = "Refresh key"
-description = "Key that refreshes the history and the uncommitted files now; empty for none."
-default = "f5"
+description = "Key that refreshes the history and the uncommitted files now; empty for none. The git mod's pane binds f5 for its own branch."
+default = ""
 
 [options.commits_shown]
 type = "int"
@@ -43,6 +43,7 @@ min = 20
 
 [options.recent_branches]
 type = "int"
+shared = true
 title = "Branches shown"
 description = "How many of the branches you used most recently the switcher lists."
 default = 8
@@ -50,24 +51,28 @@ min = 1
 
 [options.commit_workflow]
 type = "string"
+shared = true
 title = "Commit workflow"
 description = "Workflow offered when uncommitted changes block a switch; empty for no button."
 default = "commit-ai"
 
 [options.create_pr_workflow]
 type = "string"
+shared = true
 title = "Create PR workflow"
 description = "Workflow the Create PR button runs on the branch you are on; a repo extending it runs instead. Empty for no button."
 default = "create-pr-ai"
 
 [options.merge_workflow]
 type = "string"
+shared = true
 title = "Merge workflow"
 description = "Workflow the merge picker runs, given target_branch and source_branch; empty for no merge action."
 default = "merge-branch"
 
 [options.suggestion_diff_chars]
 type = "int"
+shared = true
 title = "Diff sent for a branch name"
 description = "How much of the uncommitted diff the AI reads to suggest a branch name."
 default = 4000

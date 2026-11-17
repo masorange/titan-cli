@@ -163,9 +163,10 @@ def fetch_pr_general_comments(
     (see split_titan_review_body); other comments stay whole.
 
     Filters out:
-    - Bot comments
     - Empty comments
     - JSON-only comments (coverage reports, CI badges, etc.)
+
+    Bot authors are kept: AI reviewers such as Claude Review post their findings here.
 
     Args:
         github_client: GitHub client instance
@@ -192,8 +193,6 @@ def fetch_pr_general_comments(
         comment = thread.main_comment
         if not comment:
             continue
-        if comment.author_login and 'bot' in comment.author_login.lower():
-            continue
         if not comment.body or not comment.body.strip():
             continue
         body_stripped = comment.body.strip()
@@ -213,10 +212,11 @@ def fetch_pr_threads(
     Fetch and filter PR review threads.
 
     Filters out:
-    - Bot comments
     - Empty comments
     - JSON-only comments (coverage reports, etc.)
     - Resolved threads (if include_resolved=False)
+
+    Bot authors are kept: AI reviewers such as Claude Review post their findings here.
 
     Args:
         github_client: GitHub client instance
@@ -250,10 +250,6 @@ def fetch_pr_threads(
     for thread in all_threads:
         main_comment = thread.main_comment
         if not main_comment:
-            continue
-
-        # Skip bot comments
-        if main_comment.author_login and 'bot' in main_comment.author_login.lower():
             continue
 
         # Skip empty comments
