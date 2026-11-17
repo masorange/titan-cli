@@ -30,7 +30,31 @@ repo_name = "example-repo"
 default_branch = "main"
 pr_template_path = ".github/pull_request_template.md"
 auto_assign_prs = true
+pr_title_scope_source = "off"
 ```
+
+## PR title scopes
+
+By default the AI writes PR titles without a scope (`feat: Add home screen`). Repositories that lint the title against their labels (every label the labeler puts on the PR must appear in the title scope) can have Titan write the scope instead:
+
+```toml
+[plugins.github.config]
+pr_title_scope_source = "labeler"
+```
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| `pr_title_scope_source` | `"off"` | `"off"` writes `type: Description`. `"labeler"` writes `type(scope): Description`, with the scope taken from the repository's `actions/labeler` rules. |
+| `pr_title_scope_separator` | `","` | What joins several scopes: `","` gives `feat(api,ui): ...`, `"\|"` gives `feat(api\|ui): ...`. |
+| `pr_title_labeler_path` | `".github/labeler.yml"` | Where the labeler config is, relative to the repository root. |
+
+With `"labeler"`, Titan reads the labeler config **from the head branch**, applies its rules to the files the PR changes, and the labels that match are the scopes, in the order the config lists them. The scope is computed before the model is asked, so the prompt tells it exactly which scope to write, and the title limit grows by the room the scope takes (72 characters plus `(scope)`). Whatever scope the model wrote is replaced by the computed one, so a scope it invented never reaches the repository's title lint. The title you review already carries the scope, and you can still edit it.
+
+CI's labeler loads its config at the commit its workflow runs on. Under a `pull_request` workflow that is the PR's merge commit, so it agrees with the head branch. Under a `pull_request_target` workflow (the one in the `actions/labeler` README) it is the base branch, so a PR that edits the labeler config gets a scope from rules CI does not apply until the change is merged.
+
+Only `changed-files` rules with a single `any-glob-to-any-file` are understood. A rule that uses anything else (a branch matcher, braces or negation in a glob, several match objects, an empty or non-glob value) is skipped, and a warning says which. The labeler's `changed-files-labels-limit` and `max-files-changed` options are not applied; when the config sets one, a warning says CI may apply fewer labels than the scope shows. When no rule matches, the labeler file is missing or it cannot be read, the title is left without a scope and a warning is shown above the review.
+
+The type (`feat`, `fix`, ...) is not checked: it follows the branch and the commits as before, and the repository's own title lint reports one it does not accept.
 
 ## Public surfaces
 
