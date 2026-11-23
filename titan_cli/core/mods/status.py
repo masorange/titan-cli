@@ -50,7 +50,7 @@ def mod_entries(found: Mapping[str, Any], statuses: Mapping[str, ModStatus], mod
             ModEntry(
                 manifest=manifest,
                 status=statuses.get(name, ModStatus(name, LOADED)),
-                enabled=config.get("enabled", True) is not False,
+                enabled=config.get("enabled", manifest.default_enabled) is not False,
                 sections=resolve_sections(manifest.sections, config.get("sections", {}))[0],
             )
         )

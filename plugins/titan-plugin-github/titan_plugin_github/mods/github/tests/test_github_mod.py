@@ -6,6 +6,13 @@ from titan_cli.core.result import ClientSuccess
 from titan_cli.ui.elements import Box, Button, Text, plain
 from titan_plugin_github.readers import models
 
+class Client(SimpleNamespace):
+    """A fake github client that, like the real one, is hashable by identity and takes a weak
+    reference: the feed both views share is keyed on it."""
+
+    __hash__ = object.__hash__
+
+
 OPTIONS = {"prs_refresh_seconds": 120, "queue_refresh_seconds": 60, "runs_refresh_seconds": 30, "refresh_key": "", "queue_shown": 8}
 
 
@@ -100,10 +107,13 @@ def test_the_pane_says_why_it_has_nothing(mod):
     assert any("gh: not logged in" in line for line in texts(mod.draw.draw(m)))
 
 
-def test_review_requests_badge_the_rail_icon_and_none_clears_it(mod, tmp_path, pr):
+def test_review_requests_badge_the_rail_icon_and_none_clears_it(mod, tmp_path, pr, monkeypatch):
+    import time
+    from titan_plugin_github.readers import feed
+    monkeypatch.setattr(feed, "clock", time.monotonic)
     timers, badges = [], []
     to_review = [[pr(5), pr(6)]]
-    github = SimpleNamespace(
+    github = Client(
         get_repo_full_name=lambda: "o/r",
         list_pending_review_prs=lambda: ClientSuccess(data=to_review[0]),
         list_my_prs=lambda: ClientSuccess(data=[]),
@@ -123,6 +133,58 @@ def test_review_requests_badge_the_rail_icon_and_none_clears_it(mod, tmp_path, p
     refresh_prs = timers[0]
     refresh_prs()
     to_review[0] = []
+    refresh_prs()  # within the period: the feed's answer stands, nothing is redrawn
+    assert badges == [("github", "2", "warning")]
+    feed.clock = lambda: time.monotonic() + OPTIONS["prs_refresh_seconds"] + 1
     refresh_prs()
 
     assert badges == [("github", "2", "warning"), ("github", None, "warning")]
+
+
+def _started(mod, tmp_path, github, **host_fns):
+    timers = []
+    host = SimpleNamespace(
+        open_pane=lambda *a: None, every=lambda mod, seconds, fn, immediately: timers.append(fn),
+        badge=lambda *a: None, toast=lambda *a: None, repaint=lambda mod: None, run=lambda mod, fn: None,
+        client=lambda name: github if name == "github" else None, bind_key=lambda *a: None,
+    )
+    for name, fn in host_fns.items():
+        setattr(host, name, fn)
+    bus = ModBus()
+    bus.host = host
+    mod.register(bus.on_for("github"), OPTIONS)
+    bus.dispatch("app.start", AppStart(project_root=str(tmp_path)), lambda e: None)
+    return bus.api("github"), timers
+
+
+def _counting_github(reads):
+    def runs(trigger=None, limit=10):
+        reads.append(("runs", limit))
+        return ClientSuccess(data=[])
+    return Client(get_repo_full_name=lambda: "o/r", list_workflow_runs=runs)
+
+
+def test_the_runs_are_read_only_while_the_pane_shows(mod, tmp_path):
+    reads, shown = [], [False]
+    m, timers = _started(mod, tmp_path, _counting_github(reads), pane_shown=lambda mod, pane: shown[0])
+    refresh_runs = timers[2]
+
+    refresh_runs()
+    assert reads == [] and m.state.get("runs") is None
+
+    shown[0] = True
+    refresh_runs()
+    assert reads == [("runs", 10)] and m.state.get("runs") is not None
+
+
+def test_two_views_of_one_client_read_github_once_per_period(mod, tmp_path):
+    """The mod and the workspace ask the same feed: the second ask is answered by the first's read."""
+    from titan_plugin_github.readers.feed import feed_for
+
+    reads = []
+    github = _counting_github(reads)
+    m, timers = _started(mod, tmp_path, github, pane_shown=lambda mod, pane: True)
+    timers[2]()
+    feed_for(github).runs(None, 10, OPTIONS["runs_refresh_seconds"])  # the workspace, on its tick
+    feed_for(github).runs(None, 5, OPTIONS["runs_refresh_seconds"])  # a shallower list: still the same read
+    assert reads == [("runs", 10)]

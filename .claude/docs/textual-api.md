@@ -365,7 +365,7 @@ exit_code = ctx.textual.launch_external_cli(
 #### `ai_content_review_flow(content_title, content_body, ...) -> tuple[str, Optional[str], Optional[str]]`
 Generic Use/Edit/Reject flow for reviewing AI-generated title + body content (PRs, issues, etc.). Shows a preview, offers three choices, and handles the edit loop.
 
-Optional keyword args: `header_text`, `title_label`, `description_label`, `edit_instruction`, `confirm_question`, `choice_question`.
+Optional keyword args: `header_text`, `title_label`, `description_label`, `edit_instruction`, `confirm_question`, `choice_question`, `title_max_length` (title length above which a warning shows, 72 by default).
 
 Returns `(choice, final_title, final_body)` where `choice` is `"use"`, `"edit"`, or `"reject"` (title/body are `None` on reject).
 

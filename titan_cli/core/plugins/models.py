@@ -1,5 +1,6 @@
 # titan_cli/core/plugins/models.py
-from typing import Any, Dict, Optional, List
+from enum import Enum
+from typing import Any, Dict, Literal, Optional, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -17,6 +18,7 @@ class PluginSourceConfig(BaseModel):
     repo_url: Optional[str] = Field(None, description="Git repository URL when channel is 'stable'.")
     requested_ref: Optional[str] = Field(None, description="User-facing tag/ref requested for a stable plugin source.")
     resolved_commit: Optional[str] = Field(None, description="Resolved commit SHA installed for a stable plugin source.")
+    subdirectory: Optional[str] = Field(None, description="Plugin folder inside the repository when it is not the root.")
 
     @model_validator(mode="after")
     def validate_channel_specific_fields(self) -> "PluginSourceConfig":
@@ -28,6 +30,23 @@ class PluginSourceConfig(BaseModel):
             if self.resolved_commit and not self.repo_url:
                 raise ValueError("stable plugin sources with 'resolved_commit' require 'repo_url'")
         return self
+
+class PluginPinScope(str, Enum):
+    """Where a stable community plugin pin is recorded."""
+
+    PROJECT = "project"
+    GLOBAL = "global"
+
+
+class PluginPin(BaseModel):
+    """A stable community plugin pinned to one commit, and where that pin lives."""
+
+    scope: PluginPinScope
+    repo_url: str
+    resolved_commit: str
+    requested_ref: Optional[str] = None
+    subdirectory: Optional[str] = None
+
 
 class PluginConfig(BaseModel):
     """
@@ -49,6 +68,9 @@ class GitHubPluginConfig(BaseModel):
     default_branch: str = Field(None, description="Default branch to use (e.g., 'main', 'develop').")
     pr_template_path: str = Field(None, description="Path to PR template file relative to repository root (e.g., '.github/pull_request_template.md', 'docs/PR_TEMPLATE.md'). Defaults to '.github/pull_request_template.md'.")
     auto_assign_prs: bool = Field(True, description="Automatically assign PRs to the author.")
+    pr_title_scope_source: Literal["off", "labeler"] = Field("off", description="Where the scope of an AI-generated PR title comes from. 'off' writes titles without a scope (type: Description). 'labeler' derives it from the repository's labeler rules applied to the files of the PR (type(scope): Description).")
+    pr_title_scope_separator: str = Field(",", min_length=1, description="What joins several scopes in a PR title, e.g. ',' for 'feat(api,ui): ...' or '|' for 'feat(api|ui): ...'. Used when pr_title_scope_source is 'labeler'.")
+    pr_title_labeler_path: str = Field(".github/labeler.yml", description="Path to the actions/labeler config relative to the repository root. Used when pr_title_scope_source is 'labeler'.")
 
 
 class JiraPluginConfig(BaseModel):

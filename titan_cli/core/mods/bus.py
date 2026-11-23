@@ -59,6 +59,10 @@ class ModHost(Protocol):
 
     def badge(self, mod: str, pane: str, text: Optional[str], severity: Optional[str]) -> None: ...
 
+    def pane_shown(self, mod: str, pane: str) -> bool: ...
+
+    def workspace_open(self, mod: str, name: str) -> bool: ...
+
     def repaint(self, mod: str) -> None: ...
 
     def every(self, mod: str, seconds: float, fn: Callable[[], None], immediately: bool) -> None: ...
@@ -110,13 +114,15 @@ class HomeCardSlot:
     workflows: its `mod.toml` icon, a short `title` and a `text` body under it.
     A click or Enter runs `on_click`, if given - an independent slot from the
     dock tile and the side panel pane: a mod may fill any mix of the three,
-    with different content in each.
+    with different content in each. `actions` are `Button` elements drawn under the
+    text, each its own pressable button (a press on one never runs `on_click`).
     """
 
     title: str
     text: str = ""
     icon: Optional[str] = None
     on_click: Optional[Callable[[], None]] = None
+    actions: Tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -152,6 +158,12 @@ class _HeadlessHost:
 
     def open_workspace(self, mod: str, name: str, focus: Any = None) -> Optional[str]:
         return "there is no screen to open it on"
+
+    def pane_shown(self, mod: str, pane: str) -> bool:
+        return False
+
+    def workspace_open(self, mod: str, name: str) -> bool:
+        return False
 
     def toast(self, mod: str, text: str, severity: str) -> None:
         logger.debug("mod_toast", mod=mod, length=len(text), severity=severity)
@@ -240,6 +252,9 @@ class _BusView:
     def set_view(self, ident: str, title: Optional[str], fn: Callable[[int], Any]) -> None:
         self._bus.views[self.name_of(ident)] = (title, fn)
 
+    def ai_owner(self, ident: str) -> str:
+        return self._bus.ai_owner(self.name_of(ident))
+
     def manifest(self, ident: str) -> Any:
         """The manifest of the handle the host knows as `ident` (a workspace's carries the bus's prefix)."""
         return self._bus.manifests.get(ident.removeprefix(self._bus.prefix))
@@ -275,11 +290,14 @@ class _ModUI:
         title: Optional[str],
         text: str = "",
         on_click: Optional[Callable[[], None]] = None,
+        actions: Optional[Sequence[Any]] = None,
     ) -> None:
         """
         Show this mod as a card on the home screen, beside the quick-launch
         workflows: its `mod.toml` `icon`, `title` and `text` below it. A click or
-        Enter runs `on_click`, if given. `None` as title removes it.
+        Enter runs `on_click`, if given. `actions` are `Button` elements
+        (`titan_cli.ui.elements`) drawn as buttons under the text; their `on_press`
+        runs on the UI thread, so slow work goes to `m.run`. `None` as title removes it.
 
         Independent from `dock` and `open`: nothing requires the same content in
         the three, so a mod free to use any of them can show something different
@@ -291,7 +309,7 @@ class _ModUI:
             return
         manifest = self._bus.manifest(self._mod)
         icon = manifest.icon if manifest else None
-        self._bus.host.home_card(self._mod, HomeCardSlot(title, text, icon, on_click))
+        self._bus.host.home_card(self._mod, HomeCardSlot(title, text, icon, on_click, tuple(actions or ())))
 
     def widget(self, name: str, widget: Any) -> None:
         """
@@ -351,6 +369,20 @@ class _ModUI:
         """
         self._bus.host.badge(self._mod, pane, text, severity)
 
+    def pane_shown(self, pane: str) -> bool:
+        """
+        Whether this mod's `pane` is on screen now: the panel unfolded and showing it. Ask it
+        from a timer to read only what someone looks at; the badge shows either way.
+        """
+        return bool(self._bus.host.pane_shown(self._mod, pane))
+
+    def is_open(self) -> bool:
+        """
+        Whether this workspace's screen is the one on top now. Ask it from a timer to read
+        only while someone looks; `w.on_open` says when it opens. Workspaces only.
+        """
+        return bool(self._bus.host.workspace_open(self._mod, self._bus.name_of(self._mod)))
+
 
 class _ModClock:
     def __init__(self, bus: "ModBus", mod: str):
@@ -374,7 +406,8 @@ class _ModAI:
     @property
     def task(self) -> str:
         """The routing task this mod's AI calls run under; the user pins it like any other."""
-        return f"mods.{self._mod}"
+        # The component's, not the surface's: a plugin's workspace shares its mod's (`ModBus.ai_owner`).
+        return f"mods.{self._bus.ai_owner(self._mod)}"
 
     def complete(
         self,
@@ -548,8 +581,9 @@ class ModBus:
 
     def __init__(self, prefix: str = "", store_dir: str = "") -> None:
         # What a bus of another kind (workspaces) puts before a name for Titan's host, so a mod and
-        # a workspace called alike never share timers, keys, a store or an AI task; and the folder
-        # of the store it keeps its values in, under the mods' one.
+        # a workspace called alike never share timers, keys or a store (the AI task is the
+        # exception, see `ai_owner`); and the folder of the store it keeps its values in, under
+        # the mods' one.
         self.prefix = prefix
         self.store_dir = store_dir
         # name -> (title, fn) of what each workspace's screen draws, set with `w.ui.view`
@@ -577,6 +611,20 @@ class ModBus:
     @property
     def mods(self) -> List[str]:
         return list(self._apis)
+
+    def ai_owner(self, mod: str) -> str:
+        """
+        What the host keys `mod`'s AI tasks by (`mods.<owner>`, `mods.<owner>.assist`).
+
+        A plugin's mod and its workspace of the same name are one component on two surfaces,
+        the side panel and the full screen: they ask the AI the same things, so they share the
+        tasks and the person pins each once. A workspace not shipped by a plugin keeps its own,
+        prefixed, so a personal one never borrows the pin of an unrelated mod called alike.
+        """
+        manifest = self.found.get(mod) or self.manifests.get(mod)
+        if self.prefix and getattr(manifest, "plugin", None):
+            return mod
+        return self.prefix + mod
 
     def api(self, mod: str) -> ModAPI:
         """The `m` every hook of `mod` receives; tests drive a mod's state and drawing through it."""

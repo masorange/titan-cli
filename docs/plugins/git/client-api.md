@@ -1277,7 +1277,7 @@ Each `UIGitCommit` carries `pr_number`: the PR a squash merge landed, from the
 without it and the number.
 
 It also carries `parents` (full hashes; more than one means a merge) and `refs`
-(the branches and tags pointing at it, with `HEAD -> ` and `tag: ` stripped).
+(the branches and tags pointing at it, as plain names), `tags` (those of `refs` that are tags) and `remote_refs` (those that are remote branches, `origin/main`; a remote's own `HEAD` is left out).
 `operations.build_commit_graph(commits)` turns that list into `UIGitGraphRow`s —
 the lane glyphs of a `git log --graph` drawing, one row per commit plus a link
 row wherever edges fork out — and `operations.graph_lanes(rows)` says how many

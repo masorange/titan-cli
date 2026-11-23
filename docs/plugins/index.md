@@ -53,10 +53,10 @@ Titan also supports community plugins from external repositories.
 
 There are currently two source channels:
 
-- `stable`: pin a plugin version in the project config using a git tag or commit.
+- `stable`: pin a plugin version using a git tag or commit, for one project or for all of them.
 - `dev_local`: use a local checkout of a plugin repository during development.
 
-The shared stable pin lives in `.titan/config.toml`:
+When you add a plugin, the wizard asks for its **scope**: *This project* (the default) or *All projects*. A project pin lives in `.titan/config.toml` and is shared with your team:
 
 ```toml
 [plugins.custom]
@@ -68,6 +68,10 @@ repo_url = "https://github.com/user/titan-plugin-custom"
 requested_ref = "v1.2.0"
 resolved_commit = "0123456789abcdef0123456789abcdef01234567"
 ```
+
+An *All projects* pin is the same block in `~/.titan/config.toml`. It enables the plugin in every repo you open with Titan, on this machine only, and runs its code in all of them. A project can pin a different version of that plugin (its own pin wins) or turn it off with `enabled = false`. Plugin Management marks each plugin `[community · project]` or `[community · global]`, and Update and Remove act on the scope shown.
+
+A plugin that lives in a folder of a larger repository adds `subdirectory = "plugins/titan-plugin-custom"` to that block, and in the install wizard you write it after the version: `https://github.com/user/monorepo@v1.2.0:plugins/titan-plugin-custom`. The folder must hold the plugin's own `pyproject.toml`.
 
 `requested_ref` stores the exact tag or ref used by that repository. Some repos use
 tags like `v1.2.0`; others use `1.2.0`.
@@ -134,7 +138,7 @@ load. Titan detects this in both directions:
 
 An incompatible or crashed plugin appears as **Load failed** in Plugin Management, with
 the reason in the details panel. A failed plugin with a stable pin can still be updated
-from there (the pin lives in the project config, not in the plugin), so a broken pinned
+from there (the pin lives in config, not in the plugin), so a broken pinned
 version is never a dead end.
 
 **For plugin authors:**

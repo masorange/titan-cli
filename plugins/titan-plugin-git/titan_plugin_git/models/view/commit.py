@@ -20,7 +20,9 @@ class UIGitCommit:
     formatted_date: str  # Human-readable: "2 days ago" or "2026-01-15"
     pr_number: Optional[int] = None  # The PR a squash merge landed, from its "(#1234)" suffix
     parents: List[str] = field(default_factory=list)  # Full hashes; more than one means a merge
-    refs: List[str] = field(default_factory=list)  # Branches and tags pointing here, "HEAD -> " stripped
+    refs: List[str] = field(default_factory=list)  # Branches and tags pointing here, as plain names
+    tags: List[str] = field(default_factory=list)  # Those of `refs` that are tags
+    remote_refs: List[str] = field(default_factory=list)  # Those of `refs` that are remote branches ("origin/main")
 
 
 @dataclass(frozen=True)

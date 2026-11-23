@@ -104,3 +104,15 @@ def test_a_pick_inside_a_dropdown_closes_it_unless_told_not_to():
 def test_none_options_are_dropped_and_no_options_is_an_empty_card():
     assert rows([None, *opts("a")], 40) == [["a"]]
     assert choice_card([], width=40, title="Nothing").children[0].parts == ("Nothing",)
+
+
+def test_a_string_among_the_options_is_a_heading_that_starts_a_group_and_elements_are_kept():
+    note = Text("Working tree clean", dim=True)
+    card = choice_card(
+        ["Changes", note, Option("Stash", lambda: None), "Remote", Option("Pull", lambda: None), Option("Push", lambda: None)],
+        width=60,
+    )
+
+    texts = [plain(c) for c in card.children if isinstance(c, Text)]
+    assert texts == ["Changes", "Working tree clean", " ", "Remote"]  # a blank line leads the second heading, not the first
+    assert [type(c).__name__ for c in card.children][:3] == ["Text", "Text", "Button"]

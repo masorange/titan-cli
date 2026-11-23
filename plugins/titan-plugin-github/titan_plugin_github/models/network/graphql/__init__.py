@@ -6,7 +6,7 @@ Field names preserve GraphQL schema conventions (camelCase).
 No transformations or computed fields.
 """
 
-from .user import GraphQLUser
+from .user import GraphQLUser, GraphQLUserStatus
 from .review_comment import GraphQLPullRequestReviewComment
 from .review_thread import GraphQLPullRequestReviewThread
 from .issue_comment import GraphQLIssueComment
@@ -14,6 +14,7 @@ from .pull_request import GraphQLMergeQueue, GraphQLMergeQueueEntry, GraphQLPull
 
 __all__ = [
     "GraphQLUser",
+    "GraphQLUserStatus",
     "GraphQLPullRequestReviewComment",
     "GraphQLPullRequestReviewThread",
     "GraphQLIssueComment",

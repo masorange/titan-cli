@@ -72,9 +72,11 @@ class Box:
     row: bool = False  # lay children out left to right, spread across the width
     indent: int = 0
     gap: int = 0
+    pack: bool = False  # with `row`: each child keeps its own width, packed at the left
 
-    def __init__(self, *children, border=None, row=False, indent=0, gap=0):
+    def __init__(self, *children, border=None, row=False, indent=0, gap=0, pack=False):
         object.__setattr__(self, "children", _children(children))
+        object.__setattr__(self, "pack", pack)
         object.__setattr__(self, "border", border)
         object.__setattr__(self, "row", row)
         object.__setattr__(self, "indent", indent)

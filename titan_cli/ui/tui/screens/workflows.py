@@ -15,7 +15,7 @@ from textual.css.query import NoMatches
 
 from titan_cli.core.workflows.workflow_filter_service import WorkflowFilterService
 from titan_cli.core.workflows.workflow_sources import WorkflowInfo
-from titan_cli.ui.tui.screens.workflow_execution import WorkflowExecutionScreen
+from titan_cli.ui.tui.screens.workflow_execution import RUNNING_REFUSAL, WorkflowExecutionScreen, live_workflow
 from titan_cli.ui.tui.icons import Icons
 from titan_cli.ui.tui.widgets import StyledOption
 from titan_cli.ui.tui.widgets.collapsible_list import escape_markup
@@ -285,7 +285,9 @@ class WorkflowsScreen(BaseScreen):
             workflow_name: Name of the workflow to execute
         """
 
-        # Navigate to workflow execution screen
+        if live_workflow(self.app.screen_stack):
+            self.app.notify(RUNNING_REFUSAL, severity="warning")
+            return
         execution_screen = WorkflowExecutionScreen(self.config, workflow_name)
         self.app.push_screen(execution_screen)
 

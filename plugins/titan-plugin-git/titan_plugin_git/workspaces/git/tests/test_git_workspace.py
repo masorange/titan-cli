@@ -20,7 +20,7 @@ from titan_plugin_git.models.view import (
 ws = import_mod(Path(__file__).resolve().parent.parent, kind=WORKSPACES)
 OPTIONS = {
     "refresh_seconds": 30, "refresh_key": "f5", "commits_shown": 40,
-    "graph_max_lanes": 8, "context_lines": 3, "diff_lines": 200, "recent_branches": 8,
+    "context_lines": 3, "diff_lines": 200, "recent_branches": 8,
     "commit_workflow": "commit-ai", "create_pr_workflow": "create-pr-ai", "merge_workflow": "merge-branch",
     "suggestion_diff_chars": 4000,
 }
@@ -111,6 +111,18 @@ class FakeGit:
         self.unstaged[:] = [f for f in self.unstaged if f.path != path]
         return ClientSuccess(data=None)
 
+    def pull(self, remote, branch):
+        self.asked.append(("pull", remote, branch))
+        return ClientSuccess(data=None)
+
+    def push(self, remote, branch):
+        self.asked.append(("push", remote, branch))
+        return ClientSuccess(data=None)
+
+    def checkout(self, branch):
+        self.asked.append(("checkout", branch))
+        return ClientSuccess(data=None)
+
     def get_commit_files(self, sha):
         self.asked.append(("files", sha))
         return ClientSuccess(data=self.commit_files.get(sha, []))
@@ -124,7 +136,7 @@ class FakeGit:
         return ClientSuccess(data=diff(path))
 
 
-def start(git, history=True, **options):
+def start(git, **options):
     """The workspace registered on a bus of its own kind and started, with every read run at once."""
     dock = []
     host = SimpleNamespace(
@@ -137,8 +149,6 @@ def start(git, history=True, **options):
     w = bus.api("git")
     ws.register(w, bus.on_for("git"), {**OPTIONS, **options})
     bus.start()
-    if history:  # it starts folded; most tests are about what is inside it
-        w.state.set("history_open", True)
     return bus, w, dock
 
 
@@ -158,11 +168,11 @@ def texts(bus, width=150):
 
 
 def press(bus, starting, width=150):
-    next(e for e in walk(bus.render_view("git", width)) if isinstance(e, Button) and plain(e.label).startswith(starting)).on_press()
+    next(e for e in walk(bus.render_view("git", width)) if isinstance(e, Button) and plain(e.label).strip().startswith(starting)).on_press()
 
 
 def press_exact(bus, label, width=150):
-    next(e for e in walk(bus.render_view("git", width)) if isinstance(e, Button) and plain(e.label) == label).on_press()
+    next(e for e in walk(bus.render_view("git", width)) if isinstance(e, Button) and plain(e.label).strip() == label).on_press()
 
 
 def diffs_shown(bus, width=150):
@@ -194,45 +204,124 @@ def test_staged_and_unstaged_files_are_listed_apart_and_other_files_start_folded
     ]
 
 
-def test_the_branch_card_the_switcher_and_the_worktrees_sit_above_the_history():
-    bus, w, _ = start(FakeGit(staged=STAGED))
-    shown = labels(bus)
-    history = next(i for i, label in enumerate(shown) if label.startswith("▶ ● Uncommitted changes"))
+def test_the_toolbar_sits_above_three_tabs_and_the_history_is_the_one_open():
+    git = FakeGit(staged=STAGED, commits=[commit("c1")])
+    git.stashes = [SimpleNamespace(ref="stash@{0}", branch="feat/x", message="m", formatted_date="1 h", hash="h0")]
+    bus, w, _ = start(git)
+    shown = [label.strip("▌ ") for label in labels(bus)]
 
-    for label in ("▸ feat/x · today · here", "▸ Switch branch (1)", "▸ Worktrees (1)"):
-        assert label in shown
-        assert shown.index(label) < history
+    assert shown.index("⎇ feat/x ▾") < shown.index("History")
+    for tab in ("History", "Stashes (1)", "Worktrees (1)"):
+        assert tab in shown
+    assert any(label.startswith("⇩ Pull") for label in shown) and any(label.startswith("⇧ Push") for label in shown)
+    assert any(label.startswith("▶ ● Uncommitted changes") for label in labels(bus))
 
 
-def test_uncommitted_work_opens_the_branch_card_on_the_way_out_of_the_block():
+def test_pressing_a_tab_swaps_what_is_under_the_toolbar_and_keeps_the_toolbar():
+    bus, w, _ = start(FakeGit(staged=STAGED, commits=[commit("a" * 40)]))
+
+    press(bus, "Worktrees")
+    assert not any("Uncommitted changes" in label for label in labels(bus))
+    assert any("repo" in label for label in labels(bus))
+    assert any(label.startswith("⇩ Pull") for label in labels(bus))
+
+    press(bus, "History")
+    assert any("Uncommitted changes" in label for label in labels(bus))
+
+
+def test_a_dirty_tree_says_so_in_the_top_bar_and_offers_commit_and_stash_in_the_toolbar():
     git = FakeGit(staged=STAGED)
     git.dirty = ["a.py"]
     bus, w, _ = start(git)
 
-    assert any("17" not in t and "uncommitted" in t for t in texts(bus))
-    assert any("Commit with AI" in label for label in labels(bus))
-
-
-def test_a_dirty_tree_offers_to_stash_and_a_stash_offers_its_list():
-    git = FakeGit(staged=STAGED)
-    git.dirty = ["a.py"]
-    git.stashes = [SimpleNamespace(ref="stash@{0}", branch="feat/x", message="m", formatted_date="1 h")]
-    bus, w, _ = start(git)
+    top = bus.render_view("git", 150).children[0]
+    assert any("uncommitted changes" in plain(e) for e in walk(top) if isinstance(e, Text))
+    assert not any(isinstance(e, Button) for e in walk(top))
     shown = [label.strip() for label in labels(bus)]
-    assert "⤓ Stash changes" in shown and "▸ ⤒ Stashes (1)…" in shown
+    assert "✦ Commit" in shown and "⤓ Stash" in shown
+    assert any("commit or stash" in t for t in texts(bus))
 
     clean, cw, _ = start(FakeGit(staged=STAGED))
-    cw.state.set("open_branch", "feat/x")
-    assert not any("Stash" in label or "Pop stash" in label for label in labels(clean))
+    assert not any(label.strip() in ("✦ Commit", "⤓ Stash") for label in labels(clean))
 
 
-def test_the_current_branch_groups_its_actions_in_three_cards():
+def test_the_branch_selector_opens_the_recent_branches_and_pressing_one_switches_to_it():
+    git = FakeGit(staged=STAGED)
+    bus, w, _ = start(git)
+    assert not any(label.strip() == "main" for label in labels(bus))
+
+    press(bus, "⎇ feat/x")
+    assert "▴" in labels(bus)[labels(bus).index("⎇ feat/x ▴")]
+    assert any("Switch to" in t for t in texts(bus))
+
+    press(bus, "main")
+    assert ("checkout", "main") in git.asked
+    assert w.state.get("branch_panel") is None
+
+
+def test_a_dirty_tree_says_why_the_switch_panel_has_no_branches():
     git = FakeGit(staged=STAGED)
     git.dirty = ["a.py"]
     bus, w, _ = start(git)
-    shown = [t.strip() for t in texts(bus)]
 
-    assert [t for t in shown if t in ("Working tree", "Remote", "Branch")] == ["Working tree", "Remote", "Branch"]
+    press(bus, "⎇ feat/x")
+
+    assert any("Commit or stash to switch branch" in t for t in texts(bus))
+    assert not any(label.strip() == "main" for label in labels(bus))
+
+
+def test_every_action_is_on_the_row_when_it_fits_and_new_branch_and_merge_open_their_panel():
+    bus, w, _ = start(FakeGit(staged=STAGED))
+    shown = [label.strip() for label in labels(bus)]
+
+    for action in ("⇩ Pull", "⇧ Push ↑1", "⬈ PR", "＋ Branch", "⇄ Merge"):
+        assert action in shown
+    assert not any(label.startswith("⋯") for label in shown)
+
+    press(bus, "＋ Branch")
+    assert any("Suggest with AI" in label for label in labels(bus))
+    press(bus, "＋ Branch")
+    assert not any("Suggest with AI" in label for label in labels(bus))
+
+    press(bus, "⇄ Merge")
+    assert "main" in [label.strip() for label in labels(bus)]
+
+
+def test_what_does_not_fit_on_the_row_is_grouped_behind_the_dots():
+    bus, w, _ = start(FakeGit(staged=STAGED))
+    narrow = 36
+    shown = [label.strip() for label in labels(bus, narrow)]
+
+    assert "⇩ Pull" in shown and "⇧ Push ↑1" in shown
+    assert "＋ Branch" not in shown and "⇄ Merge" not in shown
+    assert "⋯ ▾" in shown
+
+    press(bus, "⋯", narrow)
+    opened = [label.strip() for label in labels(bus, narrow)]
+    assert "▸ ＋ New branch from here…" in opened and "▸ ⇄ Merge a branch into it…" in opened
+    press(bus, "▸ ＋ New branch", narrow)
+    assert any("Suggest with AI" in label for label in labels(bus, narrow))
+
+
+def test_fit_keeps_the_order_and_gives_up_the_last_actions_first():
+    from types import SimpleNamespace as NS
+
+    fit = ws.draw.toolbar.__globals__["fit"]
+    acts = [NS(key=k, cells=c) for k, c in (("a", 10), ("b", 10), ("c", 10), ("d", 10))]
+
+    assert [a.key for a in fit(acts, 50)[0]] == ["a", "b", "c", "d"]  # 40 cells in a 46-cell room
+    shown, hidden = fit(acts, 34)  # 30 room: two fit with the dots' 4 cells
+    assert [a.key for a in shown] == ["a", "b"] and [a.key for a in hidden] == ["c", "d"]
+
+
+def test_pull_and_push_run_on_the_branch_you_are_on():
+    git = FakeGit(staged=STAGED)
+    bus, w, _ = start(git)
+
+    press(bus, "⇩ Pull")
+    press(bus, "⇧ Push")
+
+    assert ("pull", "origin", "feat/x") in git.asked and ("push", "origin", "feat/x") in git.asked
 
 
 def stash_picker(git, **kw):
@@ -241,8 +330,7 @@ def stash_picker(git, **kw):
         SimpleNamespace(ref="stash@{1}", branch="main", message="older", formatted_date="3 d ago", hash="h1"),
     ]
     bus, w, _ = start(git, **kw)
-    w.state.set("open_branch", "feat/x")
-    w.state.set("branch_menu:feat/x:tree", "⤒ Stashes (2)…")
+    w.state.set("tab", "stashes")
     return bus, w
 
 
@@ -251,6 +339,7 @@ def test_pressing_a_stash_of_the_list_shows_its_changes_and_a_menu_of_actions():
     bus, w = stash_picker(git)
     shown = [label.strip() for label in labels(bus)]
     assert "newest · feat/x · 1 h ago" in shown and "older · main · 3 d ago" in shown
+    assert any(label.startswith("Stashes (2)") for label in [text.strip("▌ ") for text in labels(bus)])
 
     press(bus, "older · main")
 
@@ -357,16 +446,6 @@ def test_staged_and_unstaged_fold_and_unfold_on_their_title():
     assert "▸ Unstaged (2)" in labels(bus) and not any(label.startswith("▸ b.py") for label in labels(bus))
     press(bus, "▸ Unstaged")
     assert any(label.startswith("▸ b.py") for label in labels(bus))
-
-
-def test_the_history_starts_folded_and_unfolds_on_its_title():
-    bus, w, _ = start(FakeGit(staged=STAGED, commits=[commit("a" * 40)]), history=False)
-
-    assert "▸ History" in labels(bus) and not any("Uncommitted changes" in label for label in labels(bus))
-    press(bus, "▸ History")
-    assert "▾ History" in labels(bus) and any("Uncommitted changes" in label for label in labels(bus))
-    press(bus, "▾ History")
-    assert "▸ History" in labels(bus)
 
 
 def test_an_empty_working_tree_says_so():
@@ -515,3 +594,33 @@ def test_a_commit_has_no_stage_or_discard_buttons():
     w.state.set("selected", "a" * 40)
 
     assert not any(label in ("+ Stage", "− Unstage", "✗ Discard…") for label in labels(bus))
+
+
+def test_a_file_card_is_titled_by_its_name_and_shows_the_whole_path_when_open():
+    deep = UIFileChange("docs/business/very/deep/01-brands.md", "M", 1, 1)
+    bus, w, _ = start(FakeGit(unstaged=[deep, UIFileChange("b.py", "M", 2, 0)]))
+
+    assert "▾ 01-brands.md  docs/business/very/deep  modified  +1 -1" in labels(bus)
+    assert "docs/business/very/deep/01-brands.md" in texts(bus)
+
+
+def test_a_long_folder_is_cut_from_the_start_and_a_root_file_has_none():
+    short_dir = ws.detail.short_dir
+
+    assert short_dir("a.py") == ""
+    assert short_dir("src/a.py") == "src"
+    cut = short_dir("one/two/three/four/five/six/seven/eight/a.py")
+    assert cut.startswith("…") and cut.endswith("seven/eight") and len(cut) == 30
+
+
+def test_show_less_goes_back_one_page_and_only_shows_once_more_was_pressed():
+    git = FakeGit(commits=[commit(f"c{i}") for i in range(100)])
+    bus, w, _ = start(git, commits_shown=40)
+    assert not any("Show less" in label for label in labels(bus))
+
+    press(bus, "＋ Show more")
+    assert any("Show less" in label for label in labels(bus))
+
+    press(bus, "－ Show less")
+    assert git.asked[-1] == ("log", 40)
+    assert not any("Show less" in label for label in labels(bus))

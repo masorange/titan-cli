@@ -29,7 +29,7 @@ A workspace is loaded by the mods' own code, parametrized by `Kind` in `loader.p
 (`workspaces_path` on `plugin_base.py`, `.titan/workspaces/`, `~/.titan/workspaces/`,
 `--workspace-dir`, `TITAN_WORKSPACE_DIRS`) and the `[workspaces.<name>]` config table. `w` is a
 `ModAPI` and `register` also gets the `on` of its bus (hooks `workflow.run`, `step.call`, `section.change`, only the events its `workspace.toml` lists; the executor runs the workspaces' bus before the mods'); its bus puts `workspace.` before every name it hands the host, so a mod and
-a workspace called alike never share timers, keys, store or AI task. `TitanApp.workspaces` is that bus;
+a workspace called alike never share timers, keys or store. A plugin's mod and workspace of one name are one component: they share the AI task (`ModBus.ai_owner`: `mods.<name>`, else `mods.workspace.<name>`; the AI screen merges their rows) and the options the workspace marks `shared = true` (read from `[mods.<name>.options]` via `MOD_OPTIONS` in `read_mods_config`). `TitanApp.workspaces` is that bus;
 it uses the same `TitanModHost`. A workspace answers `w.ui.view(fn, title)` (an element tree for a
 width) and its dock tile calls `w.ui.open_workspace`, put there from `w.on_start(fn)`: `register` runs before the
 host exists (a `w.ui` call there only logs), `TitanApp.on_mount` runs `workspaces.start()` after it; `screens/workspace_screen.py` draws it with

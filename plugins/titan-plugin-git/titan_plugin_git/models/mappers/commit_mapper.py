@@ -5,6 +5,29 @@ from ..view.commit import UIGitCommit
 
 from ..formatting import split_squash_pr_suffix
 
+def split_refs(raw: list) -> tuple:
+    """
+    The names, tags and remote branches of the full ref names a commit carries.
+
+    "refs/heads/main" is "main", "refs/remotes/origin/main" is "origin/main" (and a remote's own HEAD
+    is left out), "tag: refs/tags/v1" is "v1"; anything else (a bare "HEAD", a stash) keeps its text.
+    """
+    names, tags, remotes = [], [], []
+    for ref in raw:
+        if ref.startswith("tag: "):
+            name = ref[len("tag: "):].removeprefix("refs/tags/")
+            tags.append(name)
+        elif ref.startswith("refs/remotes/"):
+            name = ref[len("refs/remotes/"):]
+            if name.endswith("/HEAD"):
+                continue
+            remotes.append(name)
+        else:
+            name = ref.removeprefix("refs/heads/")
+        names.append(name)
+    return names, tags, remotes
+
+
 def from_network_commit(network_commit: NetworkGitCommit) -> UIGitCommit:
     """
     Transform network commit model to UI commit model.
@@ -40,6 +63,8 @@ def from_network_commit(network_commit: NetworkGitCommit) -> UIGitCommit:
     # TODO: Could add relative time formatting ("2 days ago")
     formatted_date = network_commit.date
 
+    names, tags, remotes = split_refs(network_commit.refs)
+
     return UIGitCommit(
         hash=network_commit.hash,
         short_hash=short_hash,
@@ -51,5 +76,7 @@ def from_network_commit(network_commit: NetworkGitCommit) -> UIGitCommit:
         formatted_date=formatted_date,
         pr_number=split_squash_pr_suffix(message_subject)[1],
         parents=list(network_commit.parents),
-        refs=list(network_commit.refs),
+        refs=names,
+        tags=tags,
+        remote_refs=remotes,
     )

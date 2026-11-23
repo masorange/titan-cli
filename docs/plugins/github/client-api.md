@@ -30,7 +30,10 @@ repo_name = "example-repo"
 default_branch = "main"
 pr_template_path = ".github/pull_request_template.md"
 auto_assign_prs = true
+pr_title_scope_source = "off"
 ```
+
+`pr_title_scope_source`, `pr_title_scope_separator` and `pr_title_labeler_path` control the scope of AI-generated PR titles; see [PR title scopes](./overview.md#pr-title-scopes).
 
 ---
 
@@ -922,6 +925,27 @@ client.list_team_members("example-org/backend-team")
 This is also used internally when a pull request is created with team reviewers.
 
 ---
+
+### Get users' availability
+
+Returns, for each GitHub login, whether the user has the profile status "Busy" set
+(`indicatesLimitedAvailability`), which teams use to mark holidays. One GraphQL request
+covers all the logins.
+
+**Call:**
+
+```python
+client.get_users_availability(["alice", "bob"])
+```
+
+**Parameters:**
+
+- `logins`: Required. List of GitHub usernames; duplicates are ignored.
+
+**Returns:** `ClientResult[List[UIUserAvailability]]` with `login`, `is_busy` and `status_message`
+(empty when the user has no status), in the order given. GitHub rejects the whole request when
+any login does not exist, so one unknown login returns `ClientError` with `API_ERROR` and no
+partial list.
 
 ## Utility operations
 

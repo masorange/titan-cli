@@ -13,8 +13,8 @@ from titan_plugin_github.operations.pr_operations import (
 class TestFetchPRThreads:
     """Test fetching and filtering PR threads"""
 
-    def test_filters_bot_comments(self, mock_github_client):
-        """Test that bot comments are filtered out"""
+    def test_keeps_bot_comments(self, mock_github_client):
+        """Bot threads (AI reviewers) are kept alongside human ones"""
         from titan_plugin_github.models.view import UICommentThread, UIComment
 
         bot_comment = UIComment(
@@ -39,8 +39,7 @@ class TestFetchPRThreads:
 
         result = fetch_pr_threads(mock_github_client, 42, include_resolved=False)
 
-        assert len(result) == 1
-        assert result[0].main_comment.author_login == "reviewer"
+        assert [t.main_comment.author_login for t in result] == ["dependabot[bot]", "reviewer"]
 
     def test_filters_empty_comments(self, mock_github_client, sample_github_user):
         """Test that empty comments are filtered out"""

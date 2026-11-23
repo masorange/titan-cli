@@ -189,6 +189,7 @@ def run_create(m, name: str, source: str) -> None:
         match git.create_and_switch_branch(name, source):
             case ClientSuccess():
                 m.state.set(menu_key(source), None)
+                m.state.set("branch_panel", None)  # the workspace's own panel for the form, if it is the one that asked
                 m.state.set(NAME, "")
                 m.ui.toast(f"Created {name} from {source}", "information")
             case ClientError(error_message=err):

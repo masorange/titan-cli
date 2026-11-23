@@ -81,6 +81,10 @@ USER_CONFIG = Path.home() / ".titan" / "config.toml"
 MOD_DIRS_ENV = "TITAN_MOD_DIRS"
 DIRS_KEY = "dirs"  # `[mods] dirs`: the extra mod folders, not a mod
 DEV = "dev"
+PLUGIN_SOURCE = "plugin:"
+# Key `read_mods_config` gives a workspace's entry for the `[mods.<name>.options]` of the mod
+# it pairs with: the options both surfaces of one component share (see `_load_one`).
+MOD_OPTIONS = "mod_options"
 # Also a package name segment: a `.` would split it, so not allowed.
 VALID_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 PACKAGE_PREFIX = "titan_mod_"
@@ -171,10 +175,20 @@ class ModManifest:
     icon: Optional[str] = None
     # The file `register` is in, which is the kind's (`mod.py`, `workspace.py`).
     entry_file: str = ENTRYPOINT
+    # Loads after every other of its kind, so its pane and dock tile come last. The rest keep
+    # their order (Titan's, plugins', project, user).
+    last: bool = False
+    # Off until the user's `[<kind>.<name>] enabled = true` turns it on.
+    default_enabled: bool = True
 
     @property
     def entrypoint(self) -> Path:
         return self.folder / self.entry_file
+
+    @property
+    def plugin(self) -> Optional[str]:
+        """The plugin that ships it, or None for Titan's, a project's, the user's or a dev folder's."""
+        return self.source.removeprefix(PLUGIN_SOURCE) if self.source.startswith(PLUGIN_SOURCE) else None
 
 
 def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
@@ -195,6 +209,10 @@ def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
         value = mod.get(key, [])
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise ValueError(f"{path}: {key} must be a list of strings")
+    if not isinstance(mod.get("default_enabled", True), bool):
+        raise ValueError(f"{path}: default_enabled must be true or false")
+    if not isinstance(mod.get("last", False), bool):
+        raise ValueError(f"{path}: last must be true or false")
     for key in ("options", "sections"):
         if not isinstance(data.get(key, {}), dict):
             raise ValueError(f"{path}: [{key}] must be a table")
@@ -210,6 +228,9 @@ def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
         sections = parse_section_specs(data.get("sections", {}))
     except ValueError as e:
         raise ValueError(f"{path}: {e}") from e
+    shared = [o for o, spec in options.items() if spec.shared]
+    if shared and kind is MODS:
+        raise ValueError(f"{path}: option '{shared[0]}': shared is for a workspace's options, not a mod's")
     return ModManifest(
         name=name,
         version=str(mod.get("version", "0.0.0")),
@@ -225,6 +246,8 @@ def read_manifest(folder: Path, source: str, kind: Kind = MODS) -> ModManifest:
         ai_assist_task=mod.get("ai_assist_task") or None,
         icon=mod.get("icon") or None,
         entry_file=kind.entrypoint,
+        last=mod.get("last", False),
+        default_enabled=mod.get("default_enabled", True),
     )
 
 
@@ -276,7 +299,7 @@ def mod_sources(
 ) -> List[Tuple[str, Path]]:
     """Every place mods live, in override order (see the module docstring)."""
     sources = [("titan", titan_root or kind.titan_root)]
-    sources += [(f"plugin:{plugin}", path) for plugin, path in sorted(plugin_mod_paths.items())]
+    sources += [(f"{PLUGIN_SOURCE}{plugin}", path) for plugin, path in sorted(plugin_mod_paths.items())]
     if project_root is not None:
         sources.append(("project", project_root / kind.project_dir))
     sources.append(("user", user_root or kind.user_dir))
@@ -306,6 +329,26 @@ def _read_mods_table(config_path: Optional[Path], kind: Kind = MODS) -> Dict[str
     return mods if isinstance(mods, dict) else {}
 
 
+def _config_tables(mods: Any, warn: bool = True) -> Dict[str, Dict[str, Any]]:
+    """The `[<table>.<name>]` entries of one config table, each `options` and `sections` a table."""
+    config: Dict[str, Dict[str, Any]] = {}
+    for name, table in (mods.items() if isinstance(mods, dict) else ()):
+        if name == DIRS_KEY:
+            continue
+        if not isinstance(table, dict):
+            if warn:
+                logger.warning("mod_config_invalid", mod=name, reason="not a table")
+            continue
+        entry = dict(table)
+        for key in ("options", "sections"):
+            if key in entry and not isinstance(entry[key], dict):
+                if warn:
+                    logger.warning("mod_config_invalid", mod=name, key=key, reason="not a table")
+                entry[key] = {}
+        config[name] = entry
+    return config
+
+
 def read_mods_config(
     config_path: Optional[Path] = None, project_root_path: Optional[Path] = None, kind: Kind = MODS
 ) -> Dict[str, Dict[str, Any]]:
@@ -317,22 +360,17 @@ def read_mods_config(
 
     The project-scoped override decides `enabled` and each of `sections`; options and `dirs`
     are the background default only, not scoped per project.
+
+    For workspaces, each entry also carries the `[mods.<name>.options]` of the mod called
+    alike under `MOD_OPTIONS`: a plugin's workspace reads the options it shares with its mod
+    from there (`_load_one`).
     """
     data = _read_config(config_path)
-    mods = data.get(kind.config_table, {})
-    config: Dict[str, Dict[str, Any]] = {}
-    for name, table in (mods.items() if isinstance(mods, dict) else ()):
-        if name == DIRS_KEY:
-            continue
-        if not isinstance(table, dict):
-            logger.warning("mod_config_invalid", mod=name, reason="not a table")
-            continue
-        entry = dict(table)
-        for key in ("options", "sections"):
-            if key in entry and not isinstance(entry[key], dict):
-                logger.warning("mod_config_invalid", mod=name, key=key, reason="not a table")
-                entry[key] = {}
-        config[name] = entry
+    config = _config_tables(data.get(kind.config_table, {}))
+    if kind is not MODS:
+        for name, entry in _config_tables(data.get(MODS.config_table, {}), warn=False).items():
+            if entry.get("options"):
+                config.setdefault(name, {})[MOD_OPTIONS] = entry["options"]
     root = project_root_path if project_root_path is not None else project_root()
     if root is None:
         return config
@@ -430,7 +468,7 @@ def load_mods(
     if enabled_plugins is not None:
         bus.enabled_plugins = frozenset(enabled_plugins)
     loaded: List[str] = []
-    for name, manifest in mods.items():
+    for name, manifest in sorted(mods.items(), key=lambda item: item[1].last):  # stable: `last` ones go after
         bus.found[name] = manifest
         if _load_one(bus, name, manifest, mods_config.get(name, {}), bus.enabled_plugins, kind):
             loaded.append(name)
@@ -485,7 +523,7 @@ def _load_one(
     enabled_plugins: Optional[Collection[str]] = None,
     kind: Kind = MODS,
 ) -> bool:
-    if config.get("enabled", True) is False:
+    if config.get("enabled", manifest.default_enabled) is False:
         logger.info(f"{kind.noun}_disabled", mod=name, source=manifest.source)
         bus.statuses[name] = ModStatus(name, DISABLED)
         return False
@@ -497,7 +535,14 @@ def _load_one(
                 name, FAILED, error=f"needs plugin(s) not enabled: {', '.join(sorted(missing))}"
             )
             return False
-    options, dropped = resolve_options(manifest.options, config.get("options", {}))
+    overrides = config.get("options", {})
+    if manifest.plugin and MOD_OPTIONS in config:
+        # A plugin's workspace and its mod are one component: an option the workspace marks
+        # `shared` is set once, in `[mods.<name>.options]`. The mod's other options are not the
+        # workspace's to read, nor to report as dropped; its own table still wins.
+        shared = {k: v for k, v in config[MOD_OPTIONS].items() if k in manifest.options and manifest.options[k].shared}
+        overrides = {**shared, **overrides}
+    options, dropped = resolve_options(manifest.options, overrides)
     for option, _reason in dropped:
         # The reason quotes the offending value, which may be a secret typed into a
         # string option: log which option was dropped, never what was in it.

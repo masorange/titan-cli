@@ -278,7 +278,7 @@ def test_post_message_delegates_to_message_service() -> None:
 
 
 def test_auth_test_refreshes_token_and_retries_on_token_revoked() -> None:
-    token_refresher = MagicMock(return_value="xoxp-new-token")
+    token_refresher = MagicMock(side_effect=lambda apply: apply("xoxp-new-token"))
     client = SlackClient(user_token="xoxp-old-token", token_refresher=token_refresher)
     client.auth_service = MagicMock()
     client.auth_service.auth_test.side_effect = [
@@ -301,7 +301,7 @@ def test_auth_test_refreshes_token_and_retries_on_token_revoked() -> None:
 
 
 def test_auth_test_does_not_refresh_on_non_auth_error() -> None:
-    token_refresher = MagicMock(return_value="xoxp-new-token")
+    token_refresher = MagicMock()
     client = SlackClient(user_token="xoxp-old-token", token_refresher=token_refresher)
     client.auth_service = MagicMock()
     client.auth_service.auth_test.return_value = ClientError(

@@ -17,7 +17,11 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class PluginRuntimePaths:
-    """Filesystem paths for a prepared plugin runtime."""
+    """Filesystem paths for a prepared plugin runtime.
+
+    `source_dir` is the plugin's own folder: the repository checkout (`cache_dir/src`),
+    or a folder inside it when the plugin lives in a subdirectory.
+    """
 
     cache_dir: Path
     source_dir: Path
@@ -50,10 +54,12 @@ class PluginRuntimeManager:
         self.cache_root = (cache_root or self.CACHE_ROOT).expanduser().resolve()
         self.python_executable = python_executable or sys.executable
 
-    def get_runtime_paths(self, plugin_name: str, resolved_commit: str) -> PluginRuntimePaths:
+    def get_runtime_paths(
+        self, plugin_name: str, resolved_commit: str, subdirectory: str | None = None
+    ) -> PluginRuntimePaths:
         """Return the cache layout for a plugin runtime."""
         cache_dir = self.cache_root / plugin_name / resolved_commit
-        source_dir = cache_dir / "src"
+        source_dir = self._plugin_dir(cache_dir / "src", subdirectory)
         venv_dir = cache_dir / "venv"
         return PluginRuntimePaths(
             cache_dir=cache_dir,
@@ -68,9 +74,14 @@ class PluginRuntimeManager:
         repo_url: str,
         resolved_commit: str,
         token: str | None = None,
+        subdirectory: str | None = None,
     ) -> PluginRuntimeResult:
-        """Ensure a stable plugin runtime exists and return its paths."""
-        paths = self.get_runtime_paths(plugin_name, resolved_commit)
+        """Ensure a stable plugin runtime exists and return its paths.
+
+        `subdirectory` is the plugin's folder inside the repository, None when the
+        repository root is the plugin.
+        """
+        paths = self.get_runtime_paths(plugin_name, resolved_commit, subdirectory)
         if self._is_runtime_ready(paths):
             return PluginRuntimeResult(paths=paths, created=False)
 
@@ -78,7 +89,7 @@ class PluginRuntimeManager:
         temp_dir = Path(mkdtemp(prefix=f"{plugin_name}-", dir=str(paths.cache_dir.parent)))
         temp_paths = PluginRuntimePaths(
             cache_dir=temp_dir,
-            source_dir=temp_dir / "src",
+            source_dir=self._plugin_dir(temp_dir / "src", subdirectory),
             venv_dir=temp_dir / "venv",
             site_packages=self._get_site_packages_path(temp_dir / "venv"),
         )
@@ -89,7 +100,7 @@ class PluginRuntimeManager:
                 shutil.rmtree(paths.cache_dir)
             temp_dir.replace(paths.cache_dir)
             return PluginRuntimeResult(
-                paths=self.get_runtime_paths(plugin_name, resolved_commit),
+                paths=self.get_runtime_paths(plugin_name, resolved_commit, subdirectory),
                 created=True,
             )
         except Exception as e:
@@ -104,7 +115,17 @@ class PluginRuntimeManager:
         token: str | None,
     ) -> None:
         paths.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._checkout_source(repo_url, resolved_commit, paths.source_dir, token)
+        self._checkout_source(repo_url, resolved_commit, paths.cache_dir / "src", token)
+        checkout_dir = (paths.cache_dir / "src").resolve()
+        if not paths.source_dir.resolve().is_relative_to(checkout_dir):
+            # A symlink committed in the repository can point out of the checkout.
+            raise PluginRuntimeError("The plugin folder resolves outside the repository checkout")
+        if not (paths.source_dir / "pyproject.toml").is_file():
+            where = paths.source_dir.relative_to(paths.cache_dir / "src").as_posix()
+            raise PluginRuntimeError(
+                "No pyproject.toml found in "
+                + ("the repository root" if where == "." else f"'{where}'")
+            )
         self._create_virtualenv(paths.venv_dir)
         self._install_plugin(paths.venv_dir, paths.source_dir)
 
@@ -120,6 +141,16 @@ class PluginRuntimeManager:
         self._run_git(["-C", str(source_dir), "remote", "add", "origin", auth_url])
         self._run_git(["-C", str(source_dir), "fetch", "--depth", "1", "origin", resolved_commit])
         self._run_git(["-C", str(source_dir), "checkout", "--detach", "FETCH_HEAD"])
+
+    @staticmethod
+    def _plugin_dir(checkout_dir: Path, subdirectory: str | None) -> Path:
+        """The plugin's folder inside a checkout, which must stay inside it."""
+        if not subdirectory:
+            return checkout_dir
+        plugin_dir = (checkout_dir / subdirectory).resolve()
+        if not plugin_dir.is_relative_to(checkout_dir.resolve()):
+            raise PluginRuntimeError(f"Subdirectory '{subdirectory}' escapes the repository")
+        return checkout_dir / subdirectory
 
     def _create_virtualenv(self, venv_dir: Path) -> None:
         self._run_checked([self.python_executable, "-m", "venv", str(venv_dir)], "create plugin virtualenv")

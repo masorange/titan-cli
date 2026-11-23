@@ -248,6 +248,8 @@ class WorktreeService:
                 "log",
                 f"--pretty=format:{format_str}",
                 "--date=short",
+                # Full ref names, so a branch, a remote branch and a tag can be told apart.
+                "--decorate=full",
                 # Parents before their children, so a graph drawn from this list
                 # never has to reorder it.
                 "--topo-order",
@@ -422,10 +424,9 @@ class WorktreeService:
 
 def _parse_refs(decoration: str) -> List[str]:
     """
-    The refs `%D` prints for a commit, as plain names.
-
-    Git writes the checked-out branch as "HEAD -> main" and tags as "tag: v1";
-    both are dropped to their name, so a caller shows "main" and "v1".
+    The refs `%D` prints for a commit with `--decorate=full`, one per entry and as git names them
+    ("refs/heads/main", "refs/remotes/origin/main", "tag: refs/tags/v1"): the checked-out branch's
+    "HEAD -> " is dropped, nothing else. The mapper turns them into names and kinds.
     """
     refs = []
     for ref in decoration.split(","):
@@ -434,7 +435,5 @@ def _parse_refs(decoration: str) -> List[str]:
             continue
         if ref.startswith("HEAD -> "):
             ref = ref[len("HEAD -> "):]
-        elif ref.startswith("tag: "):
-            ref = ref[len("tag: "):]
         refs.append(ref)
     return refs

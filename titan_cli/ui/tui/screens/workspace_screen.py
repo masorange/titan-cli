@@ -11,7 +11,7 @@ from textual.containers import VerticalScroll
 
 from titan_cli.core.logging import get_logger
 from titan_cli.ui.components import error_card
-from titan_cli.ui.tui.widgets.element_widgets import reconcile
+from titan_cli.ui.tui.widgets.element_widgets import fill_height, reconcile
 
 from .base import BaseScreen
 
@@ -75,3 +75,5 @@ class WorkspaceScreen(BaseScreen):
             )
         with self.app.batch_update():
             reconcile(body, [tree] if tree is not None else [], width)
+        # The columns' heights are known only once the new tree has been laid out.
+        self.call_after_refresh(fill_height, body)

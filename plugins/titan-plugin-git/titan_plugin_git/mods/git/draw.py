@@ -3,8 +3,8 @@ from typing import Optional
 
 from titan_cli.ui.components import error_card
 from titan_cli.ui.elements import Box, Button, Text
-from titan_plugin_git.readers import Repo
-from titan_plugin_git.sections.branches.draw import branches_section
+from titan_plugin_git.readers import Branches, Repo
+from titan_plugin_git.sections.branches.toolbar import toolbar
 
 
 def standing(m) -> Text:
@@ -22,12 +22,23 @@ def standing(m) -> Text:
     )
 
 
+def stashes(m):
+    """The stashes are a tab of the workspace: the pane says how many and opens it on the newest."""
+    branches: Optional[Branches] = m.state.get("branches")
+    if not branches or not branches.stashes:
+        return None
+    newest = branches.stashes[0]
+    return Button(f"⤒ Stashes ({len(branches.stashes)})",
+                  lambda: m.ui.open_workspace("git", focus={"stash": newest.hash}), dim=True)
+
+
 def draw(m, width: int, options=None):
-    """The branch you are on and what can be done with it; the history, the switcher and the worktrees are the workspace's."""
+    """The branch you are on and the workspace's branch toolbar; the history, the stashes and the worktrees are the workspace's."""
     repo: Optional[Repo] = m.state.get("repo")
     return Box(
         standing(m),
         repo and repo.error and error_card(repo.error, copy=m.ui.copy, title="Git"),
-        branches_section(m, options or {}, width, switcher=False),
+        toolbar(m, options or {}, width),
+        stashes(m),
         Button("⎇ Open Git workspace", lambda: m.ui.open_workspace("git"), dim=True),
     )

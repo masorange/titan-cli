@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from textual.widgets import OptionList
 
+from titan_cli.core.plugins.models import PluginPin, PluginPinScope
 from titan_cli.ui.tui.app import TitanApp
 from titan_cli.ui.tui.screens.plugin_management import PluginManagementScreen
 
@@ -16,9 +17,7 @@ def _config(installed, failed=None):
     config.is_plugin_enabled.return_value = True
     config.config.plugins = {}
     config.get_project_name.return_value = "test-project"
-    config.get_project_plugin_repo_url.return_value = None
-    config.get_project_plugin_resolved_commit.return_value = None
-    config.get_project_plugin_requested_ref.return_value = None
+    config.get_plugin_pin.return_value = None
     config.get_plugin_source_path.return_value = None
     return config
 
@@ -64,9 +63,7 @@ def _config_with_broken_plugin(pinned=True):
     config = _config([], failed={"ragnarok": ModuleNotFoundError("No module named 'titan_cli.core.secrets'")})
     config.config.plugins = {"ragnarok": MagicMock(enabled=True)}
     if pinned:
-        config.get_project_plugin_repo_url.return_value = "https://github.com/acme/ragnarok-workflows"
-        config.get_project_plugin_resolved_commit.return_value = "c" * 40
-        config.get_project_plugin_requested_ref.return_value = "0.10.0"
+        config.get_plugin_pin.return_value = PluginPin(scope=PluginPinScope.PROJECT, repo_url="https://github.com/acme/ragnarok-workflows", resolved_commit="c" * 40, requested_ref="0.10.0")
     return config
 
 

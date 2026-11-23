@@ -9,6 +9,29 @@ from typing import Optional, Dict, Any
 
 
 @dataclass
+class GraphQLUserStatus:
+    """
+    Status a GitHub user sets on their profile.
+
+    Faithful to GraphQL UserStatus; `indicatesLimitedAvailability` is the "Busy" checkbox.
+    See: https://docs.github.com/en/graphql/reference/objects#userstatus
+    """
+    indicatesLimitedAvailability: bool = False
+    message: Optional[str] = None
+    emoji: Optional[str] = None
+
+    @classmethod
+    def from_graphql(cls, data: Optional[Dict[str, Any]]) -> Optional['GraphQLUserStatus']:
+        if not data:
+            return None
+        return cls(
+            indicatesLimitedAvailability=bool(data.get("indicatesLimitedAvailability")),
+            message=data.get("message"),
+            emoji=data.get("emoji"),
+        )
+
+
+@dataclass
 class GraphQLUser:
     """
     GitHub user/actor from GraphQL API.
@@ -25,6 +48,7 @@ class GraphQLUser:
     login: str
     name: Optional[str] = None
     email: Optional[str] = None
+    status: Optional[GraphQLUserStatus] = None
 
     @classmethod
     def from_graphql(cls, data: Dict[str, Any]) -> 'GraphQLUser':
@@ -43,5 +67,6 @@ class GraphQLUser:
         return cls(
             login=data.get("login", "unknown"),
             name=data.get("name"),
-            email=data.get("email")
+            email=data.get("email"),
+            status=GraphQLUserStatus.from_graphql(data.get("status")),
         )

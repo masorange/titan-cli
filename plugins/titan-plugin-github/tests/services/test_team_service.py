@@ -9,8 +9,8 @@ from titan_plugin_github.exceptions import GitHubAPIError
 
 
 @pytest.fixture
-def team_service(mock_gh_network):
-    return TeamService(mock_gh_network)
+def team_service(mock_gh_network, mock_graphql_network):
+    return TeamService(mock_gh_network, mock_graphql_network)
 
 
 @pytest.mark.unit
@@ -61,3 +61,46 @@ class TestTeamServiceListTeamMembers:
         assert isinstance(result, ClientError)
         assert result.error_code == "API_ERROR"
         assert "my-org/nonexistent" in result.error_message
+
+
+@pytest.mark.unit
+class TestTeamServiceGetUsersAvailability:
+    """Test TeamService.get_users_availability()"""
+
+    def test_maps_busy_and_available(self, team_service, mock_graphql_network):
+        mock_graphql_network.run_query.return_value = {"data": {
+            "user0": {"login": "a", "status": {"indicatesLimitedAvailability": True, "message": "Vacaciones"}},
+            "user1": {"login": "b", "status": None},
+        }}
+
+        result = team_service.get_users_availability(["a", "b"])
+
+        assert isinstance(result, ClientSuccess)
+        assert [(u.login, u.is_busy, u.status_message) for u in result.data] == [
+            ("a", True, "Vacaciones"),
+            ("b", False, ""),
+        ]
+
+    def test_logins_travel_as_variables_not_in_the_query(self, team_service, mock_graphql_network):
+        mock_graphql_network.run_query.return_value = {"data": {"user0": None}}
+
+        team_service.get_users_availability(["evil\") { x }", "evil\") { x }"])
+
+        query = mock_graphql_network.run_query.call_args.args[0]
+        variables = mock_graphql_network.run_query.call_args.kwargs["variables"]
+        assert "evil" not in query
+        assert variables == {"login0": "evil\") { x }"}
+
+    def test_no_logins_makes_no_call(self, team_service, mock_graphql_network):
+        result = team_service.get_users_availability([])
+
+        assert isinstance(result, ClientSuccess) and result.data == []
+        mock_graphql_network.run_query.assert_not_called()
+
+    def test_api_error_returns_client_error(self, team_service, mock_graphql_network):
+        mock_graphql_network.run_query.side_effect = GitHubAPIError("boom")
+
+        result = team_service.get_users_availability(["a"])
+
+        assert isinstance(result, ClientError)
+        assert result.error_code == "API_ERROR"

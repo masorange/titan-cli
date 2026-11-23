@@ -251,3 +251,24 @@ def test_a_hook_that_rewraps_the_downstream_failure_still_fails_the_step():
         bus.dispatch("step.call", step_event(), final)
 
     assert raised.value is error
+
+
+def test_home_card_carries_its_action_buttons():
+    from titan_cli.ui.elements import Button
+
+    cards = []
+
+    class Host:
+        def home_card(self, mod, slot):
+            cards.append((mod, slot))
+
+    bus = ModBus()
+    bus.host = Host()
+    pressed = []
+    bus.api("demo").ui.home_card("T", "body", actions=[Button("Go", lambda: pressed.append(1))])
+    bus.api("demo").ui.home_card("T2", "body")
+
+    assert [b.label for b in cards[0][1].actions] == ["Go"]
+    cards[0][1].actions[0].on_press()
+    assert pressed == [1]
+    assert cards[1][1].actions == ()

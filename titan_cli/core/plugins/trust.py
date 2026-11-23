@@ -18,7 +18,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Optional
 
-from .available import KNOWN_PLUGINS
 from .community_sources import PluginChannel
 
 
@@ -26,8 +25,8 @@ class PluginTrust(StrEnum):
     """
     How much the origin of a plugin's code is vouched for.
 
-    OFFICIAL: shipped by the Titan project itself (named in KNOWN_PLUGINS,
-        installed as a regular package).
+    OFFICIAL: shipped by the Titan project itself (its entry point belongs
+        to the `titan-cli` distribution, which carries the official plugins).
     VERIFIED: reserved — a future registry of third-party plugins reviewed
         by the Titan project. Nothing assigns it yet.
     COMMUNITY: third-party code (a repo-pinned stable install, or an
@@ -43,22 +42,23 @@ class PluginTrust(StrEnum):
     LOCAL = "local"
 
 
-_OFFICIAL_PACKAGES = {p["name"]: p["package_name"] for p in KNOWN_PLUGINS}
+# The official plugins ship inside the titan-cli wheel, so their entry points
+# are owned by this distribution.
+_OFFICIAL_DISTRIBUTION = "titan-cli"
 
 
 def classify_plugin(
-    plugin_name: str,
     channel: Optional[PluginChannel],
     dist_name: Optional[str] = None,
 ) -> PluginTrust:
     """
-    Classify a plugin from its name, effective source channel, and (for
+    Classify a plugin from its effective source channel and (for
     entry-point installs) the distribution that owns the entry point.
 
     `channel` is None for plugins discovered via entry points (regular
     package installs); a source override in the project config makes it
     DEV_LOCAL or STABLE. OFFICIAL requires the entry point to come from the
-    official package, not just to carry an official NAME — the name is
+    titan-cli distribution, never from its NAME: the name is
     third-party-controlled (any installed package can register an entry
     point called "git"), the owning distribution is not.
     """
@@ -66,8 +66,7 @@ def classify_plugin(
         return PluginTrust.LOCAL
     if channel == PluginChannel.STABLE:
         return PluginTrust.COMMUNITY
-    expected_package = _OFFICIAL_PACKAGES.get(plugin_name)
-    if expected_package and dist_name == expected_package:
+    if dist_name == _OFFICIAL_DISTRIBUTION:
         return PluginTrust.OFFICIAL
     return PluginTrust.COMMUNITY
 

@@ -12,15 +12,17 @@ channels, resolve targets, and summarise conversations with AI.
 
 Simplified, without the `models/` package: `steps/ → operations/ → clients/slack_client.py
 → clients/services/` over the Slack SDK (`clients/sdk.py`). Domain models in `models.py`,
-formatting in `formatting.py`, OAuth in `oauth.py`, config screen in `screens/`.
+formatting in `formatting.py`, the OAuth provider description in `config/`, config screen in `screens/`.
 Workflows: `post-message`, `post-file`, `summarize-slack-target`.
 
 ## Plugin-specific rules
 
-- The connection is BYO Slack App + PKCE (`oauth.py`); keep the configuration UX aligned
-  with it.
-- The user token lives in the keyring and reaches the SDK only through
-  `broker.create_client(...)`, including on token refresh (`plugin.py`).
+- The connection is BYO Slack App + PKCE through Titan's shared OAuth flow
+  (`titan_cli/core/security/oauth.py`); the plugin only declares `SLACK_OAUTH`. Keep the
+  configuration UX aligned with it.
+- The grant (access + refresh token) lives in one keyring key, `<project>_slack_oauth`. The
+  access token reaches the SDK only through `OAuthCredentials.create_client(...)`, and on a
+  reactive refresh through `OAuthCredentials.refresh(apply)` (`plugin.py`).
 - Keep raw Slack API payloads separate from the models returned to steps.
 - Config: `SlackPluginConfig` in `titan_cli/core/plugins/models.py`.
 - Tests: `tests/` (`clients/`, `services/`, `operations/`, `ui/` plus per-step files).

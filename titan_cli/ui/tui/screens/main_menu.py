@@ -155,7 +155,8 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
 
     #home-mods-grid {
         grid-size: 3;
-        grid-rows: 9;
+        /* A card is at least 9 rows and grows with the buttons a mod gives it. */
+        grid-rows: auto;
         grid-gutter: 1 2;
         height: auto;
     }
@@ -230,10 +231,10 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
         return host.home_card_slots() if host is not None else []
 
     def _mod_card_for(self, mod: str, slot: HomeCardSlot) -> ModHomeCard:
-        return ModHomeCard(mod, slot.icon or "", slot.title, slot.text, slot.on_click is not None)
+        return ModHomeCard(mod, slot.icon or "", slot.title, slot.text, slot.on_click is not None, slot.actions)
 
     def refresh_mod_cards(self) -> None:
-        """Rebuild the mods section from what they currently ask for."""
+        """Bring the mods section up to date with what they currently ask for."""
         self.call_later(self._refresh_mod_cards)
 
     async def _refresh_mod_cards(self) -> None:
@@ -244,8 +245,19 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             return
         slots = self._mod_card_slots()
         section.display = bool(slots)
-        await grid.remove_children()
-        await grid.mount_all([self._mod_card_for(mod, slot) for mod, slot in slots])
+        cards = list(grid.query_children(ModHomeCard))
+        # The same mods in the same order (every refresh but one that adds or drops a card)
+        # update their cards in place: removing and mounting them again shows a frame
+        # without them, and loses the focus of the one that had it.
+        if [card.mod for card in cards] == [mod for mod, _ in slots]:
+            for card, (mod, slot) in zip(cards, slots):
+                if not card.show(slot.icon or "", slot.title, slot.text, slot.on_click is not None, slot.actions):
+                    await grid.mount(self._mod_card_for(mod, slot), before=card)
+                    await card.remove()
+            return
+        with self.app.batch_update():
+            await grid.remove_children()
+            await grid.mount_all([self._mod_card_for(mod, slot) for mod, slot in slots])
 
     def _build_slots(self) -> List[QuickLaunchSlot]:
         """Read what the grid needs and choose the slots."""
@@ -382,23 +394,23 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
             )
 
     def _get_project_stable_records(self) -> list[CommunityPluginRecord]:
-        """Return synthetic records for project-pinned community plugins."""
+        """Return synthetic records for pinned community plugins (project or global)."""
         records: list[CommunityPluginRecord] = []
         for plugin_name in self.config.get_enabled_plugins():
-            repo_url = self.config.get_project_plugin_repo_url(plugin_name)
-            resolved_commit = self.config.get_project_plugin_resolved_commit(plugin_name)
-            if not repo_url or not resolved_commit:
+            pin = self.config.get_plugin_pin(plugin_name)
+            if pin is None:
                 continue
             records.append(
                 CommunityPluginRecord(
-                    repo_url=repo_url,
+                    repo_url=pin.repo_url,
                     package_name=plugin_name,
                     titan_plugin_name=plugin_name,
                     installed_at="",
                     channel=PluginChannel.STABLE,
                     dev_local_path=None,
-                    requested_ref=self.config.get_project_plugin_requested_ref(plugin_name) or resolved_commit,
-                    resolved_commit=resolved_commit,
+                    requested_ref=pin.requested_ref or pin.resolved_commit,
+                    resolved_commit=pin.resolved_commit,
+                    subdirectory=pin.subdirectory,
                 )
             )
         return records
@@ -416,8 +428,11 @@ class MainMenuScreen(CardGridNavigationMixin, BaseScreen):
 
     def execute_workflow(self, workflow_name: str) -> None:
         """Open the execution screen for a workflow."""
-        from .workflow_execution import WorkflowExecutionScreen
+        from .workflow_execution import RUNNING_REFUSAL, WorkflowExecutionScreen, live_workflow
 
+        if live_workflow(self.app.screen_stack):
+            self.app.notify(RUNNING_REFUSAL, severity="warning")
+            return
         self.app.push_screen(WorkflowExecutionScreen(self.config, workflow_name))
 
     def mark_discovery_stale(self) -> None:

@@ -13,17 +13,20 @@ from titan_cli.core.models import (
 from titan_cli.core.interrupt import run_interruptible
 from .exceptions import AIConfigurationError
 from .models import AIMessage, AIRequest, AIResponse
-from .providers import (
-    AIProvider,
-    AnthropicProvider,
-    GeminiProvider,
-    LiteLLMProvider,
-    OpenAIProvider,
-)
+from .providers.base import AIProvider
 
 
 def get_provider_classes() -> dict[str, type[AIProvider]]:
-    """Return the direct-provider class registry."""
+    """Return the direct-provider class registry.
+
+    The providers are imported here, not at the top: their SDKs (google-genai, openai)
+    take most of a second to import, and Titan's screen must not wait for an AI that
+    nothing has called yet.
+    """
+    from .providers.anthropic import AnthropicProvider
+    from .providers.gemini import GeminiProvider
+    from .providers.openai import OpenAIProvider
+
     return {
         AIDirectProvider.ANTHROPIC.value: AnthropicProvider,
         AIDirectProvider.GEMINI.value: GeminiProvider,
@@ -32,7 +35,9 @@ def get_provider_classes() -> dict[str, type[AIProvider]]:
 
 
 def get_gateway_classes() -> dict[str, type[AIProvider]]:
-    """Return the gateway-provider class registry."""
+    """Return the gateway-provider class registry (imported late, see get_provider_classes)."""
+    from .providers.litellm import LiteLLMProvider
+
     return {
         AIGatewayBackend.OPENAI_COMPATIBLE.value: LiteLLMProvider,
     }

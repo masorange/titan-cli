@@ -1,4 +1,5 @@
 # tests/core/test_plugin_registry.py
+from titan_cli.core.plugins.models import PluginPin, PluginPinScope
 import sys
 from unittest.mock import MagicMock
 
@@ -340,9 +341,12 @@ class SamplePlugin(TitanPlugin):
     config.get_enabled_plugins.return_value = ["sample"]
     config.get_plugin_source_channel.return_value = PluginChannel.STABLE
     config.get_plugin_source_path.return_value = None
-    config.get_project_plugin_repo_url.return_value = "https://github.com/example/sample-plugin"
-    config.get_project_plugin_requested_ref.return_value = "v1.2.3"
-    config.get_project_plugin_resolved_commit.return_value = "a" * 40
+    config.get_plugin_pin.return_value = PluginPin(
+        scope=PluginPinScope.PROJECT,
+        repo_url="https://github.com/example/sample-plugin",
+        requested_ref="v1.2.3",
+        resolved_commit="a" * 40,
+    )
 
     registry._apply_source_overrides(config)
 

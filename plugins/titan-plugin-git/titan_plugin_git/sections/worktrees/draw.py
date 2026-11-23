@@ -57,6 +57,21 @@ def worktree_row(m, worktrees: Worktrees, worktree, width: int = 40) -> Box:
     )
 
 
+def worktrees_list(m, width: int = 40):
+    """The worktrees, one row each folding into its removal, with no card or fold around them."""
+    worktrees: Worktrees = m.state.get("worktrees")
+    if worktrees is None:
+        return Text("Loading worktrees…", dim=True)
+    if worktrees.error:
+        return error_card(worktrees.error, copy=m.ui.copy, title="⎇ Worktrees")
+    return Box(
+        not worktrees.items and Text("  No worktrees", dim=True),
+        [worktree_row(m, worktrees, w, width) for w in worktrees.items],
+        # What git keeps behind when a worktree folder is deleted by hand.
+        worktrees.items and Button("⌦ Prune stale records", lambda: m.run(lambda: prune_worktrees(m)), dim=True),
+    )
+
+
 def worktrees_section(m, options, width: int = 40):
     """The worktrees card: one row per worktree, each folding into its removal."""
     worktrees: Worktrees = m.state.get("worktrees")

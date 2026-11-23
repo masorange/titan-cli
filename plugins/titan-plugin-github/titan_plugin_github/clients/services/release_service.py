@@ -17,6 +17,7 @@ from ...exceptions import GitHubAPIError
 from ...models.network.rest import NetworkRelease
 from ...models.view import UIRelease
 from ...models.mappers import from_network_release
+from .api_errors import api_error
 
 
 class ReleaseService:
@@ -107,7 +108,7 @@ class ReleaseService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def list_releases(
@@ -152,7 +153,7 @@ class ReleaseService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)
 
     @log_client_operation()
     def get_release(self, tag_name: str) -> ClientResult[UIRelease]:
@@ -187,4 +188,4 @@ class ReleaseService:
                 error_code="JSON_PARSE_ERROR"
             )
         except GitHubAPIError as e:
-            return ClientError(error_message=str(e), error_code="API_ERROR")
+            return api_error(e)

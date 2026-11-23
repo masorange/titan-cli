@@ -25,7 +25,7 @@ CRITICAL: When a PR template is provided in the user prompt, you MUST follow its
 
 Guidelines:
 1. Be concise but comprehensive
-2. Follow conventional commit format WITHOUT scope for titles (type: Description, NOT type(scope): Description)
+2. Follow conventional commit format for titles, with or without a scope exactly as the user prompt's Title instruction says
 3. Use markdown formatting
 4. Highlight breaking changes
 5. Focus on WHY, not just WHAT
@@ -35,7 +35,7 @@ Guidelines:
 9. Preserve ALL template comments (<!-- -->) as they provide important context
 
 Response format:
-TITLE: <conventional commit title WITHOUT scope, max 72 chars>
+TITLE: <conventional commit title, scope and max length as the user prompt's Title instruction says>
 
 DESCRIPTION:
 <EXACT template structure if provided, otherwise use standard format>

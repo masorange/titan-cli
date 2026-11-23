@@ -15,12 +15,21 @@ def lane_glyphs(row, width: int) -> Text:
     ])
 
 
+def ref_color(commit, ref: str) -> str:
+    """A tag is yellow, a remote branch blue and a local branch green, so the kind reads at a glance."""
+    if ref in commit.tags:
+        return "warning"
+    if ref in commit.remote_refs:
+        return "info"
+    return "success"
+
+
 def commit_title(c) -> Text:
     """A commit by the PR it landed (squash merges) or its hash, its subject without the "(#N)" and its age."""
     subject = split_squash_pr_suffix(c.message_subject)[0]
     return Text(
         Text(f"#{c.pr_number}", bold=True, color="info") if c.pr_number else Text(c.short_hash, dim=True),
-        [Text(f" {ref}", color="accent") for ref in c.refs[:2]],
+        [Text(f" {ref}", color=ref_color(c, ref)) for ref in c.refs[:2]],
         f" {subject}",
     )
 

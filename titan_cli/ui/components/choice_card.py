@@ -1,6 +1,6 @@
 """The choice card for a mod's pane: a bordered card of options, some of which unfold into more."""
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence, Union
 
 from titan_cli.ui.elements import Box, Button, Text, plain
 
@@ -58,7 +58,7 @@ def layout(options: Sequence[Option], width: int) -> List[List[Option]]:
 
 
 def choice_card(
-    options: Sequence[Optional[Option]],
+    options: Sequence[Union[Option, str, object, None]],
     *,
     width: int,
     title: str = "",
@@ -79,6 +79,10 @@ def choice_card(
     time. `close` folds it again once one of its options is pressed. `None` options
     are dropped, and a card with nothing to say is `None` too, which a parent `Box`
     leaves out.
+
+    Among the options a `str` is a heading that starts a new group (a blank line leads it) and
+    any other element (a `Text` note, an `Input`) is drawn as it is, so one card can hold several
+    titled groups of options.
     """
     options = [o for o in options if o]
     if not (options or title or hint):
@@ -120,6 +124,14 @@ def choice_card(
         pending.clear()
 
     for option in options:
+        if not isinstance(option, Option):
+            flush()
+            if isinstance(option, str):
+                body.append(Text(" ") if body else None)
+                body.append(Text(option, bold=True, color="info"))
+            else:
+                body.append(option)
+            continue
         if not option.is_dropdown:
             pending.append(option)
             continue

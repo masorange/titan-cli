@@ -19,10 +19,10 @@ logger = get_logger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-# Raw pyproject.toml URL templates per host (use .format(path=..., version=...))
-_RAW_URL_GITHUB    = "https://raw.githubusercontent.com/{path}/{version}/pyproject.toml"
-_RAW_URL_GITLAB    = "https://gitlab.com/{path}/-/raw/{version}/pyproject.toml"
-_RAW_URL_BITBUCKET = "https://bitbucket.org/{path}/raw/{version}/pyproject.toml"
+# Raw pyproject.toml URL templates per host (use .format(path=..., version=..., file=...))
+_RAW_URL_GITHUB    = "https://raw.githubusercontent.com/{path}/{version}/{file}"
+_RAW_URL_GITLAB    = "https://gitlab.com/{path}/-/raw/{version}/{file}"
+_RAW_URL_BITBUCKET = "https://bitbucket.org/{path}/raw/{version}/{file}"
 
 # Base URL prefixes used to strip host when building the path fragment
 _BASE_GITHUB    = "https://github.com/"
@@ -74,6 +74,7 @@ class CommunityPluginRecord:
     dev_local_path: Optional[str]        # Absolute path if channel == dev_local, else None
     requested_ref: Optional[str]         # Tag/SHA the user asked for (stable only), else None
     resolved_commit: Optional[str]       # Actual commit SHA installed (stable only), else None
+    subdirectory: Optional[str] = None   # Plugin folder inside the repo, None when it is the root
 
 
 # ---------------------------------------------------------------------------
@@ -107,18 +108,42 @@ def _normalise_repo_url(base_url: str) -> tuple[PluginHost, str]:
 
     return host, f"https://{hostname}/{'/'.join(path_parts)}"
 
-def parse_repo_url(raw_url: str) -> tuple[str, str]:
-    """
-    Split a URL+version string into (base_url, version).
+def normalise_subdirectory(subdirectory: Optional[str]) -> Optional[str]:
+    """Validate a plugin folder inside a repository and return it without slashes at the ends.
 
-    Args:
-        raw_url: e.g. "https://github.com/user/plugin@v1.2.0"
-
-    Returns:
-        Tuple of (base_url, version)
+    Returns None for an empty value (the plugin lives at the repository root).
 
     Raises:
-        ValueError: if no @version suffix is present
+        ValueError: if the path is absolute or climbs out of the repository
+    """
+    if subdirectory is None:
+        return None
+    cleaned = subdirectory.strip().replace("\\", "/").strip("/")
+    if not cleaned or cleaned == ".":
+        return None
+    parts = cleaned.split("/")
+    if subdirectory.strip().startswith("/") or any(p in ("", ".", "..") for p in parts):
+        raise ValueError(
+            "Subdirectory must be a relative path inside the repository, "
+            "e.g. plugins/titan-plugin-example"
+        )
+    return "/".join(parts)
+
+
+def parse_repo_url(raw_url: str) -> tuple[str, str, Optional[str]]:
+    """
+    Split a URL+version string into (base_url, version, subdirectory).
+
+    Args:
+        raw_url: e.g. "https://github.com/user/plugin@v1.2.0", optionally followed by
+            ":<folder>" when the plugin lives in a subdirectory of the repository,
+            e.g. "https://github.com/user/monorepo@v1.2.0:plugins/titan-plugin-x"
+
+    Returns:
+        Tuple of (base_url, version, subdirectory); subdirectory is None for a root plugin
+
+    Raises:
+        ValueError: if no @version suffix is present or the subdirectory is invalid
     """
     raw_url = raw_url.strip()
     if "@" not in raw_url:
@@ -128,13 +153,13 @@ def parse_repo_url(raw_url: str) -> tuple[str, str]:
         )
     idx = raw_url.rfind("@")
     base_url = raw_url[:idx]
-    version = raw_url[idx + 1:]
+    version, _, subdirectory = raw_url[idx + 1:].partition(":")
     if not version:
         raise ValueError(
             "Version is empty. Include a version tag or commit SHA, "
             "e.g. https://github.com/user/plugin@v1.0.0"
         )
-    return base_url, version
+    return base_url, version, normalise_subdirectory(subdirectory)
 
 
 def validate_url(raw_url: str) -> None:
@@ -147,7 +172,7 @@ def validate_url(raw_url: str) -> None:
     raw_url = raw_url.strip()
     if not raw_url:
         raise ValueError("URL cannot be empty.")
-    base_url, _ = parse_repo_url(raw_url)
+    base_url, _, _ = parse_repo_url(raw_url)
     _normalise_repo_url(base_url)
 
 
@@ -250,27 +275,32 @@ def detect_host(base_url: str) -> PluginHost:
         return PluginHost.UNKNOWN
 
 
-def build_raw_pyproject_url(base_url: str, version: str, host: PluginHost) -> Optional[str]:
+def build_raw_pyproject_url(
+    base_url: str, version: str, host: PluginHost, subdirectory: Optional[str] = None
+) -> Optional[str]:
     """
-    Build the raw URL to fetch pyproject.toml from a known hosting provider.
+    Build the raw URL to fetch the plugin's pyproject.toml from a known hosting provider.
 
+    The file sits at the repository root unless `subdirectory` names the plugin's folder.
     Returns None for unknown hosts.
     """
     try:
         _, clean = _normalise_repo_url(base_url)
+        subdirectory = normalise_subdirectory(subdirectory)
     except ValueError:
         return None
+    file = f"{subdirectory}/pyproject.toml" if subdirectory else "pyproject.toml"
 
     match host:
         case PluginHost.GITHUB:
             path = clean.removeprefix(_BASE_GITHUB)
-            return _RAW_URL_GITHUB.format(path=path, version=version)
+            return _RAW_URL_GITHUB.format(path=path, version=version, file=file)
         case PluginHost.GITLAB:
             path = clean.removeprefix(_BASE_GITLAB)
-            return _RAW_URL_GITLAB.format(path=path, version=version)
+            return _RAW_URL_GITLAB.format(path=path, version=version, file=file)
         case PluginHost.BITBUCKET:
             path = clean.removeprefix(_BASE_BITBUCKET)
-            return _RAW_URL_BITBUCKET.format(path=path, version=version)
+            return _RAW_URL_BITBUCKET.format(path=path, version=version, file=file)
         case PluginHost.UNKNOWN:
             return None
 

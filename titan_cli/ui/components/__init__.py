@@ -4,6 +4,7 @@ from .ai_answer import AIResult, ai_answer_box, ai_ask_button, ai_chip, ai_resul
 from .ai_assist import ai_assist_button, fix_prompt
 from .choice_card import Option, choice_card
 from .error_card import error_card
+from .tabs import tabs
 
 __all__ = [
     "AIResult",
@@ -18,4 +19,5 @@ __all__ = [
     "error_card",
     "fix_prompt",
     "refresh_ai_chip",
+    "tabs",
 ]
